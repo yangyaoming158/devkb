@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: devkb-postgres
+    environment:
+      POSTGRES_USER: ${DEVKB_PG_USER:-devkb}
+      POSTGRES_PASSWORD: ${DEVKB_PG_PASSWORD:-devkb-local}
+      POSTGRES_DB: ${DEVKB_PG_DB:-devkb}
+    ports:
+      - "${DEVKB_PG_PORT:-5432}:5432"
+    volumes:
+      - devkb-pgdata:/var/lib/postgresql/data
+      - ./deploy/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  devkb-pgdata:
