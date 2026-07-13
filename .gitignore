@@ -1,0 +1,14 @@
+# 秘密与本地环境（提前于 T2 创建：保护 .env 不被未来的 git init 误提交）
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# 模型与临时产物
+*.log

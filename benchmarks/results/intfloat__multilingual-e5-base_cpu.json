@@ -1,0 +1,19 @@
+{
+  "model": "intfloat/multilingual-e5-base",
+  "device": "cpu",
+  "torch": "2.13.0+cu130",
+  "cuda_available": true,
+  "corpus_size": 500,
+  "n_queries": 15,
+  "load_time_s": 8.12,
+  "ram_delta_mb": 383.2,
+  "embedding_dim": 768,
+  "dtype": "fp32",
+  "max_seq_length": 512,
+  "throughput_chunks_per_s": {
+    "8": 5.1,
+    "32": 4.4,
+    "64": 4.2
+  },
+  "query_latency_p50_ms": 18.0
+}

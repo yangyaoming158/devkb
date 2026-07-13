@@ -1,0 +1,14 @@
+{
+  "base_url": "https://api.deepseek.com",
+  "model": "deepseek-chat",
+  "plan_json_mode": {
+    "p50_ms": 1080.0,
+    "max_ms": 1614.0,
+    "json_parse_ok": "5/5"
+  },
+  "served_model": "deepseek-v4-flash",
+  "generate": {
+    "p50_ms": 1150.0,
+    "max_ms": 1707.0
+  }
+}

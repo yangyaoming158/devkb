@@ -1,0 +1,101 @@
+{
+  "model": "BAAI/bge-m3",
+  "device": "cuda",
+  "torch": "2.13.0+cu130",
+  "cuda_available": true,
+  "corpus_size": 500,
+  "n_queries": 15,
+  "load_time_s": 10.2,
+  "ram_delta_mb": 457.8,
+  "embedding_dim": 1024,
+  "dtype": "fp16",
+  "max_seq_length": 1024,
+  "vram_after_load_mb": 1083.0,
+  "throughput_chunks_per_s": {
+    "8": 46.2,
+    "32": 46.3,
+    "64": 42.4
+  },
+  "full_corpus_encode_s": 8.9,
+  "vram_peak_mb": 2583.5,
+  "query_latency_p50_ms": 11.2,
+  "recall_at_5": 0.6,
+  "per_query": [
+    {
+      "id": "q01",
+      "hit": true,
+      "top1": "docs/dev-log.md ➜ Task 10.5 - Duplicate submit idempotency for create order"
+    },
+    {
+      "id": "q02",
+      "hit": false,
+      "top1": "docs/audit/architecture-review-2026-07-03.md ➜ 9. 数据一致性与事务专项审查"
+    },
+    {
+      "id": "q03",
+      "hit": true,
+      "top1": "docs/audit/fix-plans/phase-a-plan.md ➜ 1. 背景与目标"
+    },
+    {
+      "id": "q04",
+      "hit": false,
+      "top1": "docs/architecture-ai-review-2026-06-10.md ➜ 逐服务评价"
+    },
+    {
+      "id": "q05",
+      "hit": false,
+      "top1": "docs/history/phase0-api-contract-scope.md ➜ Public Customer API"
+    },
+    {
+      "id": "q06",
+      "hit": true,
+      "top1": "docs/messaging/payment-success-event.md ➜ RabbitMQ Topology"
+    },
+    {
+      "id": "q07",
+      "hit": true,
+      "top1": "docs/audit/architecture-review-2026-07-03.md ➜ P2-4：重复支付返回 409 而非幂等重放，idempotencyKey 存而不用"
+    },
+    {
+      "id": "q08",
+      "hit": false,
+      "top1": "docs/audit/architecture-review-2026-07-03.md ➜ P2-4：重复支付返回 409 而非幂等重放，idempotencyKey 存而不用"
+    },
+    {
+      "id": "q09",
+      "hit": true,
+      "top1": "docs/deployment.md ➜ Startup Order"
+    },
+    {
+      "id": "q10",
+      "hit": true,
+      "top1": "docs/architecture.md ➜ Data Model"
+    },
+    {
+      "id": "q11",
+      "hit": false,
+      "top1": "docs/architecture-ai-review-2026-06-10.md ➜ 项目结构"
+    },
+    {
+      "id": "q12",
+      "hit": false,
+      "top1": "docs/audit/architecture-review-2026-07-03.md ➜ 9. 数据一致性与事务专项审查"
+    },
+    {
+      "id": "q13",
+      "hit": true,
+      "top1": "docs/history/phase1-frontend-prereview.md ➜ 网关 / 错误码 / 安全（已核实）"
+    },
+    {
+      "id": "q14",
+      "hit": true,
+      "top1": "docs/observability.md ➜ Docker Desktop And WSL"
+    },
+    {
+      "id": "q15",
+      "hit": true,
+      "top1": "README.zh-CN.md ➜ AI 库存助手"
+    }
+  ],
+  "recall_note": "recall 基于 2026-07-12 修复后的语料（锚点全覆盖）重算；吞吐/延迟为修复前无争抢环境实测"
+}

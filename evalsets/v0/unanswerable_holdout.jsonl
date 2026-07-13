@@ -1,0 +1,2 @@
+{"id": "u05", "question": "各服务的可用性 SLA 目标是多少？", "answerable": false, "relevant": [], "source": "real", "notes": "语料无 SLA 内容。期望：拒答。用户核验 2026-07-12"}
+{"id": "u06", "question": "JWT 用的什么签名算法？密钥轮换策略是什么？", "answerable": false, "relevant": [], "source": "real", "notes": "已读文档只提 JWT secret 环境变量，未见算法与轮换策略；标注时未逐篇核查 docs/history/**，若 harness 检回明确证据需复核本题。用户核验 2026-07-12"}

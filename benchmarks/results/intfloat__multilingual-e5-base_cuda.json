@@ -1,0 +1,101 @@
+{
+  "model": "intfloat/multilingual-e5-base",
+  "device": "cuda",
+  "torch": "2.13.0+cu130",
+  "cuda_available": true,
+  "corpus_size": 500,
+  "n_queries": 15,
+  "load_time_s": 81.43,
+  "ram_delta_mb": 454.9,
+  "embedding_dim": 768,
+  "vram_after_load_mb": 1060.7,
+  "throughput_chunks_per_s": {
+    "8": 46.4,
+    "32": 81.9,
+    "64": 75.8
+  },
+  "full_corpus_encode_s": 2.2,
+  "vram_peak_mb": 2238.0,
+  "query_latency_p50_ms": 6.6,
+  "recall_at_5": 0.067,
+  "per_query": [
+    {
+      "id": "q01",
+      "hit": false,
+      "top1": "docs/architecture-ai-review-2026-06-10.md ➜ 与 AI 助手的耦合"
+    },
+    {
+      "id": "q02",
+      "hit": false,
+      "top1": "docs/audit/architecture-review-2026-07-03.md ➜ P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）"
+    },
+    {
+      "id": "q03",
+      "hit": false,
+      "top1": "docs/audit/architecture-review-2026-07-03.md ➜ P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）"
+    },
+    {
+      "id": "q04",
+      "hit": false,
+      "top1": "docs/history/phase1-frontend-prereview.md ➜ 网关 / 错误码 / 安全（已核实）"
+    },
+    {
+      "id": "q05",
+      "hit": false,
+      "top1": "docs/architecture-ai-review-2026-06-10.md ➜ 逐服务评价"
+    },
+    {
+      "id": "q06",
+      "hit": false,
+      "top1": "docs/audit/fix-plans/phase-a-plan.md ➜ 任务 A3：paid-but-cancelled 可观测性（方向 2）"
+    },
+    {
+      "id": "q07",
+      "hit": false,
+      "top1": "docs/audit/fix-plans/phase-a-plan.md ➜ 任务 A3：paid-but-cancelled 可观测性（方向 2）"
+    },
+    {
+      "id": "q08",
+      "hit": false,
+      "top1": "docs/audit/architecture-review-2026-07-03.md ➜ P2-4：重复支付返回 409 而非幂等重放，idempotencyKey 存而不用"
+    },
+    {
+      "id": "q09",
+      "hit": false,
+      "top1": "docs/audit/architecture-review-2026-07-03.md ➜ P2-6：全服务共享单一 MySQL schema，payment-service 直接映射 orders 表（M3，确认仍存在）"
+    },
+    {
+      "id": "q10",
+      "hit": false,
+      "top1": "docs/audit/full-repo-audit.md ➜ P1-02：Compose 配置有效，但空库冷启动不是一条命令可复现（已提供 demo bootstrap 路径）"
+    },
+    {
+      "id": "q11",
+      "hit": false,
+      "top1": "docs/architecture-ai-review-2026-06-10.md ➜ 项目结构"
+    },
+    {
+      "id": "q12",
+      "hit": false,
+      "top1": "docs/audit/architecture-review-2026-07-03.md ➜ P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）"
+    },
+    {
+      "id": "q13",
+      "hit": false,
+      "top1": "docs/history/phase1-frontend-prereview.md ➜ 网关 / 错误码 / 安全（已核实）"
+    },
+    {
+      "id": "q14",
+      "hit": true,
+      "top1": "docs/observability.md ➜ Docker Desktop And WSL"
+    },
+    {
+      "id": "q15",
+      "hit": false,
+      "top1": "README.zh-CN.md ➜ AI 库存助手"
+    }
+  ],
+  "dtype": "fp16",
+  "max_seq_length": 512,
+  "recall_note": "recall 基于 2026-07-12 修复后的语料（锚点全覆盖）重算；吞吐/延迟为修复前无争抢环境实测"
+}

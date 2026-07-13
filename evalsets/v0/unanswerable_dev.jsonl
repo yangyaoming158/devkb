@@ -1,0 +1,4 @@
+{"id": "u01", "question": "生产环境 MySQL 连接池的最大连接数配置是多少？", "answerable": false, "relevant": [], "source": "real", "notes": "docs 只有环境变量名与本地部署说明，无生产配置值。期望：拒答并说明缺失。用户核验 2026-07-12"}
+{"id": "u02", "question": "项目上线后的线上事故复盘记录在哪里？", "answerable": false, "relevant": [], "source": "real", "notes": "本地 MVP 项目，无生产运行历史。期望：拒答。用户核验 2026-07-12"}
+{"id": "u03", "question": "大促/秒杀场景的容量规划文档在哪里？", "answerable": false, "relevant": [], "source": "real", "notes": "语料无容量规划内容。风险：pressure/ 压测报告可能被误检回，压测结果≠容量规划。期望：拒答或明确区分。用户核验 2026-07-12"}
+{"id": "u04", "question": "用户退款的接口和处理流程是怎样的？", "answerable": false, "relevant": [], "source": "real", "notes": "陷阱题：状态机存在 REFUNDED 状态（dev-log Task 9.2），但网关契约无退款 API。期望：指出'有 REFUNDED 状态但无退款接口文档'，不得编造流程。用户核验 2026-07-12"}

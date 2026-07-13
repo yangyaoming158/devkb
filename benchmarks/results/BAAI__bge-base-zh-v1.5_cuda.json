@@ -1,0 +1,101 @@
+{
+  "model": "BAAI/bge-base-zh-v1.5",
+  "device": "cuda",
+  "torch": "2.13.0+cu130",
+  "cuda_available": true,
+  "corpus_size": 500,
+  "n_queries": 15,
+  "load_time_s": 31.08,
+  "ram_delta_mb": 143.8,
+  "embedding_dim": 768,
+  "vram_after_load_mb": 390.7,
+  "throughput_chunks_per_s": {
+    "8": 74.1,
+    "32": 77.6,
+    "64": 74.3
+  },
+  "full_corpus_encode_s": 2.3,
+  "vram_peak_mb": 1568.5,
+  "query_latency_p50_ms": 6.0,
+  "recall_at_5": 0.467,
+  "per_query": [
+    {
+      "id": "q01",
+      "hit": false,
+      "top1": "docs/audit/fix-plans/phase-b-plan.md ➜ 任务 B6（决策门，默认跳过）：M2 —— 下单 saga 缺口"
+    },
+    {
+      "id": "q02",
+      "hit": false,
+      "top1": "docs/audit/architecture-review-2026-07-03.md ➜ 9. 数据一致性与事务专项审查"
+    },
+    {
+      "id": "q03",
+      "hit": false,
+      "top1": "docs/audit/fix-plans/phase-a-plan.md ➜ 1. 背景与目标"
+    },
+    {
+      "id": "q04",
+      "hit": false,
+      "top1": "docs/architecture-ai-review-2026-06-10.md ➜ 逐服务评价"
+    },
+    {
+      "id": "q05",
+      "hit": false,
+      "top1": "docs/api-gateway-contract.md ➜ 4. Current Endpoint Index"
+    },
+    {
+      "id": "q06",
+      "hit": true,
+      "top1": "docs/architecture.md ➜ Event Flow"
+    },
+    {
+      "id": "q07",
+      "hit": true,
+      "top1": "docs/final-acceptance.md ➜ Database And Event Verification"
+    },
+    {
+      "id": "q08",
+      "hit": false,
+      "top1": "docs/audit/architecture-review-2026-07-03.md ➜ P2-4：重复支付返回 409 而非幂等重放，idempotencyKey 存而不用"
+    },
+    {
+      "id": "q09",
+      "hit": true,
+      "top1": "docs/deployment.md ➜ Startup Order"
+    },
+    {
+      "id": "q10",
+      "hit": true,
+      "top1": "docs/deployment.md ➜ Database Operations"
+    },
+    {
+      "id": "q11",
+      "hit": true,
+      "top1": "docs/sql/README.md ➜ Scope"
+    },
+    {
+      "id": "q12",
+      "hit": false,
+      "top1": "docs/audit/fix-plans/phase-a-plan.md ➜ 1. 背景与目标"
+    },
+    {
+      "id": "q13",
+      "hit": true,
+      "top1": "docs/history/phase1-frontend-prereview.md ➜ 网关 / 错误码 / 安全（已核实）"
+    },
+    {
+      "id": "q14",
+      "hit": true,
+      "top1": "docs/observability.md ➜ Docker Desktop And WSL"
+    },
+    {
+      "id": "q15",
+      "hit": false,
+      "top1": "README.zh-CN.md ➜ AI 库存助手"
+    }
+  ],
+  "dtype": "fp16",
+  "max_seq_length": 512,
+  "recall_note": "recall 基于 2026-07-12 修复后的语料（锚点全覆盖）重算；吞吐/延迟为修复前无争抢环境实测"
+}

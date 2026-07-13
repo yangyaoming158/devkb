@@ -1,0 +1,101 @@
+{
+  "model": "Qwen/Qwen3-Embedding-0.6B",
+  "device": "cuda",
+  "torch": "2.13.0+cu130",
+  "cuda_available": true,
+  "corpus_size": 500,
+  "n_queries": 15,
+  "load_time_s": 9.44,
+  "ram_delta_mb": 209.6,
+  "embedding_dim": 1024,
+  "dtype": "fp16",
+  "max_seq_length": 1024,
+  "vram_after_load_mb": 1136.4,
+  "throughput_chunks_per_s": {
+    "8": 20.9,
+    "32": 18.2,
+    "64": 1.7
+  },
+  "full_corpus_encode_s": 21.2,
+  "vram_peak_mb": 10042.0,
+  "query_latency_p50_ms": 30.4,
+  "recall_at_5": 0.8,
+  "per_query": [
+    {
+      "id": "q01",
+      "hit": true,
+      "top1": "docs/dev-log.md ➜ Task 10.5 - Duplicate submit idempotency for create order"
+    },
+    {
+      "id": "q02",
+      "hit": false,
+      "top1": "docs/audit/architecture-review-2026-07-03.md ➜ 9. 数据一致性与事务专项审查"
+    },
+    {
+      "id": "q03",
+      "hit": true,
+      "top1": "order-service/src/main/java/com/minimall/order/domain/OrderStateMachine.java ➜ OrderStateMachine.java"
+    },
+    {
+      "id": "q04",
+      "hit": true,
+      "top1": "docs/frontend-integration.md ➜ Browser Acceptance Checklist"
+    },
+    {
+      "id": "q05",
+      "hit": true,
+      "top1": "docs/api-gateway-contract.md ➜ 4. Current Endpoint Index"
+    },
+    {
+      "id": "q06",
+      "hit": true,
+      "top1": "docs/architecture.md ➜ Event Flow"
+    },
+    {
+      "id": "q07",
+      "hit": true,
+      "top1": "docs/architecture.md ➜ Event Flow"
+    },
+    {
+      "id": "q08",
+      "hit": false,
+      "top1": "docs/audit/architecture-review-2026-07-03.md ➜ P2-4：重复支付返回 409 而非幂等重放，idempotencyKey 存而不用"
+    },
+    {
+      "id": "q09",
+      "hit": true,
+      "top1": "docs/deployment.md ➜ Startup Order"
+    },
+    {
+      "id": "q10",
+      "hit": true,
+      "top1": "docs/deployment.md ➜ Database Operations"
+    },
+    {
+      "id": "q11",
+      "hit": true,
+      "top1": "docs/sql/README.md ➜ Scope"
+    },
+    {
+      "id": "q12",
+      "hit": true,
+      "top1": "docs/dev-log.md ➜ Task 11.4 - Cancellation chain regression tests"
+    },
+    {
+      "id": "q13",
+      "hit": true,
+      "top1": "api-gateway/src/main/java/com/minimall/gateway/ratelimit/GatewayRateLimitFilter.java ➜ GatewayRateLimitFilter.java"
+    },
+    {
+      "id": "q14",
+      "hit": true,
+      "top1": "docs/observability.md ➜ Docker Desktop And WSL"
+    },
+    {
+      "id": "q15",
+      "hit": false,
+      "top1": "docs/history/phase2-admin-api-contract.md ➜ 6.3 Inventories"
+    }
+  ],
+  "recall_note": "recall 基于 2026-07-12 修复后的语料（锚点全覆盖）重算；吞吐/延迟为修复前无争抢环境实测"
+}

@@ -1,0 +1,19 @@
+{
+  "model": "BAAI/bge-m3",
+  "device": "cpu",
+  "torch": "2.13.0+cu130",
+  "cuda_available": true,
+  "corpus_size": 500,
+  "n_queries": 15,
+  "load_time_s": 8.9,
+  "ram_delta_mb": 378.8,
+  "embedding_dim": 1024,
+  "dtype": "fp32",
+  "max_seq_length": 1024,
+  "throughput_chunks_per_s": {
+    "8": 0.8,
+    "32": 0.7,
+    "64": 0.7
+  },
+  "query_latency_p50_ms": 49.7
+}
