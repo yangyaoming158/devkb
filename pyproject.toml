@@ -1,0 +1,61 @@
+[project]
+name = "devkb"
+version = "0.1.0"
+description = "Agentic RAG 软件项目知识助手（P0 可运行基线）"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "typer>=0.16",
+    "rich>=13",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "markdown-it-py>=3",
+    "charset-normalizer>=3.4",
+    "openai>=2",
+    "structlog>=24",
+    "tenacity>=9",
+]
+
+[project.scripts]
+devkb = "devkb.cli:app"
+
+[dependency-groups]
+dev = ["ruff>=0.9", "pyright>=1.1.390", "pytest>=8.3", "pytest-asyncio>=0.25"]
+# 本地模型栈单独成组：CI 用 `uv sync --no-default-groups --group dev` 跳过
+# （CLAUDE.md 测试纪律：CI 禁真模型，FakeEmbedder 足够；真实现 lazy import）
+ml = ["torch>=2.6", "sentence-transformers>=3.3"]
+
+[tool.uv]
+default-groups = ["dev", "ml"]
+
+[[tool.uv.index]]
+# 本机经代理访问 PyPI 仅 ~0.5MB/s，清华镜像实测 43MB/s（见 benchmarks/embedding_report.md）
+# CI（境外 runner）用环境变量 UV_DEFAULT_INDEX 覆盖回官方源
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+# 项目注释/文档字符串约定为中文（CLAUDE.md），关闭全角标点歧义检查
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.pyright]
+include = ["src", "tests"]
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "basic"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
