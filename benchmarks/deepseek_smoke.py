@@ -44,7 +44,7 @@ def main() -> None:
     api_key = os.environ.get("DEVKB_LLM_API_KEY")
     assert api_key, "缺少 DEVKB_LLM_API_KEY（写入项目根 .env）"
     base_url = os.environ.get("DEVKB_LLM_BASE_URL", "https://api.deepseek.com")
-    model = os.environ.get("DEVKB_LLM_MODEL", "deepseek-chat")
+    model = os.environ.get("DEVKB_LLM_MODEL", "deepseek-v4-flash")
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=60)
 
     result: dict = {"base_url": base_url, "model": model}

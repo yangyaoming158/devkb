@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     # LLM（ADR-0004：DeepSeek，OpenAI 兼容端点）
     llm_api_key: SecretStr  # 必填，缺失时启动即报 ConfigError
     llm_base_url: str = "https://api.deepseek.com"
-    llm_model: str = "deepseek-chat"
+    # 显式模型名：deepseek-chat 别名 2026-07-24 弃用（ADR-0004，2026-07-13 官网核实）
+    llm_model: str = "deepseek-v4-flash"
 
     # Embedding（ADR-0002 冻结：Qwen3-Embedding-0.6B / 1024 维 / fp16 / batch≤32）
     embedding_model_id: str = "Qwen/Qwen3-Embedding-0.6B"
