@@ -42,7 +42,7 @@ async def test_vector_search_cannot_cross_projects(session: AsyncSession) -> Non
     # B 的完美匹配也绝不可见
     hits = await ChunkRepo(session, pa.id).vector_search(_vec(1), top_k=10)
     assert hits, "A 项目应命中自己的块"
-    assert all(chunk.project_id == pa.id for chunk, _ in hits)
+    assert all(chunk.project_id == pa.id for chunk, _, _ in hits)
 
 
 async def test_documents_scoped_by_project(session: AsyncSession) -> None:

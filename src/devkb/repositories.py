@@ -155,17 +155,20 @@ class ChunkRepo:
         await self._session.flush()
         return len(drafts)
 
-    async def vector_search(self, embedding: list[float], top_k: int) -> list[tuple[Chunk, float]]:
-        """余弦相似度精确扫描（P0 无 HNSW），返回 (chunk, 相似度) 降序。"""
+    async def vector_search(
+        self, embedding: list[float], top_k: int
+    ) -> list[tuple[Chunk, str, float]]:
+        """余弦相似度精确扫描（P0 无 HNSW），返回 (chunk, 所属文档 rel_path, 相似度) 降序。"""
         distance = Chunk.embedding.cosine_distance(embedding).label("distance")
         stmt = (
-            select(Chunk, distance)
+            select(Chunk, Document.rel_path, distance)
+            .join(Document, Chunk.document_id == Document.id)
             .where(Chunk.project_id == self._project_id, Chunk.embedding.is_not(None))
             .order_by(distance)
             .limit(top_k)
         )
         rows = (await self._session.execute(stmt)).all()
-        return [(row[0], 1.0 - float(row[1])) for row in rows]
+        return [(row[0], row[1], 1.0 - float(row[2])) for row in rows]
 
     async def count(self) -> int:
         stmt = select(func.count()).where(Chunk.project_id == self._project_id)

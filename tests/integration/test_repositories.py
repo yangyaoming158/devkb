@@ -63,6 +63,6 @@ async def test_vector_search_orders_by_similarity(session: AsyncSession) -> None
     await session.commit()
 
     hits = await ChunkRepo(session, p.id).vector_search(_vec(0), top_k=3)
-    assert [c.ordinal for c, _ in hits] == [0, 1, 2], "应按相似度降序"
-    scores = [s for _, s in hits]
+    assert [c.ordinal for c, _, _ in hits] == [0, 1, 2], "应按相似度降序"
+    scores = [s for _, _, s in hits]
     assert scores[0] > 0.99 and scores == sorted(scores, reverse=True)
