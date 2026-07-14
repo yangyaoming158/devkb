@@ -1,0 +1,29 @@
+[
+  {
+    "ordinal": 0,
+    "title_path": "库存扣减实现",
+    "content": "# 库存扣减实现\n\n下面的代码围栏超过分块目标长度，分块器必须整块保留，不得从内部切开。",
+    "content_hash": "f802bf6c0f165d5ecc09d1b93bbd4ca8df1edf65874e06eec26330fb89129842",
+    "token_count": 39,
+    "start_line": 1,
+    "end_line": 3
+  },
+  {
+    "ordinal": 1,
+    "title_path": "库存扣减实现",
+    "content": "```java\n@Service\npublic class InventoryService {\n\n    private final InventoryRepository inventoryRepository;\n    private final InventoryLogRepository inventoryLogRepository;\n    private final PlatformTransactionManager transactionManager;\n\n    public InventoryService(InventoryRepository inventoryRepository,\n                            InventoryLogRepository inventoryLogRepository,\n                            PlatformTransactionManager transactionManager) {\n        this.inventoryRepository = inventoryRepository;\n        this.inventoryLogRepository = inventoryLogRepository;\n        this.transactionManager = transactionManager;\n    }\n\n    @Transactional\n    public DeductResult deduct(Long skuId, int quantity, String orderNo) {\n        Inventory inventory = inventoryRepository.findBySkuIdForUpdate(skuId)\n                .orElseThrow(() -> new SkuNotFoundException(skuId));\n        if (inventory.getAvailable() < quantity) {\n            inventoryLogRepository.save(InventoryLog.rejected(skuId, quantity, orderNo));\n            return DeductResult.insufficient(skuId, inventory.getAvailable());\n        }\n        inventory.setAvailable(inventory.getAvailable() - quantity);\n        inventory.setLocked(inventory.getLocked() + quantity);\n        inventoryRepository.save(inventory);\n        inventoryLogRepository.save(InventoryLog.deducted(skuId, quantity, orderNo));\n        return DeductResult.success(skuId, quantity);\n    }\n\n    @Transactional\n    public void release(Long skuId, int quantity, String orderNo) {\n        Inventory inventory = inventoryRepository.findBySkuIdForUpdate(skuId)\n                .orElseThrow(() -> new SkuNotFoundException(skuId));\n        inventory.setAvailable(inventory.getAvailable() + quantity);\n        inventory.setLocked(Math.max(0, inventory.getLocked() - quantity));\n        inventoryRepository.save(inventory);\n        inventoryLogRepository.save(InventoryLog.released(skuId, quantity, orderNo));\n    }\n}\n```",
+    "content_hash": "b663f114dccee0072ebb91d68851bfc0f47b4d48df29a8f6f2e3dcc793fc9acd",
+    "token_count": 489,
+    "start_line": 5,
+    "end_line": 46
+  },
+  {
+    "ordinal": 2,
+    "title_path": "库存扣减实现",
+    "content": "围栏之后还有一段说明：`deduct` 与 `release` 必须成对出现在同一业务事务的正反向路径上。",
+    "content_hash": "1903c2bca12e68150a06b985be0f99ab5d1fcdeffd369b5afaba0d172bc176bc",
+    "token_count": 37,
+    "start_line": 48,
+    "end_line": 48
+  }
+]

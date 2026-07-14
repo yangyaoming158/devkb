@@ -1,0 +1,56 @@
+[
+  {
+    "ordinal": 0,
+    "title_path": "架构总览",
+    "content": "# 架构总览\n\n本文档描述 mini-mall 订单系统的整体架构，覆盖服务划分、数据流与关键约束。",
+    "content_hash": "c6c18321fed33269c66eb9217389e623b33efddedb41595e8baa29256eed209d",
+    "token_count": 37,
+    "start_line": 1,
+    "end_line": 3
+  },
+  {
+    "ordinal": 1,
+    "title_path": "架构总览 > 库存",
+    "content": "## 库存\n\n库存服务负责商品可售数量的维护，扣减发生在订单创建事务内。",
+    "content_hash": "1ffd78eb82aaea8fdb6f5c4ed5055443b761bad48c828e225c78b43feaf3de66",
+    "token_count": 31,
+    "start_line": 5,
+    "end_line": 7
+  },
+  {
+    "ordinal": 2,
+    "title_path": "架构总览 > 库存 > 并发控制",
+    "content": "### 并发控制\n\n库存扣减使用数据库行锁（`SELECT ... FOR UPDATE`）保证并发安全，\n超卖场景由唯一约束兜底。",
+    "content_hash": "17bf6752373002ef975e67f9ce494cb800750eea51e61895795635bfe35624c3",
+    "token_count": 41,
+    "start_line": 9,
+    "end_line": 12
+  },
+  {
+    "ordinal": 3,
+    "title_path": "架构总览 > 库存 > 回补策略",
+    "content": "### 回补策略\n\n订单取消或支付超时后，库存通过补偿任务异步回补，延迟上限 30 秒。",
+    "content_hash": "33fe0f654708cba10b995caa61799ded3c851c3aef64a2df94b9649b4c2f1fce",
+    "token_count": 35,
+    "start_line": 14,
+    "end_line": 16
+  },
+  {
+    "ordinal": 4,
+    "title_path": "架构总览 > 支付",
+    "content": "## 支付\n\n支付网关对接第三方渠道，回调采用幂等键去重。",
+    "content_hash": "35754a5080efa33fed0f3e721ad05102802f5ce69377458846fbea9a70169dcc",
+    "token_count": 24,
+    "start_line": 18,
+    "end_line": 20
+  },
+  {
+    "ordinal": 5,
+    "title_path": "附录",
+    "content": "# 附录\n\n术语表与变更记录见 CHANGELOG。",
+    "content_hash": "aebf7c492fd82a41d7e31b4ba9afae1c8f6b2887ec8bf70f0ac4d8d6ab90bf50",
+    "token_count": 15,
+    "start_line": 22,
+    "end_line": 24
+  }
+]

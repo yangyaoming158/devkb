@@ -1,0 +1,29 @@
+[
+  {
+    "ordinal": 0,
+    "title_path": "Order Service",
+    "content": "# Order Service\n\nThe order service owns the order lifecycle: creation, payment, fulfilment and cancellation.",
+    "content_hash": "9ca5c161d0e6de751750d75ec9624092829b1aae8ed80cbd1863ccd8d6f966e5",
+    "token_count": 21,
+    "start_line": 1,
+    "end_line": 3
+  },
+  {
+    "ordinal": 1,
+    "title_path": "Order Service > API Conventions",
+    "content": "## API Conventions\n\nAll endpoints are versioned under `/api/v1`. Errors follow RFC 7807 problem details.\nIdempotency is enforced via the `Idempotency-Key` header on all mutating requests.",
+    "content_hash": "9a2c6f540849b58baf55ecbbd6c438c61b39d7f6b9c1432b2860191bd2f1c89e",
+    "token_count": 48,
+    "start_line": 5,
+    "end_line": 8
+  },
+  {
+    "ordinal": 2,
+    "title_path": "Order Service > Retry Policy",
+    "content": "## Retry Policy\n\nDownstream calls use exponential backoff with a maximum of three attempts.\nTimeouts are set to 2 seconds for reads and 5 seconds for writes.",
+    "content_hash": "20f49ff1c23c6ac2341a2eb647723a1942683db3f74034ad48fddc60d00d572b",
+    "token_count": 35,
+    "start_line": 10,
+    "end_line": 13
+  }
+]

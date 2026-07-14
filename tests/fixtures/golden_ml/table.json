@@ -1,0 +1,11 @@
+[
+  {
+    "ordinal": 0,
+    "title_path": "环境矩阵",
+    "content": "# 环境矩阵\n\n各环境的资源配额与访问入口如下表：\n\n| 环境 | 数据库 | 副本数 | 入口域名 |\n| --- | --- | --- | --- |\n| dev | pg-dev（共享） | 1 | dev.mall.internal |\n| staging | pg-stg（独立） | 2 | stg.mall.internal |\n| prod | pg-prod（独立，双可用区） | 4 | mall.example.com |\n\n表格之后的段落：staging 与 prod 的配置差异仅允许出现在副本数与域名两项。",
+    "content_hash": "cb32c2e0ab705fb7feed7297c6dc33260dc24f576cee4e2fcbee1c59221c8e97",
+    "token_count": 128,
+    "start_line": 1,
+    "end_line": 11
+  }
+]
