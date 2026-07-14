@@ -62,13 +62,19 @@ def ingest(
 async def _run_ingest(directory: Path, project_slug: str) -> IngestReport:
     from devkb.config import get_settings
     from devkb.db import create_engine, create_session_factory
+    from devkb.embedding import SentenceTransformerEmbedder
     from devkb.ingest.markdown import qwen_token_counter
     from devkb.ingest.pipeline import ingest_directory
     from devkb.repositories import ProjectRepo
 
     settings = get_settings()
-    # 生产计数器 = ADR-0002 冻结模型 tokenizer（ml 依赖组，函数内懒加载）
+    # 生产计数器与 Embedder 均为 ADR-0002 冻结模型（ml 依赖组，懒加载）
     count_tokens = qwen_token_counter(settings.embedding_model_id)
+    embedder = SentenceTransformerEmbedder(
+        settings.embedding_model_id,
+        device=settings.embedding_device,
+        batch_size=settings.embedding_batch_size,
+    )
 
     engine = create_engine(settings.database_url)
     try:
@@ -82,6 +88,7 @@ async def _run_ingest(directory: Path, project_slug: str) -> IngestReport:
                 session,
                 project.id,
                 directory,
+                embedder=embedder,
                 count_tokens=count_tokens,
                 target_tokens=settings.chunk_target_tokens,
             )

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from devkb.embedding import FakeEmbedder
 from devkb.ingest.markdown import approx_token_counter
 from devkb.ingest.pipeline import MAX_FILE_BYTES, ingest_directory, scan_files
 from devkb.repositories import ChunkRepo, DocumentRepo, ProjectRepo
@@ -46,7 +47,7 @@ async def test_first_ingest_counts(session: AsyncSession, tmp_path: Path) -> Non
 
     assert [p.name for p in scan_files(tmp_path)].count("secret.md") == 0
     report = await ingest_directory(
-        session, project_id, tmp_path, count_tokens=approx_token_counter
+        session, project_id, tmp_path, embedder=FakeEmbedder(), count_tokens=approx_token_counter
     )
 
     assert report.count("ingested") == expected
@@ -62,7 +63,12 @@ async def test_first_ingest_counts(session: AsyncSession, tmp_path: Path) -> Non
     assert notes is not None and notes.doc_type == "text"  # GBK 已规范化摄取
     zh = await doc_repo.get_by_rel_path("zh.md")
     assert zh is not None and zh.title == "架构总览"
-    assert await ChunkRepo(session, project_id).count() == sum(o.chunks for o in report.outcomes)
+    chunk_repo = ChunkRepo(session, project_id)
+    total = await chunk_repo.count()
+    assert total == sum(o.chunks for o in report.outcomes)
+    # T7 判据：摄取后全部 chunk 的 embedding 非空（vector_search 只见非空行）
+    hits = await chunk_repo.vector_search(FakeEmbedder().embed_query("任意查询"), top_k=total + 1)
+    assert len(hits) == total
 
 
 async def test_reingest_is_idempotent(session: AsyncSession, tmp_path: Path) -> None:
@@ -70,11 +76,13 @@ async def test_reingest_is_idempotent(session: AsyncSession, tmp_path: Path) -> 
     project_id = await _new_project(session)
     chunk_repo = ChunkRepo(session, project_id)
 
-    await ingest_directory(session, project_id, tmp_path, count_tokens=approx_token_counter)
+    await ingest_directory(
+        session, project_id, tmp_path, embedder=FakeEmbedder(), count_tokens=approx_token_counter
+    )
     baseline = await chunk_repo.count()
 
     second = await ingest_directory(
-        session, project_id, tmp_path, count_tokens=approx_token_counter
+        session, project_id, tmp_path, embedder=FakeEmbedder(), count_tokens=approx_token_counter
     )
     assert second.count("skipped") == expected
     assert second.count("ingested") == 0
@@ -84,7 +92,9 @@ async def test_reingest_is_idempotent(session: AsyncSession, tmp_path: Path) -> 
     (tmp_path / "docs" / "nested.md").write_text(
         "# 嵌套文档\n\n改写后的内容。\n\n## 新增小节\n\n补充说明。\n", encoding="utf-8"
     )
-    third = await ingest_directory(session, project_id, tmp_path, count_tokens=approx_token_counter)
+    third = await ingest_directory(
+        session, project_id, tmp_path, embedder=FakeEmbedder(), count_tokens=approx_token_counter
+    )
     assert third.count("ingested") == 1
     assert third.count("skipped") == expected - 1
     docs = await DocumentRepo(session, project_id).list_active()
@@ -98,7 +108,7 @@ async def test_bad_files_isolated_batch_continues(session: AsyncSession, tmp_pat
     project_id = await _new_project(session)
 
     report = await ingest_directory(
-        session, project_id, tmp_path, count_tokens=approx_token_counter
+        session, project_id, tmp_path, embedder=FakeEmbedder(), count_tokens=approx_token_counter
     )
 
     assert report.count("failed") == 2

@@ -2,10 +2,10 @@
 
 扫描（仅 .md/.txt，单文件 ≤5MB，跳过隐藏目录/文件）→ 编码规范化
 （charset-normalizer → UTF-8）→ content_hash 未变跳过 → 标题树分块 →
+批量嵌入（batch 由 Embedder 内部按基准值控制，OOM 减半退避）→
 单文档事务内删旧插新。单文档失败记 status='failed' + parse_error 后
 继续下一文档；数据库级故障不属于单文档问题，照常抛出中断批次。
 
-嵌入不在本管道内（T7 接入）；本阶段 chunk.embedding 落库为 NULL。
 数据访问全部经 Repository（D7：本模块不构造任何 sqlalchemy 查询）。
 """
 
@@ -18,8 +18,10 @@ from pathlib import Path
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
-from devkb.errors import ParseError, UnsupportedFileError
+from devkb.embedding import Embedder
+from devkb.errors import EmbeddingError, ParseError, UnsupportedFileError
 from devkb.ingest.markdown import TokenCounter, chunk_markdown
 from devkb.repositories import ChunkDraft, ChunkRepo, DocumentRepo
 
@@ -80,11 +82,23 @@ def _doc_title(source: str, path: Path) -> str:
     return path.stem
 
 
+@retry(
+    retry=retry_if_exception_type(EmbeddingError),
+    stop=stop_after_attempt(2),
+    wait=wait_fixed(1),
+    reraise=True,
+)
+def _embed_with_retry(embedder: Embedder, texts: list[str]) -> list[list[float]]:
+    """瞬态嵌入故障重试 1 次（OOM 退避在 Embedder 内部）；仍失败按单文档隔离。"""
+    return embedder.embed_documents(texts)
+
+
 async def ingest_directory(
     session: AsyncSession,
     project_id: uuid.UUID,
     root: Path,
     *,
+    embedder: Embedder,
     count_tokens: TokenCounter,
     target_tokens: int = 400,
 ) -> IngestReport:
@@ -117,6 +131,7 @@ async def ingest_directory(
             except Exception as exc:  # 分块器对任意文本的未知崩溃也按单文档失败隔离
                 raise ParseError(f"分块失败：{type(exc).__name__}: {exc}") from exc
 
+            embeddings = _embed_with_retry(embedder, [c.content for c in chunks]) if chunks else []
             document = await doc_repo.upsert(
                 rel_path=rel_path,
                 title=_doc_title(source, path),
@@ -134,14 +149,15 @@ async def ingest_directory(
                         token_count=c.token_count,
                         start_line=c.start_line,
                         end_line=c.end_line,
+                        embedding=vec,
                     )
-                    for c in chunks
+                    for c, vec in zip(chunks, embeddings, strict=True)
                 ],
             )
             await session.commit()
             report.outcomes.append(FileOutcome(rel_path, "ingested", chunks=n))
             logger.info("document_ingested", rel_path=rel_path, chunks=n)
-        except (UnsupportedFileError, ParseError, OSError) as exc:
+        except (UnsupportedFileError, ParseError, EmbeddingError, OSError) as exc:
             await session.rollback()
             reason = f"{type(exc).__name__}: {exc}"
             await doc_repo.mark_failed(rel_path, reason)
