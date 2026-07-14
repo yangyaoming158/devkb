@@ -51,6 +51,10 @@ select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
 # 项目注释/文档字符串约定为中文（CLAUDE.md），关闭全角标点歧义检查
 ignore = ["RUF001", "RUF002", "RUF003"]
 
+[tool.ruff.lint.flake8-bugbear]
+# typer 以参数默认值声明 CLI 契约（框架惯用法），豁免 B008
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
+
 [tool.pyright]
 include = ["src", "tests"]
 venvPath = "."
