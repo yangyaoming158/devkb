@@ -31,6 +31,7 @@ Agentic RAG 软件项目知识助手（面向求职展示）。当前阶段：**
 - Python 3.12 + **uv**（依赖/虚拟环境/锁文件）；Ruff 负责 lint+format；Pyright 类型检查。
 - 回答语言约定：系统生成的用户可见回答为中文、保留英文术语与代码原文。
 - 提交信息用 Conventional Commits（feat/fix/test/docs/chore），一个清单任务 ≈ 一次提交。
+- 每完成一项清单任务，在 `docs/dev-log.md` 追加过程叙事（做了什么/踩的坑与定位/证据 commit），与提交同步；不记文档正文与 secret。
 - 常用命令收敛进 Makefile：`make up`（compose）、`make lint`、`make test`、`make ci`。
 
 ## 环境事实（2026-07-12 实测）
