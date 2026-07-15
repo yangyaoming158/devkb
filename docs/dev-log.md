@@ -138,3 +138,11 @@
 - 根因比表象深一层：以为是"日志打错流"，实际是 **`configure_logging` 从未被 CLI 调用**——structlog 一直跑默认配置（PrintLogger→stdout），意味着 T9.3 起脱敏 processor、JSON 渲染也从未生效。教训：**写了配置函数 ≠ 配置生效，接线处要有测试或实跑验证**。
 - 修复两处：CLI 回调接入 configure_logging（ConfigError 时退默认，保住无 .env 的 `--version`）；logger_factory 显式指 stderr。
 - 验证：make ci 58 passed；真实 `ask --json | python -c json.load` 解析成功（修复前该用法必炸）。
+
+## 2026-07-15 · U1.3 评测集合入 + T10.3 复核勾选 + T10.4 holdout 基线
+
+做了什么：用户裁决（放弃盲写、草稿全过、抽查复核通过）落盘——q21–q25 合入 JSONL（全集 31 问齐），T10.3 勾选；`benchmarks/holdout_baseline.py` 跑 P0 holdout 基线并出报告。
+
+- holdout 结果：Recall@5=0.625 / Recall@10=0.875 / MRR@10=0.440（8 问，全量 1370 chunks）。相比 T1.4 dev 基准的 0.80 属预期回落：全量语料 + 未调过的题。
+- q20（错误码精确 token 题）top-10 未命中标注锚，但 top-1 内容实际含正确答案（锚点覆盖不全的信号）。**看过 holdout 结果后不改标注不调参**——观察记进报告留给 P1，这条纪律比这次的数字更值钱。
+- 不可答题 top-1（0.43/0.51）与可答题 top-1（0.57–0.73）有可分性但有重叠——纯阈值拒答在 P0 数据上不干净，为 P1 evaluate 节点设计提供了第一手依据。
