@@ -39,3 +39,4 @@ Agentic RAG 软件项目知识助手（面向求职展示）。当前阶段：**
 - WSL2 Ubuntu：10GB 内存 / 8 核 / 8GB swap；RTX 4060 Laptop 8GB（驱动 610.62）；Docker 27.x + Compose v2 可用；**CUDA 版 PyTorch 尚未安装**（T1 第 0 步验证）。
 - 演示语料：`/home/oslab/projects/mini-mall-order`（只读使用）。P0 摄取范围：`docs/**/*.md` + 根级 `README*.md`；CLAUDE.md/AGENTS.md/TASKMASTER.md 不摄取（留作 P2 注入测试样本）。
 - 本仓库位于 Linux 文件系统（ext4），不得迁往 /mnt/c。
+- 真实模型调用（冒烟/演示/holdout）必须同时带两个开关：unset 全部代理环境变量（SOCKS 代理干扰 httpx 调 DeepSeek）+ `HF_HUB_OFFLINE=1`（直连时 huggingface.co 遭 DNS 污染，SYN-SENT 静默挂死；嵌入模型已本地缓存）。缺一不可（2026-07-12 / 07-15 两次实测）。

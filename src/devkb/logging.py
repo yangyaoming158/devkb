@@ -32,5 +32,7 @@ def configure_logging(level: str = "INFO", app_env: str = "dev") -> None:
         wrapper_class=structlog.make_filtering_bound_logger(
             logging.getLevelNamesMapping()[level.upper()]
         ),
+        # 日志一律走 stderr，保证 `ask --json` 等命令的 stdout 可被管道直接解析
+        logger_factory=structlog.PrintLoggerFactory(sys.stderr),
         cache_logger_on_first_use=True,
     )

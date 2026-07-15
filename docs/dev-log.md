@@ -130,3 +130,11 @@
 - 抽查方法：不只看回答"像不像对"，而是打开每处 `rel_path:L#-L#` 原文行区间核对论断——17 处全对应，其中 q01-E6 对应成立但证据弱（叙述被 chunk 边界切开），如实记入报告而非算作全优。
 - 发现 `ask --json` stdout 混入 structlog 日志行，管道不可直接解析。修复是一行日志改道 stderr，但 T9.3 已勾选、清单无此项——按范围纪律记 backlog 等裁决，抽查脚本先跳前缀绕过。
 - T10.3 判据含"人工"，Claude 核对不能替代：报告标注"待用户复核后方可勾选"。
+
+## 2026-07-15 · fix · ask --json stdout 纯净化（用户裁决 backlog 项）
+
+做了什么：修复 `--json` 输出混入日志的问题；网络坑结论固化进 CLAUDE.md 环境事实。
+
+- 根因比表象深一层：以为是"日志打错流"，实际是 **`configure_logging` 从未被 CLI 调用**——structlog 一直跑默认配置（PrintLogger→stdout），意味着 T9.3 起脱敏 processor、JSON 渲染也从未生效。教训：**写了配置函数 ≠ 配置生效，接线处要有测试或实跑验证**。
+- 修复两处：CLI 回调接入 configure_logging（ConfigError 时退默认，保住无 .env 的 `--version`）；logger_factory 显式指 stderr。
+- 验证：make ci 58 passed；真实 `ask --json | python -c json.load` 解析成功（修复前该用法必炸）。

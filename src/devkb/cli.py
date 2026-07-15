@@ -12,8 +12,9 @@ from rich.console import Console
 from rich.table import Table
 
 from devkb import __version__
-from devkb.errors import DevKbError, NotFoundError
+from devkb.errors import ConfigError, DevKbError, NotFoundError
 from devkb.ingest.pipeline import IngestReport
+from devkb.logging import configure_logging
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="devkb — 软件项目知识助手")
 runs_app = typer.Typer(no_args_is_help=True, help="查看历史 run")
@@ -28,6 +29,14 @@ def main(
     if version:
         typer.echo(f"devkb {__version__}")
         raise typer.Exit()
+    try:
+        from devkb.config import get_settings
+
+        settings = get_settings()
+        configure_logging(level=settings.log_level, app_env=settings.app_env)
+    except ConfigError:
+        # 配置缺失时仍用默认日志配置；具体命令执行时会给出明确的配置错误
+        configure_logging()
 
 
 @app.command()
