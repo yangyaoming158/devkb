@@ -120,3 +120,41 @@ async def test_bad_files_isolated_batch_continues(session: AsyncSession, tmp_pat
     big = await doc_repo.get_by_rel_path("too_big.md")
     assert big is not None and big.status == "failed"
     assert len(await doc_repo.list_active()) == expected  # failed 不算 active
+
+
+async def test_failed_update_excludes_stale_chunks_from_search(
+    session: AsyncSession, tmp_path: Path
+) -> None:
+    """active 文档更新失败 → 文档标 failed，保留的旧 chunks 必须退出向量检索。
+
+    否则会引用与当前文件行号不符的陈旧内容（2026-07-15 外部审查发现的规格缺失）。
+    """
+    embedder = FakeEmbedder()
+    doc = tmp_path / "guide.md"
+    doc.write_text("# 部署指南\n\n库存服务先于订单服务启动。\n", encoding="utf-8")
+    project_id = await _new_project(session)
+
+    report = await ingest_directory(
+        session, project_id, tmp_path, embedder=embedder, count_tokens=approx_token_counter
+    )
+    assert report.count("ingested") == 1
+
+    chunk_repo = ChunkRepo(session, project_id)
+    query = embedder.embed_query("库存服务先于订单服务启动。")
+    assert any(
+        rel_path == "guide.md" for _, rel_path, _ in await chunk_repo.vector_search(query, 5)
+    )
+
+    # 同一文件更新为不可解码内容：重摄取失败，旧 chunks 因事务回滚保留
+    doc.write_bytes(UNDECODABLE)
+    report = await ingest_directory(
+        session, project_id, tmp_path, embedder=embedder, count_tokens=approx_token_counter
+    )
+    assert report.count("failed") == 1
+
+    document = await DocumentRepo(session, project_id).get_by_rel_path("guide.md")
+    assert document is not None and document.status == "failed"
+    assert await chunk_repo.count() > 0  # 旧 chunks 仍在库（保留上一版是刻意行为）
+    assert not any(  # 但绝不能再被检索到
+        rel_path == "guide.md" for _, rel_path, _ in await chunk_repo.vector_search(query, 5)
+    )

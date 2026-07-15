@@ -158,12 +158,20 @@ class ChunkRepo:
     async def vector_search(
         self, embedding: list[float], top_k: int
     ) -> list[tuple[Chunk, str, float]]:
-        """余弦相似度精确扫描（P0 无 HNSW），返回 (chunk, 所属文档 rel_path, 相似度) 降序。"""
+        """余弦相似度精确扫描（P0 无 HNSW），返回 (chunk, 所属文档 rel_path, 相似度) 降序。
+
+        仅检索 status='active' 文档的 chunks：active 文档更新失败时事务回滚会保留
+        上一版 chunks（文档已标 failed），不过滤会引用与当前文件行号不符的陈旧内容。
+        """
         distance = Chunk.embedding.cosine_distance(embedding).label("distance")
         stmt = (
             select(Chunk, Document.rel_path, distance)
             .join(Document, Chunk.document_id == Document.id)
-            .where(Chunk.project_id == self._project_id, Chunk.embedding.is_not(None))
+            .where(
+                Chunk.project_id == self._project_id,
+                Chunk.embedding.is_not(None),
+                Document.status == "active",
+            )
             .order_by(distance)
             .limit(top_k)
         )
