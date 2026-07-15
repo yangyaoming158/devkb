@@ -21,7 +21,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fi
 
 from devkb.embedding import Embedder
 from devkb.errors import LLMError
-from devkb.llm import LLMClient, LLMResult
+from devkb.llm import LLMClient, LLMResult, compute_cost
 from devkb.repositories import RunRepo
 from devkb.retrieval import RetrievedChunk, retrieve
 
@@ -143,7 +143,7 @@ async def answer_question(
         tokens_in=answer["stats"]["tokens_in"],
         tokens_out=answer["stats"]["tokens_out"],
         usage=result.usage,
-        cost=None,  # 计价纯函数为 T9.5，落库后可由 usage 复算
+        cost=compute_cost(result.model, result.usage),
         latency_ms=latency_ms,
         status="succeeded",
     )

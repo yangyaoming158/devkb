@@ -103,3 +103,12 @@
 ## 2026-07-14 · 治理 · ADR-0009 求职导向路线重排（34abbcf）
 
 用户提供目标 JD，GPT-5.6 起草路线加强计划，我核实审查（编号审计、冻结文档零改动、边界一致性），用户裁决后落盘：可投递线 = P1 + LangFuse + MCP + 投递包（约 7–9 周），P2/P3 重排为 Gate 制，Multi-Agent/GraphRAG 设收益门槛。P0/P1 执行不受影响。
+
+## 2026-07-15 · T9.5 定价冻结与成本闭环
+
+做了什么：`compute_cost(model, usage)` 三档计价纯函数入 llm.py（定价是供应商事实，与 ADR-0004 同源），answer.py 落库时接上；6 条单元测试锁逐档手算值；真实冒烟 run 验证 cost 非空可复算。
+
+- 计价函数的诚实性边界：模型不在价目表（如 fake-llm）或 usage 缺失 → 返回 None 而非按 0 计——cost 列本就可空，"没算"和"算出 0 元"是两回事。
+- usage 无分档字段时全部输入按缓存未命中计（保守高估），有 hit 无 miss 时用 prompt_tokens-hit 推导——兼容供应商字段变动而不静默算错。
+- 冒烟踩坑：unset 代理直连后进程挂死，`ss -tnp` 显示 SYN-SENT 到 108.160.169.175:443——huggingface.co 的 DNS 污染假 IP。T7 记过 `HF_HUB_OFFLINE=1` 的坑，这次是同一根因的新表现（上次是超时重试 5 次，这次直接挂死）。教训：**凡真实冒烟一律带 HF_HUB_OFFLINE=1 + unset 代理**，两个开关缺一不可。
+- 复算闭环（验收 7 判据）：run 8e1e2de0 usage={hit:0, miss:878, out:307}，0×0.02+878×1+307×2=1492 → cost=0.001492 元，与落库值一致；`runs show --json` 可取回。
