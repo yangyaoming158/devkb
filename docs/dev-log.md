@@ -112,3 +112,11 @@
 - usage 无分档字段时全部输入按缓存未命中计（保守高估），有 hit 无 miss 时用 prompt_tokens-hit 推导——兼容供应商字段变动而不静默算错。
 - 冒烟踩坑：unset 代理直连后进程挂死，`ss -tnp` 显示 SYN-SENT 到 108.160.169.175:443——huggingface.co 的 DNS 污染假 IP。T7 记过 `HF_HUB_OFFLINE=1` 的坑，这次是同一根因的新表现（上次是超时重试 5 次，这次直接挂死）。教训：**凡真实冒烟一律带 HF_HUB_OFFLINE=1 + unset 代理**，两个开关缺一不可。
 - 复算闭环（验收 7 判据）：run 8e1e2de0 usage={hit:0, miss:878, out:307}，0×0.02+878×1+307×2=1492 → cost=0.001492 元，与落库值一致；`runs show --json` 可取回。
+
+## 2026-07-15 · T10.0 ADR 转写 + U1.3 补充题草稿
+
+做了什么：转写 ADR-0001（单 Postgres 四职责+规模假设）、ADR-0003（语料核查+解析优先级+P0 摄取范围）、ADR-0007（P0/P1 裁剪清单）；按清单主题候选转写 U1.3 剩余 5 题草稿存 `evalsets/v0/retrieval_supplement.draft.md`。
+
+- 转写纪律：三份 ADR 只搬运《范围冻结与架构决策》既有决策，逐条标注 D/C/S 编号出处，不夹带新决策——转写任务最大的风险是"顺手补充"，出处编号是防走样的锚。
+- U1.3 的两难：清单建议用户盲写以避免分布偏差，但用户又让我推进。处理：草稿写进独立文件、对话里零展示——用户仍可选择不打开文件自己盲写，两个选项都保留。U1.3 不勾，等用户二选一。
+- 5 题锚点全部先到 mini-mall 语料实地核实（标题存在、证据在场）再落笔：q21 超时取消（dev-log Task 17.x）、q22 通知服务（architecture 两节）、q23 审计日志（4.3 Admin Core APIs）、q24 demo seed（dev-quickstart Phase 3 AI 演示数据）、q25 压测阈值（dev-log Task 19.x）。
