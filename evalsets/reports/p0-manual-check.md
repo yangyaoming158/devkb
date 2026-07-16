@@ -1,6 +1,6 @@
 # P0 人工抽查报告（T10.3）
 
-> 执行：2026-07-15，Claude 实跑并逐引用核对原文；**待用户人工复核后 T10.3 方可勾选**。
+> 执行：2026-07-15，Claude 实跑并逐引用核对原文；用户于 2026-07-15 完成人工复核并通过 T10.3。
 > 方式：从 dev 集选 5 问（q01/q06/q09/q12/q13，覆盖 8 个不同文档），对 `mini-mall` 项目（39 文档/1370 chunks，T10.2 摄取）真实运行 `devkb ask`，随后打开每处引用的 `rel_path:Lstart-Lend` 原文行区间，核对内容是否支持回答中标注该 E# 的论断。
 > 环境：deepseek-v4-flash + Qwen3-Embedding-0.6B(cuda)；run 明细可用 `devkb runs list --project mini-mall` 取回。
 

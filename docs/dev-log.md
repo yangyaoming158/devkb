@@ -163,3 +163,12 @@
 - 定性为规格缺失而非实现违规：§8 的 WHERE 本来就没写状态过滤，代码忠实实现了有漏洞的规格——所以修复走"用户裁决改规格"流程而非直接改码。
 - 测试有效性验证：git stash 掉修复跑新测试必红（0.42s fail），恢复后绿。**测试先证明自己能咬住 bug，才配当回归防线**。
 - 测试盲区教训：坏文件测试覆盖了"从未成功的文件"，漏了"成功过的文件变坏"——状态机类逻辑的测试要按转换边覆盖，不是按状态点。
+
+## 2026-07-16 · 治理 · P0 独立复验通过，创建 P1 执行规格
+
+做了什么：独立复跑 P0 的本地/远端 Gate；在 ADR-009 授权下创建 `P1实现规格.md`、`P1任务清单.md`、`Evaluation-v1.md`，并同步 CLAUDE 文档地图与路线图状态（证据：本提交）。
+
+- 复验没有只信清单勾选：本地 `make ci` 为 59 passed、Ruff/Pyright 零错误；迁移在 0001(head)；真实 Qwen 摄取按冻结范围重跑 39 文件全部 skipped、0 新增；数据库保留 mini-mall 39 文档/1370 chunks 和可复算成本 run；最终 P0 头 f30e24d 的 GitHub Actions run 29428269586 为 success。
+- P1 规格把“功能名”改写成可失败的工程 Gate：Hybrid 必须与 exact/lexical 同快照对照，HNSW 测 top-10 overlap；Agent 必须覆盖 full/partial/refusal、补检、L0/L1 重生成和第二次失败降级；供应商总请求（含重试）硬上限 6。
+- Evaluation v1 继续复用 31 问，不为 P1 擅自扩题；Java parser 用 contract/golden 测，不冒充真实问答质量。CI 只守确定性机制，真实 Qwen/DeepSeek dev Gate 单独留档，避免用 Fake 指标包装效果。
+- P0 暴露但不阻断验收的 CLI 基础设施异常呈现债务，收敛进 P1 T19 共用 service/异常映射，而不是清单外顺手改代码。
