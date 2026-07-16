@@ -17,13 +17,26 @@ dependencies = [
     "openai>=2",
     "structlog>=24",
     "tenacity>=9",
+    "langgraph>=1.2.9",
+    "langchain-core>=1.4.9",
+    "fastapi>=0.139.1",
+    "uvicorn>=0.51.0",
+    "tree-sitter>=0.26.0",
+    "tree-sitter-java>=0.23.5",
+    "jieba>=0.42.1",
 ]
 
 [project.scripts]
 devkb = "devkb.cli:app"
 
 [dependency-groups]
-dev = ["ruff>=0.9", "pyright>=1.1.390", "pytest>=8.3", "pytest-asyncio>=0.25"]
+dev = [
+    "ruff>=0.9",
+    "pyright>=1.1.390",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "httpx>=0.28.1",
+]
 # 本地模型栈单独成组：CI 用 `uv sync --no-default-groups --group dev` 跳过
 # （CLAUDE.md 测试纪律：CI 禁真模型，FakeEmbedder 足够；真实现 lazy import）
 ml = ["torch>=2.6", "sentence-transformers>=3.3"]

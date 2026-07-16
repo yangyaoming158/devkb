@@ -197,3 +197,12 @@
 - 先验证天花板再跑分：Repository 增加受 project/status 约束的路径+标题索引读取，实测 25/25 个 `rel_path + anchor` 在当前可检索 chunks 中可解析，避免重演 T1 “锚点不在语料却解读召回率”的教训；隔离测试同时锁定 failed 文档和其他 project 不可见。
 - 机器计算结果：Recall@5=`0.647`、Recall@10=`0.824`、MRR@10=`0.511`；q02/q08/q15 在 top-10 未命中标注锚点。这些负结果原样留档，未因结果修改标注、检索参数或语料。
 - 数据纪律：脚本只读取冻结的 17 题 dev 文件，不提供 holdout 参数；原始报告记录 `holdout_accessed=false`、devkb/source commit、worktree 状态、模型配置、逐题 top-10 与语料 SHA-256。
+
+## 2026-07-16 · T11.2 · P1 新依赖最小 spike
+
+做了什么：按 P1 依赖门禁锁定 LangGraph/FastAPI/tree-sitter Java/jieba 和测试用 HTTPX，分别运行最小成功样例，然后收敛为 `tests/unit/test_p1_dependency_spikes.py` 的 4 条正式兼容性契约；版本、许可来源、维护日期与风险详见 `benchmarks/p1_dependency_spike.md`（证据：本提交）。
+
+- 最小依赖边界：FastAPI 不安装 `[standard]` extras，Uvicorn 只带基础 h11；HTTPX 明确放进 dev group；未安装 `langchain` 元包、provider/VectorStore、Postgres checkpoint adapter 或任何 P2 依赖。
+- 转递依赖的边界要靠使用约束而非假装不存在：LangGraph 自身要求 `langgraph-checkpoint/prebuilt/sdk`，`langchain-core` 要求 `langsmith`。这些包只是锁定的上游依赖，P1 不导入/配置 LangSmith、不启用 checkpointer，也不把它们宣称为已实现能力。
+- 真实兼容性结果：LangGraph `START→node→END`、HTTPX `ASGITransport` async 请求、Java package/class/field/constructor/method CST、jieba `HMM=False` 重复分词全部通过；整个 spike 不启动网络端口、不执行 Java。
+- 维护风险：jieba 0.42.1 自 2020-01 后无新 PyPI release，Python 3.12 首次编译还会报 invalid escape `SyntaxWarning`。规格已冻结 jieba，本任务不擅自换库；后续 T14 以纯函数封装、`HMM=False` 和 golden 防漂移。
