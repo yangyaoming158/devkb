@@ -1,0 +1,2003 @@
+{
+  "schema_version": "p1-dev-retrieval-pre-v1",
+  "run": {
+    "started_at": "2026-07-16T21:41:58+08:00",
+    "devkb_commit": "0a75a895c037260379da1fdda560d660bd6b5f38",
+    "devkb_worktree_dirty": true,
+    "source_commit": "cfb49f5090befe62f024f1781144fe77e5b905c7",
+    "source_worktree_dirty": true,
+    "command": "env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY HF_HUB_OFFLINE=1 uv run python benchmarks/p1_dev_baseline.py",
+    "holdout_accessed": false
+  },
+  "corpus": {
+    "scope": "p0-frozen-markdown-full",
+    "project": "mini-mall",
+    "document_count": 39,
+    "chunk_count": 1370,
+    "sha256": "12e64bbdfd05cda8699a7810a12eb10f52ccbdc88efd7f12e908a4f3cc5141a6",
+    "documents": [
+      {
+        "rel_path": "README.md",
+        "content_hash": "4b5bd2d317326a6d104dd4b5a27421411998251395cb915d1cd32a6263040db9"
+      },
+      {
+        "rel_path": "README.zh-CN.md",
+        "content_hash": "7c779ec31271009538379081ffe4ac94eeb194d521cb48b8d09c990c51706213"
+      },
+      {
+        "rel_path": "docs/ai-assistant-smoke-findings-2026-06-12.md",
+        "content_hash": "33d479c0e6e7b82efa063137b0f2a6d0f2a3086aa622d291aa44ae7056c84868"
+      },
+      {
+        "rel_path": "docs/api-gateway-contract.md",
+        "content_hash": "129e3d8e3afdece917835008d15d8c90702aef1d0393a04cd79c546b0731b67f"
+      },
+      {
+        "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+        "content_hash": "0495d59376e2c008b4565f44f0cd7cb7f90e7447c4f105a586dedbbc5847a7f0"
+      },
+      {
+        "rel_path": "docs/architecture.md",
+        "content_hash": "d9a0a7de7fc2b161261d7dda4bbb694551918221951c1bf238da204ae7e7680a"
+      },
+      {
+        "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+        "content_hash": "685d796e58b2e50097cfeccf9d704bfb8faeb9e4b0fa17fee7a84ede50026f9d"
+      },
+      {
+        "rel_path": "docs/audit/fix-plans/README.md",
+        "content_hash": "53586aaf085823b815d148f847ad7f0943c7096f846031f3f5f7cc4ab3233c48"
+      },
+      {
+        "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+        "content_hash": "4212173536eebbcdaf0e40f8bdd6c0b20c9a0136092780add71e2626425a8b7b"
+      },
+      {
+        "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+        "content_hash": "cae7c653689f40f8f8dd5626a93e805039262ee42543fdb2ad44fedd103b97bc"
+      },
+      {
+        "rel_path": "docs/audit/fix-plans/phase-c-plan.md",
+        "content_hash": "616d498faff44cd3b622f2228b4169a90d0ff96cd4eafdb0e482b6ce4b7a9ee5"
+      },
+      {
+        "rel_path": "docs/audit/full-repo-audit.md",
+        "content_hash": "275a91e4ee85e95e408de1e6b3a158928f73649886c78ee4fcd8b2129aa179f2"
+      },
+      {
+        "rel_path": "docs/demo-runbook.md",
+        "content_hash": "e63d5ba37f4b4bc0b0f584d46c96660d5a614cb1c692cef326f6a367d36b635e"
+      },
+      {
+        "rel_path": "docs/deployment.md",
+        "content_hash": "a9ef63caca0b4a848cc0eabe2620863055a30cb5214b0022ae9cbad119a14fc7"
+      },
+      {
+        "rel_path": "docs/dev-log.md",
+        "content_hash": "1eeb1ce22d83170c2bd0f94b10874ab298822890e3fbc9a51d7f875045252e8a"
+      },
+      {
+        "rel_path": "docs/dev-quickstart.md",
+        "content_hash": "d25f2a9a955d4c6e69fe854a4705be1ad6bbac24792e5e0e78e7579349822c7c"
+      },
+      {
+        "rel_path": "docs/final-acceptance.md",
+        "content_hash": "c000346a2b9a68e6b6b549f6becd05570358e8dc35d8bcf46c8a76ec02835da3"
+      },
+      {
+        "rel_path": "docs/frontend-integration.md",
+        "content_hash": "ec141b253fbe9942c7454f464d3139be2a8efe667d42a168075363177235160f"
+      },
+      {
+        "rel_path": "docs/history/api-contract-review.md",
+        "content_hash": "4364db9ed57c60e8ebcdf9ef4057d9758badd489bb4dddb0bd3c24e632bb3b4f"
+      },
+      {
+        "rel_path": "docs/history/phase0-api-contract-scope.md",
+        "content_hash": "446db274a60892c5fba4f2265d58f550a4335ce5fcd8cb48d646d11fa9839c8d"
+      },
+      {
+        "rel_path": "docs/history/phase0-dto-pagination-audit.md",
+        "content_hash": "28fbe91189fa9a98074ac560cba6ff392491fa03870213740c99909a46a13c45"
+      },
+      {
+        "rel_path": "docs/history/phase1-frontend-design.md",
+        "content_hash": "e1a6b81a4df1a7be028684379adbc4272987819b792422a468cfd1834e06f0e4"
+      },
+      {
+        "rel_path": "docs/history/phase1-frontend-prereview.md",
+        "content_hash": "a5640e50c8308cdc600913f59e401acb7c087216afa36e8a40f683dbf5678f6a"
+      },
+      {
+        "rel_path": "docs/history/phase1-ui-redesign.md",
+        "content_hash": "920903002d574e36396b79a72e7288776f9b0a8601545d556f42589dc5f0e6be"
+      },
+      {
+        "rel_path": "docs/history/phase2-5-ai-inventory-contract.md",
+        "content_hash": "3b5db89e114ee9df511f13f457210f1fa776586826cd931e604ab0d55c687295"
+      },
+      {
+        "rel_path": "docs/history/phase2-admin-api-contract.md",
+        "content_hash": "cadd7141f3ca87ac5a8b436c08673489b1e4738429847a1116fa6be8672f263f"
+      },
+      {
+        "rel_path": "docs/history/phase2.5-ai-inventory-backlog.md",
+        "content_hash": "80b4796875c2648cd0625e4f78c347aeadd7dbc98f1880b9e45f4e5b88d76fed"
+      },
+      {
+        "rel_path": "docs/history/project-acceptance-report.md",
+        "content_hash": "00b45619caf221dfacd9865086781cb07738e3b207ffde220bec90c966924a95"
+      },
+      {
+        "rel_path": "docs/local-infrastructure.md",
+        "content_hash": "3139bc7a930cf939aff7c5377f626c2983cd06cf6c30fa654c9c6763e73f5ed3"
+      },
+      {
+        "rel_path": "docs/messaging/payment-success-event.md",
+        "content_hash": "5a40fc06c54581998c60d489ba09bb365f68e91e1f9ff6de2b8777945441bd43"
+      },
+      {
+        "rel_path": "docs/observability.md",
+        "content_hash": "5ed7488fcdaa225fba4c94d2125db98b2966a79c7407f363ca9cf77a1670600e"
+      },
+      {
+        "rel_path": "docs/phase0-acceptance.md",
+        "content_hash": "2eb25fb0be6dd729225a1ce1038b890ac0ab496e568c0361da83a1b7d2e910cd"
+      },
+      {
+        "rel_path": "docs/phase1-frontend-acceptance.md",
+        "content_hash": "9f146a58ab60c753afec4c0b9c870dbee378488916f023bcbd4ac9a6e9b37d16"
+      },
+      {
+        "rel_path": "docs/phase2-5-ai-inventory-readiness-acceptance.md",
+        "content_hash": "520bea62424917f90df2bf57846f7f678f97cf84c24027be960a39615d197c4b"
+      },
+      {
+        "rel_path": "docs/phase2-admin-acceptance.md",
+        "content_hash": "938aef70a3de026f8b775a1e3d280654fd1f9761ae7e1891590f41eb55e67cb5"
+      },
+      {
+        "rel_path": "docs/phase3-acceptance.md",
+        "content_hash": "ea781318c8f8a40b003ed11698f801cbf898ca596be20d511b2603e7ef5fa2d6"
+      },
+      {
+        "rel_path": "docs/phase3-ai-inventory-contract.md",
+        "content_hash": "81c720fd2a0322b903d7f1a20195548a7a875752ecba45e710e06e7fad1d16af"
+      },
+      {
+        "rel_path": "docs/sql/README.md",
+        "content_hash": "c9a6faeb49b5d63d4a49e850db361de19d69ab97e23f2d784eb74ed7ad548d67"
+      },
+      {
+        "rel_path": "docs/sql/migrations/README.md",
+        "content_hash": "b9bf59e2a6e51b7dd940bfba7cb6178d610be1e43a06df39c175450b3ab20fce"
+      }
+    ]
+  },
+  "dataset": {
+    "path": "evalsets/v0/retrieval_dev.jsonl",
+    "question_count": 17
+  },
+  "config": {
+    "mode": "vector-exact",
+    "top_k": 10,
+    "distance": "cosine",
+    "embedding_model_id": "Qwen/Qwen3-Embedding-0.6B",
+    "embedding_device": "cuda",
+    "embedding_batch_size": 32,
+    "embedding_max_seq_length": 1024,
+    "query_prompt_name": "query"
+  },
+  "coverage": {
+    "total": 25,
+    "resolved": 25,
+    "missing": []
+  },
+  "metrics": {
+    "recall_at_5": 0.6470588235294118,
+    "recall_at_10": 0.8235294117647058,
+    "mrr_at_10": 0.5107843137254902
+  },
+  "questions": [
+    {
+      "id": "q01",
+      "question": "创建订单接口是怎么防止用户重复提交的？",
+      "relevant": [
+        {
+          "rel_path": "docs/dev-log.md",
+          "anchor": "Task 10.5 - Duplicate submit idempotency for create order"
+        },
+        {
+          "rel_path": "docs/api-gateway-contract.md",
+          "anchor": "4.1 Customer And Public APIs"
+        }
+      ],
+      "hit_rank": 1,
+      "reciprocal_rank_at_10": 1.0,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "eddd993d-f0d6-42b6-ab4a-12f986ccc09a",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 10.5 - Duplicate submit idempotency for create order",
+          "start_line": 378,
+          "end_line": 382,
+          "score": 0.6742414725877022
+        },
+        {
+          "rank": 2,
+          "chunk_id": "042a387d-9d76-414d-9de8-ab5c89433c35",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第三部分：核心业务链路审查 > 不变量保护核对表",
+          "start_line": 144,
+          "end_line": 157,
+          "score": 0.6071343040112305
+        },
+        {
+          "rank": 3,
+          "chunk_id": "7ddd7685-8bb0-48d2-a933-6d58d8ff250e",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 10.4 - Create order orchestration and persistence",
+          "start_line": 368,
+          "end_line": 377,
+          "score": 0.589856611052567
+        },
+        {
+          "rank": 4,
+          "chunk_id": "b3d19b07-1b1b-47f3-968a-b2e031627e24",
+          "rel_path": "docs/phase1-frontend-acceptance.md",
+          "title_path": "Phase 1 — Customer Frontend Acceptance > 6. Idempotency contract",
+          "start_line": 126,
+          "end_line": 139,
+          "score": 0.5876330140910716
+        },
+        {
+          "rank": 5,
+          "chunk_id": "b0b5c3e3-9a57-40e9-a945-0bceab37b2ec",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Phase 1 Task 7 - Implement checkout and idempotent order creation",
+          "start_line": 1012,
+          "end_line": 1016,
+          "score": 0.5611621330285189
+        },
+        {
+          "rank": 6,
+          "chunk_id": "40f5f226-7e5c-4041-a99e-a4b229ecd6f1",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > 2026-05-24 · B3 — Checkout page rewrite",
+          "start_line": 1306,
+          "end_line": 1308,
+          "score": 0.5582456788887641
+        },
+        {
+          "rank": 7,
+          "chunk_id": "d7ef504e-c54c-493a-9da8-d67b110a49ee",
+          "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+          "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B3（P2-4）：重复支付幂等重放",
+          "start_line": 65,
+          "end_line": 71,
+          "score": 0.5549126580483993
+        },
+        {
+          "rank": 8,
+          "chunk_id": "14f38a66-6169-4114-9ae4-b149f02421ee",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Phase 1 Task 7 - Implement checkout and idempotent order creation",
+          "start_line": 1021,
+          "end_line": 1023,
+          "score": 0.553337634308088
+        },
+        {
+          "rank": 9,
+          "chunk_id": "f65f023f-a21e-437a-bf7b-582fb1eab840",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > 2026-05-24 · B3 — Checkout page rewrite",
+          "start_line": 1318,
+          "end_line": 1321,
+          "score": 0.5460676975341155
+        },
+        {
+          "rank": 10,
+          "chunk_id": "6f185db1-3cf1-4d14-b66c-6a71511fa070",
+          "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+          "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B3（P2-4）：重复支付幂等重放",
+          "start_line": 89,
+          "end_line": 92,
+          "score": 0.5452095714884091
+        }
+      ]
+    },
+    {
+      "id": "q02",
+      "question": "库存扣减的幂等键是什么？同一订单重复扣减会发生什么？",
+      "relevant": [
+        {
+          "rel_path": "docs/dev-log.md",
+          "anchor": "Task 8.3 - Inventory deduct/release records and idempotency"
+        }
+      ],
+      "hit_rank": null,
+      "reciprocal_rank_at_10": 0.0,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "042a387d-9d76-414d-9de8-ab5c89433c35",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第三部分：核心业务链路审查 > 不变量保护核对表",
+          "start_line": 144,
+          "end_line": 157,
+          "score": 0.7217863297159411
+        },
+        {
+          "rank": 2,
+          "chunk_id": "7d631707-f1d4-492c-9cee-70b4242184f4",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 9. 数据一致性与事务专项审查",
+          "start_line": 176,
+          "end_line": 185,
+          "score": 0.6693886214620782
+        },
+        {
+          "rank": 3,
+          "chunk_id": "71b1886d-3bce-4fe0-9b2c-45c284bdd78f",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）",
+          "start_line": 63,
+          "end_line": 72,
+          "score": 0.6316134031948262
+        },
+        {
+          "rank": 4,
+          "chunk_id": "5bf3a362-4b0d-4962-b353-b53798d40c97",
+          "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+          "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B2（P2-3）：库存调整幂等检查按 productId 区分",
+          "start_line": 47,
+          "end_line": 64,
+          "score": 0.622100794317892
+        },
+        {
+          "rank": 5,
+          "chunk_id": "9298c3cd-9045-4399-a61f-018853634fe7",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 11. 测试覆盖专项审查",
+          "start_line": 203,
+          "end_line": 213,
+          "score": 0.6087883089111054
+        },
+        {
+          "rank": 6,
+          "chunk_id": "cd6ea319-b84b-4e54-8e26-3eae359cb11a",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 5. P2 级问题 > P2-3：库存调整幂等检查未按 productId 区分，requestId 复用会静默吞掉合法调整",
+          "start_line": 98,
+          "end_line": 106,
+          "score": 0.6021632203674352
+        },
+        {
+          "rank": 7,
+          "chunk_id": "dcdc6c22-ce54-44e7-ae52-1aa4bbc3e7d8",
+          "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+          "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B6（决策门，默认跳过）：M2 —— 下单 saga 缺口",
+          "start_line": 126,
+          "end_line": 143,
+          "score": 0.5746749274700099
+        },
+        {
+          "rank": 8,
+          "chunk_id": "9577527d-1ccb-44ab-8dac-ca9f7de47ddf",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 5. P2 级问题 > P2-4：重复支付返回 409 而非幂等重放，idempotencyKey 存而不用",
+          "start_line": 107,
+          "end_line": 115,
+          "score": 0.5671633929017138
+        },
+        {
+          "rank": 9,
+          "chunk_id": "25c132ee-cf4b-409b-a3df-52cc294ba96c",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 6. P3 级问题",
+          "start_line": 147,
+          "end_line": 152,
+          "score": 0.5569327485779845
+        },
+        {
+          "rank": 10,
+          "chunk_id": "7e507a7a-aacf-4ab0-a5fa-5f11eea73e7d",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-1：订单取消与支付成功存在双向并发竞争，且无补偿路径",
+          "start_line": 50,
+          "end_line": 50,
+          "score": 0.5533698256521774
+        }
+      ]
+    },
+    {
+      "id": "q03",
+      "question": "订单状态机允许哪些状态流转？",
+      "relevant": [
+        {
+          "rel_path": "docs/dev-log.md",
+          "anchor": "Task 9.2 - OrderStateMachine status transitions"
+        }
+      ],
+      "hit_rank": 1,
+      "reciprocal_rank_at_10": 1.0,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "1bccdc3e-ff0b-4c57-aa50-8e025e0389d8",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 9.2 - OrderStateMachine status transitions",
+          "start_line": 306,
+          "end_line": 315,
+          "score": 0.6398048505054565
+        },
+        {
+          "rank": 2,
+          "chunk_id": "6baa51a9-c725-43f7-86c2-dafc4fa71300",
+          "rel_path": "docs/phase3-ai-inventory-contract.md",
+          "title_path": "Phase 3 AI Inventory Assistant Contract > 4. Existing Status Model",
+          "start_line": 88,
+          "end_line": 111,
+          "score": 0.5562087242945469
+        },
+        {
+          "rank": 3,
+          "chunk_id": "1c928821-ad07-48a3-8bc7-bc899f60e0bd",
+          "rel_path": "docs/history/phase1-frontend-design.md",
+          "title_path": "Phase 1 前端 UI 设计方案（MiniMall 用户前台） > 3. 颜色、字体、间距建议",
+          "start_line": 98,
+          "end_line": 117,
+          "score": 0.5547022855252297
+        },
+        {
+          "rank": 4,
+          "chunk_id": "433ef841-cd61-41b5-ae79-7afa938641b8",
+          "rel_path": "docs/history/phase1-ui-redesign.md",
+          "title_path": "MiniMall Phase 1 — Customer Frontend UI/UX Redesign Brief > 5. Page-by-page specification > 5.7 Orders list",
+          "start_line": 448,
+          "end_line": 459,
+          "score": 0.5365546915613044
+        },
+        {
+          "rank": 5,
+          "chunk_id": "91562372-df21-45d8-a9d9-21aad47fe311",
+          "rel_path": "docs/history/phase1-ui-redesign.md",
+          "title_path": "MiniMall Phase 1 — Customer Frontend UI/UX Redesign Brief > 5. Page-by-page specification > 5.8 Order detail",
+          "start_line": 475,
+          "end_line": 501,
+          "score": 0.52881525563694
+        },
+        {
+          "rank": 6,
+          "chunk_id": "f4d0b364-e722-4a66-9dd8-d9e143332121",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > 2026-05-24 · B5 — Order detail page rewrite",
+          "start_line": 1384,
+          "end_line": 1393,
+          "score": 0.5287058480509627
+        },
+        {
+          "rank": 7,
+          "chunk_id": "ff023b9a-4f0d-4a1a-9f20-15f6b52ac886",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 7. AI 库存助手专项审查",
+          "start_line": 160,
+          "end_line": 162,
+          "score": 0.5230498190438999
+        },
+        {
+          "rank": 8,
+          "chunk_id": "72ac3ea1-9360-465d-9bf9-5a8e6ee5eba5",
+          "rel_path": "docs/history/phase1-ui-redesign.md",
+          "title_path": "MiniMall Phase 1 — Customer Frontend UI/UX Redesign Brief > 9. Risk register > 9.4 Smoke flow (run after every Phase B step that affects it)",
+          "start_line": 734,
+          "end_line": 760,
+          "score": 0.5218625299722383
+        },
+        {
+          "rank": 9,
+          "chunk_id": "de9e53fc-3682-4ff8-b3b6-3561337ec7f8",
+          "rel_path": "docs/phase1-frontend-acceptance.md",
+          "title_path": "Phase 1 — Customer Frontend Acceptance > 3. State Matrix",
+          "start_line": 64,
+          "end_line": 68,
+          "score": 0.5199074466004089
+        },
+        {
+          "rank": 10,
+          "chunk_id": "881cda6d-fe58-452f-89d9-bb6b2851dce6",
+          "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+          "title_path": "Phase A 修复规划 —— 消除订单取消/支付并发竞争 > 2. 方案决策 > 选定方案：全部状态迁移改为\"状态守卫条件更新\"（CAS）",
+          "start_line": 29,
+          "end_line": 40,
+          "score": 0.5186724570385406
+        }
+      ]
+    },
+    {
+      "id": "q04",
+      "question": "网关会剥掉浏览器传来的哪些请求头？为什么要剥？",
+      "relevant": [
+        {
+          "rel_path": "docs/api-gateway-contract.md",
+          "anchor": "2. Authentication And Trust Boundary"
+        }
+      ],
+      "hit_rank": 10,
+      "reciprocal_rank_at_10": 0.1,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "b6d6bf71-1b27-45ca-9793-18f7ad89637a",
+          "rel_path": "docs/history/phase2-admin-api-contract.md",
+          "title_path": "Phase 2 Admin API Contract > 3. Role And Authentication Contract > 3.3 Trusted Headers",
+          "start_line": 87,
+          "end_line": 99,
+          "score": 0.5000386330680321
+        },
+        {
+          "rank": 2,
+          "chunk_id": "fc8d441d-c024-4924-9c68-48bccc1cea9e",
+          "rel_path": "docs/frontend-integration.md",
+          "title_path": "Frontend Integration Guide > Browser Acceptance Checklist",
+          "start_line": 131,
+          "end_line": 153,
+          "score": 0.4948472223690332
+        },
+        {
+          "rank": 3,
+          "chunk_id": "23a7afb0-5ddb-4844-b7f1-8ca7e6253a75",
+          "rel_path": "docs/history/project-acceptance-report.md",
+          "title_path": "MiniMall Order Project Acceptance Report > Stable Gateway Contracts",
+          "start_line": 126,
+          "end_line": 131,
+          "score": 0.4910997847524784
+        },
+        {
+          "rank": 4,
+          "chunk_id": "b57c060d-70cc-471f-9e36-4c290259c692",
+          "rel_path": "docs/audit/full-repo-audit.md",
+          "title_path": "全仓库审计报告 > 总结",
+          "start_line": 42,
+          "end_line": 47,
+          "score": 0.4875451247059117
+        },
+        {
+          "rank": 5,
+          "chunk_id": "15b43673-bd25-4885-a640-9abd22abd68b",
+          "rel_path": "docs/history/phase2-5-ai-inventory-contract.md",
+          "title_path": "Phase 2.5 AI Inventory Integration Contract > 5. Gateway And Trust Boundary",
+          "start_line": 101,
+          "end_line": 120,
+          "score": 0.479757007325909
+        },
+        {
+          "rank": 6,
+          "chunk_id": "263c2ab4-d8ca-4e66-b4e2-0b53eeb8a1a5",
+          "rel_path": "docs/api-gateway-contract.md",
+          "title_path": "API Gateway Contract > 6. Browser Support, Rate Limiting, And Logging",
+          "start_line": 248,
+          "end_line": 261,
+          "score": 0.4702005293717265
+        },
+        {
+          "rank": 7,
+          "chunk_id": "c78c9e82-9f73-4e0c-9104-869c106b6390",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 16.5 - Gateway integration regression verification",
+          "start_line": 638,
+          "end_line": 642,
+          "score": 0.4697714267363924
+        },
+        {
+          "rank": 8,
+          "chunk_id": "bed9361d-359d-4045-a10f-a4870ba6a117",
+          "rel_path": "docs/phase3-ai-inventory-contract.md",
+          "title_path": "Phase 3 AI Inventory Assistant Contract > 5. Gateway And Trust Boundary",
+          "start_line": 113,
+          "end_line": 133,
+          "score": 0.46491260302186155
+        },
+        {
+          "rank": 9,
+          "chunk_id": "5a861fdd-a67f-4a8f-9182-02cbbc13bbb6",
+          "rel_path": "docs/history/api-contract-review.md",
+          "title_path": "API Contract Review > Resolved in Task 16",
+          "start_line": 33,
+          "end_line": 42,
+          "score": 0.46086481295858095
+        },
+        {
+          "rank": 10,
+          "chunk_id": "b9b6f8cf-5506-4045-8faa-17a3d3ab9cc8",
+          "rel_path": "docs/api-gateway-contract.md",
+          "title_path": "API Gateway Contract > 2. Authentication And Trust Boundary",
+          "start_line": 57,
+          "end_line": 85,
+          "score": 0.45817167900581424
+        }
+      ]
+    },
+    {
+      "id": "q05",
+      "question": "哪些接口是公开的、不需要带 JWT？",
+      "relevant": [
+        {
+          "rel_path": "docs/api-gateway-contract.md",
+          "anchor": "2. Authentication And Trust Boundary"
+        }
+      ],
+      "hit_rank": 6,
+      "reciprocal_rank_at_10": 0.16666666666666666,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "a7642c54-5396-4e3d-86a7-4e4fcc18926f",
+          "rel_path": "docs/api-gateway-contract.md",
+          "title_path": "API Gateway Contract > 4. Current Endpoint Index",
+          "start_line": 120,
+          "end_line": 128,
+          "score": 0.6423206290078723
+        },
+        {
+          "rank": 2,
+          "chunk_id": "6f213264-f875-466d-993e-3a8f1b8916a6",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第六部分：安全风险分级",
+          "start_line": 229,
+          "end_line": 231,
+          "score": 0.5924050920902699
+        },
+        {
+          "rank": 3,
+          "chunk_id": "506d1770-979c-4b3d-9ffc-59142c291cca",
+          "rel_path": "docs/frontend-integration.md",
+          "title_path": "Frontend Integration Guide > Authentication Flow",
+          "start_line": 65,
+          "end_line": 83,
+          "score": 0.5838682487955154
+        },
+        {
+          "rank": 4,
+          "chunk_id": "0887d25e-0a72-4b55-b1b6-3957ad2728d4",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 10. 权限与安全专项审查",
+          "start_line": 186,
+          "end_line": 195,
+          "score": 0.5741314813769754
+        },
+        {
+          "rank": 5,
+          "chunk_id": "46f430fc-399a-4aed-8876-62a390c2a55b",
+          "rel_path": "docs/history/phase2-admin-api-contract.md",
+          "title_path": "Phase 2 Admin API Contract > 4. Gateway Contract > 4.1 Public And Customer Routes",
+          "start_line": 103,
+          "end_line": 116,
+          "score": 0.5733651713882137
+        },
+        {
+          "rank": 6,
+          "chunk_id": "b9b6f8cf-5506-4045-8faa-17a3d3ab9cc8",
+          "rel_path": "docs/api-gateway-contract.md",
+          "title_path": "API Gateway Contract > 2. Authentication And Trust Boundary",
+          "start_line": 57,
+          "end_line": 85,
+          "score": 0.5604195429044864
+        },
+        {
+          "rank": 7,
+          "chunk_id": "23a7afb0-5ddb-4844-b7f1-8ca7e6253a75",
+          "rel_path": "docs/history/project-acceptance-report.md",
+          "title_path": "MiniMall Order Project Acceptance Report > Stable Gateway Contracts",
+          "start_line": 126,
+          "end_line": 131,
+          "score": 0.551820097571603
+        },
+        {
+          "rank": 8,
+          "chunk_id": "f01106e7-7b5d-442e-bece-2e8f81e8d1e0",
+          "rel_path": "docs/history/phase2-admin-api-contract.md",
+          "title_path": "Phase 2 Admin API Contract > 3. Role And Authentication Contract > 3.2 JWT Claims",
+          "start_line": 73,
+          "end_line": 85,
+          "score": 0.5432519997550775
+        },
+        {
+          "rank": 9,
+          "chunk_id": "5c55e3f1-3b67-48fc-af55-7c69686c954f",
+          "rel_path": "docs/phase0-acceptance.md",
+          "title_path": "Phase 0 API Contract Polish Acceptance > Follow-up Items",
+          "start_line": 130,
+          "end_line": 149,
+          "score": 0.5410842605505942
+        },
+        {
+          "rank": 10,
+          "chunk_id": "f031e6a0-3ea2-443e-be29-86850de206e0",
+          "rel_path": "docs/history/api-contract-review.md",
+          "title_path": "API Contract Review > Resolved in Phase 0 Task 6",
+          "start_line": 71,
+          "end_line": 75,
+          "score": 0.5409309764686611
+        }
+      ]
+    },
+    {
+      "id": "q06",
+      "question": "支付成功事件用的 exchange、routing key 和两个消费队列分别是什么？",
+      "relevant": [
+        {
+          "rel_path": "docs/architecture.md",
+          "anchor": "Event Flow"
+        },
+        {
+          "rel_path": "docs/deployment.md",
+          "anchor": "RabbitMQ Operations"
+        }
+      ],
+      "hit_rank": 1,
+      "reciprocal_rank_at_10": 1.0,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "a0624d3d-4f52-462f-981c-eaede785c8cc",
+          "rel_path": "docs/architecture.md",
+          "title_path": "Architecture > Event Flow",
+          "start_line": 90,
+          "end_line": 109,
+          "score": 0.7726037667334171
+        },
+        {
+          "rank": 2,
+          "chunk_id": "b6e774db-f8bf-42fd-b0ad-065e97d3a866",
+          "rel_path": "docs/deployment.md",
+          "title_path": "Deployment And Operations > RabbitMQ Operations",
+          "start_line": 143,
+          "end_line": 162,
+          "score": 0.7349439586322959
+        },
+        {
+          "rank": 3,
+          "chunk_id": "c088b98b-be65-403d-97d4-83e4a2f91152",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 12.3 - Document payment event contract and topology",
+          "start_line": 458,
+          "end_line": 467,
+          "score": 0.7218511903835063
+        },
+        {
+          "rank": 4,
+          "chunk_id": "38d4dee6-61e5-4fb7-a4c7-4187bb95196e",
+          "rel_path": "docs/messaging/payment-success-event.md",
+          "title_path": "Payment Success Event Contract > RabbitMQ Topology",
+          "start_line": 13,
+          "end_line": 29,
+          "score": 0.7066614810441689
+        },
+        {
+          "rank": 5,
+          "chunk_id": "460e1f54-ef58-4ef8-b8c0-85383202a2b4",
+          "rel_path": "docs/history/project-acceptance-report.md",
+          "title_path": "MiniMall Order Project Acceptance Report > Data And Event Contracts",
+          "start_line": 143,
+          "end_line": 169,
+          "score": 0.6958798006871931
+        },
+        {
+          "rank": 6,
+          "chunk_id": "1145b0f8-706b-4260-8a91-ce4536125d9e",
+          "rel_path": "docs/messaging/payment-success-event.md",
+          "title_path": "Payment Success Event Contract > Scope",
+          "start_line": 3,
+          "end_line": 12,
+          "score": 0.6905493831111822
+        },
+        {
+          "rank": 7,
+          "chunk_id": "779fcd29-b69c-4398-b4df-c869fe9eff4a",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 12.1 - Define shared payment success event contract",
+          "start_line": 438,
+          "end_line": 442,
+          "score": 0.6789539819310033
+        },
+        {
+          "rank": 8,
+          "chunk_id": "545d0ac9-51a1-459c-a91e-f2102cf6972b",
+          "rel_path": "docs/messaging/payment-success-event.md",
+          "title_path": "Payment Success Event Contract > Producer Rules",
+          "start_line": 57,
+          "end_line": 67,
+          "score": 0.6658127768938726
+        },
+        {
+          "rank": 9,
+          "chunk_id": "ffccb3bc-50f3-480f-9f21-e94952e13720",
+          "rel_path": "docs/messaging/payment-success-event.md",
+          "title_path": "Payment Success Event Contract > Consumer Rules",
+          "start_line": 68,
+          "end_line": 86,
+          "score": 0.6187275906363251
+        },
+        {
+          "rank": 10,
+          "chunk_id": "c21d718e-52bb-4598-9cbb-5b6c6d9c4fa7",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 15.3 - PaymentSuccessEvent notification consumer",
+          "start_line": 588,
+          "end_line": 592,
+          "score": 0.6166553727123527
+        }
+      ]
+    },
+    {
+      "id": "q07",
+      "question": "消费支付事件为什么必须按 eventId 去重？",
+      "relevant": [
+        {
+          "rel_path": "docs/architecture.md",
+          "anchor": "Event Flow"
+        }
+      ],
+      "hit_rank": 4,
+      "reciprocal_rank_at_10": 0.25,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "ffccb3bc-50f3-480f-9f21-e94952e13720",
+          "rel_path": "docs/messaging/payment-success-event.md",
+          "title_path": "Payment Success Event Contract > Consumer Rules",
+          "start_line": 68,
+          "end_line": 86,
+          "score": 0.6448167002649743
+        },
+        {
+          "rank": 2,
+          "chunk_id": "460e1f54-ef58-4ef8-b8c0-85383202a2b4",
+          "rel_path": "docs/history/project-acceptance-report.md",
+          "title_path": "MiniMall Order Project Acceptance Report > Data And Event Contracts",
+          "start_line": 143,
+          "end_line": 169,
+          "score": 0.5965423282152716
+        },
+        {
+          "rank": 3,
+          "chunk_id": "e4786854-12c9-4a66-957d-3957ce0c13f4",
+          "rel_path": "docs/messaging/payment-success-event.md",
+          "title_path": "Payment Success Event Contract > Event Payload",
+          "start_line": 31,
+          "end_line": 55,
+          "score": 0.5868763875828967
+        },
+        {
+          "rank": 4,
+          "chunk_id": "a0624d3d-4f52-462f-981c-eaede785c8cc",
+          "rel_path": "docs/architecture.md",
+          "title_path": "Architecture > Event Flow",
+          "start_line": 90,
+          "end_line": 109,
+          "score": 0.5734045573504437
+        },
+        {
+          "rank": 5,
+          "chunk_id": "9577527d-1ccb-44ab-8dac-ca9f7de47ddf",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 5. P2 级问题 > P2-4：重复支付返回 409 而非幂等重放，idempotencyKey 存而不用",
+          "start_line": 107,
+          "end_line": 115,
+          "score": 0.5715885520303835
+        },
+        {
+          "rank": 6,
+          "chunk_id": "6318f709-64c9-44c8-8e45-64aee67070fe",
+          "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+          "title_path": "Phase A 修复规划 —— 消除订单取消/支付并发竞争 > 3. 任务分解 > 任务 A3：paid-but-cancelled 可观测性（方向 2）",
+          "start_line": 104,
+          "end_line": 120,
+          "score": 0.5650693623124169
+        },
+        {
+          "rank": 7,
+          "chunk_id": "6f185db1-3cf1-4d14-b66c-6a71511fa070",
+          "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+          "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B3（P2-4）：重复支付幂等重放",
+          "start_line": 89,
+          "end_line": 92,
+          "score": 0.5650416352006674
+        },
+        {
+          "rank": 8,
+          "chunk_id": "378b3854-5b07-4a12-bb4c-3ba0d8edada5",
+          "rel_path": "docs/phase1-frontend-acceptance.md",
+          "title_path": "Phase 1 — Customer Frontend Acceptance > 11. Known limits",
+          "start_line": 216,
+          "end_line": 233,
+          "score": 0.5602306733018158
+        },
+        {
+          "rank": 9,
+          "chunk_id": "961dc323-946b-4aac-a37b-2a4756cae699",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-1：订单取消与支付成功存在双向并发竞争，且无补偿路径",
+          "start_line": 57,
+          "end_line": 62,
+          "score": 0.557990967231148
+        },
+        {
+          "rank": 10,
+          "chunk_id": "d7ef504e-c54c-493a-9da8-d67b110a49ee",
+          "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+          "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B3（P2-4）：重复支付幂等重放",
+          "start_line": 65,
+          "end_line": 71,
+          "score": 0.5570862603205222
+        }
+      ]
+    },
+    {
+      "id": "q08",
+      "question": "对一个已支付成功的订单再次调支付接口，会返回什么？",
+      "relevant": [
+        {
+          "rel_path": "docs/api-gateway-contract.md",
+          "anchor": "3. Response And Pagination Rules"
+        },
+        {
+          "rel_path": "docs/api-gateway-contract.md",
+          "anchor": "4.1 Customer And Public APIs"
+        }
+      ],
+      "hit_rank": null,
+      "reciprocal_rank_at_10": 0.0,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "6f185db1-3cf1-4d14-b66c-6a71511fa070",
+          "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+          "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B3（P2-4）：重复支付幂等重放",
+          "start_line": 89,
+          "end_line": 92,
+          "score": 0.7208358915355875
+        },
+        {
+          "rank": 2,
+          "chunk_id": "26a8784a-cbd8-425c-bf68-fad63514e252",
+          "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+          "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B3（P2-4）：重复支付幂等重放",
+          "start_line": 72,
+          "end_line": 88,
+          "score": 0.7068725861931123
+        },
+        {
+          "rank": 3,
+          "chunk_id": "91ac15ec-9575-45cb-844a-567bf4761a74",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Maintenance - Architecture review Phase B B3 payment replay idempotency",
+          "start_line": 3135,
+          "end_line": 3140,
+          "score": 0.6530418985249478
+        },
+        {
+          "rank": 4,
+          "chunk_id": "9577527d-1ccb-44ab-8dac-ca9f7de47ddf",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 5. P2 级问题 > P2-4：重复支付返回 409 而非幂等重放，idempotencyKey 存而不用",
+          "start_line": 107,
+          "end_line": 115,
+          "score": 0.6521453513591375
+        },
+        {
+          "rank": 5,
+          "chunk_id": "a2debd05-477a-4d38-be85-260c7a7fa830",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > 2026-05-24 · B6 — Payment page rewrite",
+          "start_line": 1527,
+          "end_line": 1531,
+          "score": 0.6355093539902392
+        },
+        {
+          "rank": 6,
+          "chunk_id": "89bed083-3abd-48bf-9882-91c689e7d9e5",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > 2026-05-24 · B6 — Payment page rewrite",
+          "start_line": 1480,
+          "end_line": 1484,
+          "score": 0.6309354649861226
+        },
+        {
+          "rank": 7,
+          "chunk_id": "c09a83c6-437f-4b50-b865-96794eb2cd9b",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > 2026-05-24 · B6 — Payment page rewrite",
+          "start_line": 1485,
+          "end_line": 1495,
+          "score": 0.6282612974928391
+        },
+        {
+          "rank": 8,
+          "chunk_id": "2fa703f9-d7dd-4d2a-b731-0583868dfacd",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Maintenance - Architecture review Phase B B3 payment replay idempotency",
+          "start_line": 3144,
+          "end_line": 3146,
+          "score": 0.6275726194898656
+        },
+        {
+          "rank": 9,
+          "chunk_id": "d7ef504e-c54c-493a-9da8-d67b110a49ee",
+          "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+          "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B3（P2-4）：重复支付幂等重放",
+          "start_line": 65,
+          "end_line": 71,
+          "score": 0.6272703783668401
+        },
+        {
+          "rank": 10,
+          "chunk_id": "aa86ad84-c699-4338-9ea4-ab6a79339d20",
+          "rel_path": "docs/history/phase1-ui-redesign.md",
+          "title_path": "MiniMall Phase 1 — Customer Frontend UI/UX Redesign Brief > 5. Page-by-page specification > 5.9 Payment",
+          "start_line": 533,
+          "end_line": 557,
+          "score": 0.6156419621876024
+        }
+      ]
+    },
+    {
+      "id": "q09",
+      "question": "服务启动的依赖顺序是什么？order-service 要等哪些依赖健康才能起？",
+      "relevant": [
+        {
+          "rel_path": "docs/deployment.md",
+          "anchor": "Startup Order"
+        }
+      ],
+      "hit_rank": 1,
+      "reciprocal_rank_at_10": 1.0,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "fb92982a-cd16-4306-bd37-8ad29ff4472a",
+          "rel_path": "docs/deployment.md",
+          "title_path": "Deployment And Operations > Startup Order",
+          "start_line": 46,
+          "end_line": 88,
+          "score": 0.6791096644724678
+        },
+        {
+          "rank": 2,
+          "chunk_id": "ecafdb05-9965-4a0d-ab02-f681a40ca125",
+          "rel_path": "docs/deployment.md",
+          "title_path": "Deployment And Operations",
+          "start_line": 1,
+          "end_line": 5,
+          "score": 0.6028032717511117
+        },
+        {
+          "rank": 3,
+          "chunk_id": "54078344-61b6-4b0e-9ddb-b9f9bb109016",
+          "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+          "title_path": "Phase A 修复规划 —— 消除订单取消/支付并发竞争 > 3. 任务分解 > 任务 A4：测试（对应体检报告 §11 测试清单 1、2）",
+          "start_line": 121,
+          "end_line": 128,
+          "score": 0.5371012938924711
+        },
+        {
+          "rank": 4,
+          "chunk_id": "0c06ead9-40cb-47ac-9b75-e06abfeaebf1",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 最终结论 > 未能确认，需要进一步检查",
+          "start_line": 324,
+          "end_line": 331,
+          "score": 0.5341308620148704
+        },
+        {
+          "rank": 5,
+          "chunk_id": "bcac7798-e788-4403-b29e-f4c693562037",
+          "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+          "title_path": "Phase A 修复规划 —— 消除订单取消/支付并发竞争 > 5. 验证与验收标准（DoD）",
+          "start_line": 154,
+          "end_line": 170,
+          "score": 0.5312569853269634
+        },
+        {
+          "rank": 6,
+          "chunk_id": "3f992e7b-9988-4dfa-89b7-f35d5352cc8f",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 7.3 - Implement admin order event timeline regression",
+          "start_line": 2051,
+          "end_line": 2052,
+          "score": 0.5020147951889854
+        },
+        {
+          "rank": 7,
+          "chunk_id": "218f2093-233b-43ed-8aaa-632986093d1b",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第二部分：微服务架构审查 > 逐服务评价",
+          "start_line": 109,
+          "end_line": 120,
+          "score": 0.4976123185725767
+        },
+        {
+          "rank": 8,
+          "chunk_id": "65c4ddef-d348-4159-ad4e-e22a77dcf4d1",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 1.3 - 补齐服务启动类、基础配置与构建验证",
+          "start_line": 44,
+          "end_line": 48,
+          "score": 0.49549756200417294
+        },
+        {
+          "rank": 9,
+          "chunk_id": "ec5610a1-8a12-4713-bcb6-118542f3ad2c",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 7.2 - Implement admin order list and detail APIs",
+          "start_line": 2040,
+          "end_line": 2041,
+          "score": 0.48893449921916554
+        },
+        {
+          "rank": 10,
+          "chunk_id": "3e95d1f2-50b3-4ba7-b3ab-f7498b14de1c",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 7.1 - Expose product sales aggregation for operations",
+          "start_line": 2030,
+          "end_line": 2033,
+          "score": 0.4781395707932119
+        }
+      ]
+    },
+    {
+      "id": "q10",
+      "question": "数据库初始 schema 的迁移文件在哪？怎么应用到本地库？",
+      "relevant": [
+        {
+          "rel_path": "docs/deployment.md",
+          "anchor": "Database Operations"
+        },
+        {
+          "rel_path": "docs/architecture.md",
+          "anchor": "Data Model"
+        }
+      ],
+      "hit_rank": 1,
+      "reciprocal_rank_at_10": 1.0,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "a31ecda6-a545-413f-a509-93743f1188bf",
+          "rel_path": "docs/deployment.md",
+          "title_path": "Deployment And Operations > Database Operations",
+          "start_line": 119,
+          "end_line": 141,
+          "score": 0.6632276439720862
+        },
+        {
+          "rank": 2,
+          "chunk_id": "3078fc31-9178-4b9a-bb5c-92a5d12cd3a6",
+          "rel_path": "docs/sql/README.md",
+          "title_path": "Database Schema > Layout",
+          "start_line": 5,
+          "end_line": 8,
+          "score": 0.6187514638031963
+        },
+        {
+          "rank": 3,
+          "chunk_id": "aee3e836-57d9-4527-89e5-46521c4a8e1f",
+          "rel_path": "docs/sql/migrations/README.md",
+          "title_path": "SQL Migrations",
+          "start_line": 1,
+          "end_line": 3,
+          "score": 0.6138013014892146
+        },
+        {
+          "rank": 4,
+          "chunk_id": "9da2405d-7515-4dce-b9a1-20dae6b8b2b1",
+          "rel_path": "docs/architecture.md",
+          "title_path": "Architecture > Data Model",
+          "start_line": 67,
+          "end_line": 88,
+          "score": 0.609710010780404
+        },
+        {
+          "rank": 5,
+          "chunk_id": "764693ce-bfd0-4319-8f7e-32f9ca792b51",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 3.1 - Create migration directory and schema documentation",
+          "start_line": 80,
+          "end_line": 88,
+          "score": 0.6082473379384162
+        },
+        {
+          "rank": 6,
+          "chunk_id": "ff4c5492-2086-462a-899b-d1c2926d9ed1",
+          "rel_path": "docs/sql/README.md",
+          "title_path": "Database Schema > Naming",
+          "start_line": 14,
+          "end_line": 26,
+          "score": 0.6019561860482591
+        },
+        {
+          "rank": 7,
+          "chunk_id": "5b892d59-d342-446a-b15e-0af4a9d51c02",
+          "rel_path": "docs/sql/README.md",
+          "title_path": "Database Schema",
+          "start_line": 1,
+          "end_line": 3,
+          "score": 0.5950174603240765
+        },
+        {
+          "rank": 8,
+          "chunk_id": "a3c5a6b1-16d2-4f4c-8c3f-b97c17815210",
+          "rel_path": "docs/audit/full-repo-audit.md",
+          "title_path": "全仓库审计报告 > P1 问题 > P1-02：Compose 配置有效，但空库冷启动不是一条命令可复现（已提供 demo bootstrap 路径）",
+          "start_line": 106,
+          "end_line": 124,
+          "score": 0.5937258503366644
+        },
+        {
+          "rank": 9,
+          "chunk_id": "db4bf461-e8d3-44e7-91c9-33e51665df5e",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 3.2 - Create initial schema migration SQL",
+          "start_line": 89,
+          "end_line": 97,
+          "score": 0.5494340409652863
+        },
+        {
+          "rank": 10,
+          "chunk_id": "6736ccef-48f6-400b-b859-21ed230c41d6",
+          "rel_path": "docs/history/phase2-admin-api-contract.md",
+          "title_path": "Phase 2 Admin API Contract > 8. Database And Migration Boundary",
+          "start_line": 363,
+          "end_line": 375,
+          "score": 0.535431770392
+        }
+      ]
+    },
+    {
+      "id": "q11",
+      "question": "这个项目一共有哪些核心数据表？",
+      "relevant": [
+        {
+          "rel_path": "docs/architecture.md",
+          "anchor": "Data Model"
+        }
+      ],
+      "hit_rank": 2,
+      "reciprocal_rank_at_10": 0.5,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "bd4d1d24-d254-4882-9627-5f06318e22c0",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第一部分：事实盘点（不含结论） > 项目结构",
+          "start_line": 63,
+          "end_line": 69,
+          "score": 0.46950696120796853
+        },
+        {
+          "rank": 2,
+          "chunk_id": "9da2405d-7515-4dce-b9a1-20dae6b8b2b1",
+          "rel_path": "docs/architecture.md",
+          "title_path": "Architecture > Data Model",
+          "start_line": 67,
+          "end_line": 88,
+          "score": 0.4681490131214998
+        },
+        {
+          "rank": 3,
+          "chunk_id": "fbc1fb35-6575-4cb8-ae46-422a88d5474b",
+          "rel_path": "docs/sql/README.md",
+          "title_path": "Database Schema > Scope",
+          "start_line": 28,
+          "end_line": 53,
+          "score": 0.4568320566585573
+        },
+        {
+          "rank": 4,
+          "chunk_id": "0cb0a0a3-bc8d-4612-8eed-4e14ca94af1d",
+          "rel_path": "docs/api-gateway-contract.md",
+          "title_path": "API Gateway Contract > 4. Current Endpoint Index > 4.3 Admin Core APIs",
+          "start_line": 161,
+          "end_line": 161,
+          "score": 0.44801803169907983
+        },
+        {
+          "rank": 5,
+          "chunk_id": "2368e822-99df-40a1-a7c6-1fc8fae60aac",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第三部分：核心业务链路审查 > 不变量保护核对表",
+          "start_line": 142,
+          "end_line": 142,
+          "score": 0.42586488018906543
+        },
+        {
+          "rank": 6,
+          "chunk_id": "5b892d59-d342-446a-b15e-0af4a9d51c02",
+          "rel_path": "docs/sql/README.md",
+          "title_path": "Database Schema",
+          "start_line": 1,
+          "end_line": 3,
+          "score": 0.4258414246200808
+        },
+        {
+          "rank": 7,
+          "chunk_id": "09919d3e-1731-40c8-9a0e-794a59ed62ac",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 4.3 - Implement reusable admin audit writer",
+          "start_line": 1908,
+          "end_line": 1912,
+          "score": 0.41656357115472264
+        },
+        {
+          "rank": 8,
+          "chunk_id": "024632d6-5f7b-483e-b1dc-82b05d62046c",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 2. 项目结构理解",
+          "start_line": 21,
+          "end_line": 23,
+          "score": 0.4135373018949904
+        },
+        {
+          "rank": 9,
+          "chunk_id": "9b2ba395-726b-4a5f-a1a6-edd3b588893f",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 4.1 - Define AI-ready audit source taxonomy",
+          "start_line": 1885,
+          "end_line": 1885,
+          "score": 0.40940790896263857
+        },
+        {
+          "rank": 10,
+          "chunk_id": "57a193ad-714b-4b6b-ba31-834cf2c43649",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第三部分：核心业务链路审查",
+          "start_line": 140,
+          "end_line": 140,
+          "score": 0.4050212273842181
+        }
+      ]
+    },
+    {
+      "id": "q12",
+      "question": "取消订单时库存释放会不会被重复执行？已取消的订单再取消一次会怎样？",
+      "relevant": [
+        {
+          "rel_path": "docs/dev-log.md",
+          "anchor": "Task 11.2 - Order cancellation command"
+        },
+        {
+          "rel_path": "docs/dev-log.md",
+          "anchor": "Task 11.4 - Cancellation chain regression tests"
+        }
+      ],
+      "hit_rank": 2,
+      "reciprocal_rank_at_10": 0.5,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "6f185db1-3cf1-4d14-b66c-6a71511fa070",
+          "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+          "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B3（P2-4）：重复支付幂等重放",
+          "start_line": 89,
+          "end_line": 92,
+          "score": 0.644492622059151
+        },
+        {
+          "rank": 2,
+          "chunk_id": "a0534710-ae9f-4d06-8091-c68d8979d697",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 11.4 - Cancellation chain regression tests",
+          "start_line": 428,
+          "end_line": 437,
+          "score": 0.6224308994086513
+        },
+        {
+          "rank": 3,
+          "chunk_id": "042a387d-9d76-414d-9de8-ab5c89433c35",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第三部分：核心业务链路审查 > 不变量保护核对表",
+          "start_line": 144,
+          "end_line": 157,
+          "score": 0.6164659243930469
+        },
+        {
+          "rank": 4,
+          "chunk_id": "967a300b-d23c-4cd9-b230-ba97e6a46b0b",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 11.1 - Inventory release client for order cancellation",
+          "start_line": 398,
+          "end_line": 402,
+          "score": 0.6017305116699571
+        },
+        {
+          "rank": 5,
+          "chunk_id": "4f6948ba-cb56-4c50-83bf-689de1aaafbd",
+          "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+          "title_path": "Phase A 修复规划 —— 消除订单取消/支付并发竞争 > 3. 任务分解 > 任务 A1：`cancel()` 改为条件更新（方向 1 主修复）",
+          "start_line": 51,
+          "end_line": 73,
+          "score": 0.5948332100253492
+        },
+        {
+          "rank": 6,
+          "chunk_id": "7e507a7a-aacf-4ab0-a5fa-5f11eea73e7d",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-1：订单取消与支付成功存在双向并发竞争，且无补偿路径",
+          "start_line": 50,
+          "end_line": 50,
+          "score": 0.5825795862195039
+        },
+        {
+          "rank": 7,
+          "chunk_id": "71b1886d-3bce-4fe0-9b2c-45c284bdd78f",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）",
+          "start_line": 63,
+          "end_line": 72,
+          "score": 0.5776104716027887
+        },
+        {
+          "rank": 8,
+          "chunk_id": "961dc323-946b-4aac-a37b-2a4756cae699",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-1：订单取消与支付成功存在双向并发竞争，且无补偿路径",
+          "start_line": 57,
+          "end_line": 62,
+          "score": 0.574854705314722
+        },
+        {
+          "rank": 9,
+          "chunk_id": "93b02be0-ccff-4398-a6e3-4b6358e8abed",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 11.2 - Order cancellation command",
+          "start_line": 408,
+          "end_line": 412,
+          "score": 0.5734166170518767
+        },
+        {
+          "rank": 10,
+          "chunk_id": "a003fdf6-162f-4bf7-910e-4b3667ecfa5d",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-1：订单取消与支付成功存在双向并发竞争，且无补偿路径",
+          "start_line": 52,
+          "end_line": 56,
+          "score": 0.5680056315765386
+        }
+      ]
+    },
+    {
+      "id": "q13",
+      "question": "网关限流是什么算法？按什么维度限流？被限后返回什么？",
+      "relevant": [
+        {
+          "rel_path": "docs/api-gateway-contract.md",
+          "anchor": "6. Browser Support, Rate Limiting, And Logging"
+        }
+      ],
+      "hit_rank": 2,
+      "reciprocal_rank_at_10": 0.5,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "6f213264-f875-466d-993e-3a8f1b8916a6",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第六部分：安全风险分级",
+          "start_line": 229,
+          "end_line": 231,
+          "score": 0.5648629136087295
+        },
+        {
+          "rank": 2,
+          "chunk_id": "263c2ab4-d8ca-4e66-b4e2-0b53eeb8a1a5",
+          "rel_path": "docs/api-gateway-contract.md",
+          "title_path": "API Gateway Contract > 6. Browser Support, Rate Limiting, And Logging",
+          "start_line": 248,
+          "end_line": 261,
+          "score": 0.4668102980670461
+        },
+        {
+          "rank": 3,
+          "chunk_id": "7b7692ed-b2af-4055-b0c1-17633184dc8d",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 16.4 - Gateway request logging and Redis-backed rate limiting",
+          "start_line": 628,
+          "end_line": 631,
+          "score": 0.46254469633382467
+        },
+        {
+          "rank": 4,
+          "chunk_id": "3bd3da8b-9541-4d5c-9b8e-59c4f43bb7f7",
+          "rel_path": "docs/history/phase2-admin-api-contract.md",
+          "title_path": "Phase 2 Admin API Contract > 4. Gateway Contract",
+          "start_line": 101,
+          "end_line": 101,
+          "score": 0.4582681077962323
+        },
+        {
+          "rank": 5,
+          "chunk_id": "5f7ee1d0-2fae-447f-bba5-298d965989cc",
+          "rel_path": "docs/history/phase1-frontend-prereview.md",
+          "title_path": "Phase 1 前端接手前置审查（只读） > 二、已核实的真实契约（以代码为准） > 网关 / 错误码 / 安全（已核实）",
+          "start_line": 59,
+          "end_line": 64,
+          "score": 0.4521103595925944
+        },
+        {
+          "rank": 6,
+          "chunk_id": "23a7afb0-5ddb-4844-b7f1-8ca7e6253a75",
+          "rel_path": "docs/history/project-acceptance-report.md",
+          "title_path": "MiniMall Order Project Acceptance Report > Stable Gateway Contracts",
+          "start_line": 126,
+          "end_line": 131,
+          "score": 0.4486762566385806
+        },
+        {
+          "rank": 7,
+          "chunk_id": "1c6c4470-1a60-4b0a-b96d-fad9a257acf6",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第四部分：AI 库存助手中期审查（核心） > 关键问题逐条回答",
+          "start_line": 174,
+          "end_line": 181,
+          "score": 0.4405492910639761
+        },
+        {
+          "rank": 8,
+          "chunk_id": "91fe995d-cf80-44af-9ed4-4165fff6ae56",
+          "rel_path": "docs/audit/full-repo-audit.md",
+          "title_path": "全仓库审计报告 > P2 问题 > P2-05：admin 审计 IP 仍信任下游收到的 `X-Forwarded-For` 第一段（已修复）",
+          "start_line": 304,
+          "end_line": 310,
+          "score": 0.429106245584008
+        },
+        {
+          "rank": 9,
+          "chunk_id": "e0ed21d9-5837-401f-9a48-65bd4baf89ef",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 运行时入口",
+          "start_line": 116,
+          "end_line": 129,
+          "score": 0.4277903686981809
+        },
+        {
+          "rank": 10,
+          "chunk_id": "c2be1843-adb9-46a6-8fba-0c7f4d206d8b",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 8. 管理员后台专项审查",
+          "start_line": 168,
+          "end_line": 175,
+          "score": 0.4270604429605438
+        }
+      ]
+    },
+    {
+      "id": "q14",
+      "question": "Prometheus 是怎么抓到各个 Java 服务的？在 WSL 环境下用 host.docker.internal 有什么坑？",
+      "relevant": [
+        {
+          "rel_path": "docs/observability.md",
+          "anchor": "Docker Desktop And WSL"
+        },
+        {
+          "rel_path": "docs/observability.md",
+          "anchor": "Service Metrics"
+        }
+      ],
+      "hit_rank": 1,
+      "reciprocal_rank_at_10": 1.0,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "01fb14df-0b19-4e01-ab18-7a02266ccb7b",
+          "rel_path": "docs/observability.md",
+          "title_path": "Observability > Docker Desktop And WSL",
+          "start_line": 104,
+          "end_line": 126,
+          "score": 0.7973038627801906
+        },
+        {
+          "rank": 2,
+          "chunk_id": "d60e83df-f0d1-4181-956b-33bff99a5c7a",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 18.2 follow-up - Docker runtime verification",
+          "start_line": 704,
+          "end_line": 707,
+          "score": 0.6843125549893424
+        },
+        {
+          "rank": 3,
+          "chunk_id": "339783b2-f524-4896-9a23-04552cd93e7c",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 19.3 follow-up - Live gateway pressure rerun",
+          "start_line": 765,
+          "end_line": 767,
+          "score": 0.5920107234215797
+        },
+        {
+          "rank": 4,
+          "chunk_id": "9dd2135d-7885-4ef3-a10d-9bd90c796e98",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 18.2 follow-up - Docker runtime verification",
+          "start_line": 698,
+          "end_line": 702,
+          "score": 0.557506290604367
+        },
+        {
+          "rank": 5,
+          "chunk_id": "45256779-03c4-4f07-b42f-1ff0e1f08f97",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 18.2 follow-up - Docker runtime verification",
+          "start_line": 703,
+          "end_line": 703,
+          "score": 0.5567246122334267
+        },
+        {
+          "rank": 6,
+          "chunk_id": "433b1e45-e27a-4f4c-8bdb-cfd22942f210",
+          "rel_path": "docs/deployment.md",
+          "title_path": "Deployment And Operations > Observability",
+          "start_line": 164,
+          "end_line": 191,
+          "score": 0.5507488206125005
+        },
+        {
+          "rank": 7,
+          "chunk_id": "ee0fb85d-3135-4e76-83f1-9658fe4179ba",
+          "rel_path": "docs/observability.md",
+          "title_path": "Observability > Service Metrics",
+          "start_line": 68,
+          "end_line": 102,
+          "score": 0.5499795922058843
+        },
+        {
+          "rank": 8,
+          "chunk_id": "7ca2cb94-eb5b-4daf-bc0c-74405da89007",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 1.3 - 补齐服务启动类、基础配置与构建验证",
+          "start_line": 49,
+          "end_line": 52,
+          "score": 0.5499234454974733
+        },
+        {
+          "rank": 9,
+          "chunk_id": "c93ca3e1-4134-44d9-ad1b-062bc9f1e73c",
+          "rel_path": "docs/final-acceptance.md",
+          "title_path": "Final Acceptance Record > Notes",
+          "start_line": 117,
+          "end_line": 125,
+          "score": 0.5493974906981561
+        },
+        {
+          "rank": 10,
+          "chunk_id": "10f318e0-d9a2-4935-b6fb-2e37bacc1a38",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 20.2 - Containerize Java services for Compose runtime",
+          "start_line": 784,
+          "end_line": 787,
+          "score": 0.5491705163303784
+        }
+      ]
+    },
+    {
+      "id": "q15",
+      "question": "正式增加库存的唯一入口是哪个接口？管理员手动调整接口谁可以调？",
+      "relevant": [
+        {
+          "rel_path": "docs/api-gateway-contract.md",
+          "anchor": "4.3 Admin Core APIs"
+        }
+      ],
+      "hit_rank": null,
+      "reciprocal_rank_at_10": 0.0,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "a6a79c5d-021a-4a09-9928-4d415a8f701d",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 13.3 - 库存初始化与调整（幂等写）",
+          "start_line": 2133,
+          "end_line": 2137,
+          "score": 0.58807085043485
+        },
+        {
+          "rank": 2,
+          "chunk_id": "f5c4ebe0-3ed2-4efc-8720-925c6db09f9c",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 5. P2 级问题 > P2-2：AI 反幻觉文本校验只覆盖英文，中文库存变更声明可穿透",
+          "start_line": 92,
+          "end_line": 97,
+          "score": 0.563930054560092
+        },
+        {
+          "rank": 3,
+          "chunk_id": "aa1c00cf-b14d-4de8-a658-6b98c17a59c2",
+          "rel_path": "docs/audit/fix-plans/phase-c-plan.md",
+          "title_path": "Phase C 修复规划 —— 提升展示价值（AI 助手增强、演示可信度） > 2. 任务分解 > 任务 C2：建议 → 入库 → 审计 的链路追溯视图（前端为主）",
+          "start_line": 62,
+          "end_line": 76,
+          "score": 0.5607910367316615
+        },
+        {
+          "rank": 4,
+          "chunk_id": "7b12f518-83e1-4fc7-a8e2-2afd769f612f",
+          "rel_path": "docs/history/phase2-admin-api-contract.md",
+          "title_path": "Phase 2 Admin API Contract > 6. Admin API Surface > 6.3 Inventories",
+          "start_line": 238,
+          "end_line": 263,
+          "score": 0.5484915457996224
+        },
+        {
+          "rank": 5,
+          "chunk_id": "a8b2bb7b-74d0-4113-842f-ff01d203f1f2",
+          "rel_path": "docs/api-gateway-contract.md",
+          "title_path": "API Gateway Contract > 4. Current Endpoint Index > 4.4 Admin AI Inventory Assistant APIs",
+          "start_line": 201,
+          "end_line": 207,
+          "score": 0.5412649075538604
+        },
+        {
+          "rank": 6,
+          "chunk_id": "538e7035-4f75-439b-a0af-d38ac57e650a",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 6.3 - Implement admin inventory initialize / adjust / records APIs",
+          "start_line": 2001,
+          "end_line": 2005,
+          "score": 0.5395361155270787
+        },
+        {
+          "rank": 7,
+          "chunk_id": "07ad8c1f-17cf-4fbc-a597-ef6e2c606ae2",
+          "rel_path": "docs/history/phase1-frontend-prereview.md",
+          "title_path": "Phase 1 前端接手前置审查（只读） > 三、风险点（按优先级） > R10（低）`/api/products/**` 写接口与 on-shelf/off-shelf 存在但禁用",
+          "start_line": 106,
+          "end_line": 110,
+          "score": 0.534334804407044
+        },
+        {
+          "rank": 8,
+          "chunk_id": "b8ad85fb-9090-4014-84e4-ef60270376e7",
+          "rel_path": "docs/history/phase2-5-ai-inventory-contract.md",
+          "title_path": "Phase 2.5 AI Inventory Integration Contract > 4. Forbidden Behavior",
+          "start_line": 80,
+          "end_line": 99,
+          "score": 0.5328052091199277
+        },
+        {
+          "rank": 9,
+          "chunk_id": "fe72cfe9-8d6e-4862-b6e9-967e35a29049",
+          "rel_path": "docs/phase3-ai-inventory-contract.md",
+          "title_path": "Phase 3 AI Inventory Assistant Contract > 6. Existing APIs To Reuse",
+          "start_line": 159,
+          "end_line": 168,
+          "score": 0.5262071778825789
+        },
+        {
+          "rank": 10,
+          "chunk_id": "02826be9-ae8c-41e4-8cb7-7d2a534deb1c",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > AI 库存助手",
+          "start_line": 131,
+          "end_line": 153,
+          "score": 0.5228290489746276
+        }
+      ]
+    },
+    {
+      "id": "q21",
+      "question": "订单超时未支付是怎么被自动取消的？库存在什么时机释放？",
+      "relevant": [
+        {
+          "rel_path": "docs/dev-log.md",
+          "anchor": "Task 17.1 - Order timeout cancellation service foundation"
+        },
+        {
+          "rel_path": "docs/dev-log.md",
+          "anchor": "Task 17.2 - Order timeout scheduler wiring"
+        }
+      ],
+      "hit_rank": 2,
+      "reciprocal_rank_at_10": 0.5,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "d76382c3-1a87-482d-8e9a-51326b71faaa",
+          "rel_path": "docs/history/phase1-frontend-prereview.md",
+          "title_path": "Phase 1 前端接手前置审查（只读） > 三、风险点（按优先级） > R9（低）订单超时会变 CLOSED",
+          "start_line": 102,
+          "end_line": 105,
+          "score": 0.6309032848880962
+        },
+        {
+          "rank": 2,
+          "chunk_id": "4211531d-e1b7-4014-bdab-ea3109695d0f",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 17.1 - Order timeout cancellation service foundation",
+          "start_line": 648,
+          "end_line": 652,
+          "score": 0.6219911563028254
+        },
+        {
+          "rank": 3,
+          "chunk_id": "7e507a7a-aacf-4ab0-a5fa-5f11eea73e7d",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-1：订单取消与支付成功存在双向并发竞争，且无补偿路径",
+          "start_line": 50,
+          "end_line": 50,
+          "score": 0.5746107444913873
+        },
+        {
+          "rank": 4,
+          "chunk_id": "961dc323-946b-4aac-a37b-2a4756cae699",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-1：订单取消与支付成功存在双向并发竞争，且无补偿路径",
+          "start_line": 57,
+          "end_line": 62,
+          "score": 0.5554018938440127
+        },
+        {
+          "rank": 5,
+          "chunk_id": "3813b906-1bb7-45c6-b767-a2d6e46b2da8",
+          "rel_path": "README.md",
+          "title_path": "MiniMall Order > Known Limitations",
+          "start_line": 192,
+          "end_line": 216,
+          "score": 0.54660793324029
+        },
+        {
+          "rank": 6,
+          "chunk_id": "a003fdf6-162f-4bf7-910e-4b3667ecfa5d",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-1：订单取消与支付成功存在双向并发竞争，且无补偿路径",
+          "start_line": 52,
+          "end_line": 56,
+          "score": 0.5442519899275985
+        },
+        {
+          "rank": 7,
+          "chunk_id": "878acd46-58b7-47b7-99e7-700f09c7c9fa",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Maintenance - Architecture review Phase A order/payment race fix",
+          "start_line": 3087,
+          "end_line": 3092,
+          "score": 0.5436717185535065
+        },
+        {
+          "rank": 8,
+          "chunk_id": "6f185db1-3cf1-4d14-b66c-6a71511fa070",
+          "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+          "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B3（P2-4）：重复支付幂等重放",
+          "start_line": 89,
+          "end_line": 92,
+          "score": 0.5406561489673009
+        },
+        {
+          "rank": 9,
+          "chunk_id": "dcdc6c22-ce54-44e7-ae52-1aa4bbc3e7d8",
+          "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+          "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B6（决策门，默认跳过）：M2 —— 下单 saga 缺口",
+          "start_line": 126,
+          "end_line": 143,
+          "score": 0.5403889524523089
+        },
+        {
+          "rank": 10,
+          "chunk_id": "69d5d5b3-741e-4643-8563-8dedfe5b3cfe",
+          "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+          "title_path": "Phase A 修复规划 —— 消除订单取消/支付并发竞争",
+          "start_line": 1,
+          "end_line": 7,
+          "score": 0.5395097407875332
+        }
+      ]
+    },
+    {
+      "id": "q22",
+      "question": "notification-service 负责什么？浏览器能通过网关直接访问它吗？",
+      "relevant": [
+        {
+          "rel_path": "docs/architecture.md",
+          "anchor": "Runtime Topology"
+        },
+        {
+          "rel_path": "docs/architecture.md",
+          "anchor": "Module Responsibilities"
+        }
+      ],
+      "hit_rank": 6,
+      "reciprocal_rank_at_10": 0.16666666666666666,
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "f2eb59f5-f6c4-4821-a8b0-abbd2695aef2",
+          "rel_path": "docs/api-gateway-contract.md",
+          "title_path": "API Gateway Contract > 1. Gateway Route Ownership",
+          "start_line": 20,
+          "end_line": 52,
+          "score": 0.5358893296759314
+        },
+        {
+          "rank": 2,
+          "chunk_id": "df26f827-edef-47cb-8183-a3eb3e8b5ac2",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 9 - Implement Notification admin log query API",
+          "start_line": 2067,
+          "end_line": 2071,
+          "score": 0.5170677410251048
+        },
+        {
+          "rank": 3,
+          "chunk_id": "18edafe6-bf22-40d9-9034-4ba11ab3b566",
+          "rel_path": "docs/history/phase2-admin-api-contract.md",
+          "title_path": "Phase 2 Admin API Contract > 6. Admin API Surface > 6.6 Notifications",
+          "start_line": 285,
+          "end_line": 292,
+          "score": 0.5149252524149524
+        },
+        {
+          "rank": 4,
+          "chunk_id": "08bfc197-87b0-4894-9bfc-dc1d01c279a2",
+          "rel_path": "docs/api-gateway-contract.md",
+          "title_path": "API Gateway Contract > 5. Non-Browser Contracts",
+          "start_line": 233,
+          "end_line": 246,
+          "score": 0.5126331836814532
+        },
+        {
+          "rank": 5,
+          "chunk_id": "a0e802de-232a-49d2-89ba-bef78f2760c3",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 14.2 - Build notification and audit operations pages",
+          "start_line": 2166,
+          "end_line": 2170,
+          "score": 0.509729578706162
+        },
+        {
+          "rank": 6,
+          "chunk_id": "2a59a16e-a86e-4eb9-8871-c1e2f924b072",
+          "rel_path": "docs/architecture.md",
+          "title_path": "Architecture > Runtime Topology",
+          "start_line": 7,
+          "end_line": 33,
+          "score": 0.48773482665720314
+        },
+        {
+          "rank": 7,
+          "chunk_id": "8b934897-0212-4d7f-86db-a11ac5380682",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 14.2 - Build notification and audit operations pages",
+          "start_line": 2172,
+          "end_line": 2173,
+          "score": 0.48427689772111426
+        },
+        {
+          "rank": 8,
+          "chunk_id": "e6fa085f-1dbf-4960-807f-e31bde971d5e",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Maintenance - Runtime config default hardening",
+          "start_line": 3046,
+          "end_line": 3047,
+          "score": 0.475632424406794
+        },
+        {
+          "rank": 9,
+          "chunk_id": "4e5a296f-ccc9-41dc-8e86-7267b6ef97f6",
+          "rel_path": "docs/history/phase0-api-contract-scope.md",
+          "title_path": "Phase 0 API Contract Scope > Internal Boundary",
+          "start_line": 38,
+          "end_line": 50,
+          "score": 0.4741416408348287
+        },
+        {
+          "rank": 10,
+          "chunk_id": "dbbcab29-57e0-4bf6-b52d-5e9c2fb1bffe",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 9 - Implement Notification admin log query API",
+          "start_line": 2072,
+          "end_line": 2072,
+          "score": 0.4692860104549197
+        }
+      ]
+    }
+  ]
+}

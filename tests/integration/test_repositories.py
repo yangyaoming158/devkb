@@ -66,3 +66,34 @@ async def test_vector_search_orders_by_similarity(session: AsyncSession) -> None
     assert [c.ordinal for c, _, _ in hits] == [0, 1, 2], "应按相似度降序"
     scores = [s for _, _, s in hits]
     assert scores[0] > 0.99 and scores == sorted(scores, reverse=True)
+
+
+async def test_reference_anchors_only_include_active_project_chunks(
+    session: AsyncSession,
+) -> None:
+    own = await ProjectRepo(session).create(f"anchors-{uuid.uuid4().hex[:6]}", "A")
+    other = await ProjectRepo(session).create(f"other-{uuid.uuid4().hex[:6]}", "B")
+    own_doc = await DocumentRepo(session, own.id).upsert(
+        rel_path="docs/own.md", title="Own", doc_type="markdown", content_hash="h1"
+    )
+    stale_doc = await DocumentRepo(session, own.id).upsert(
+        rel_path="docs/stale.md", title="Stale", doc_type="markdown", content_hash="h2"
+    )
+    other_doc = await DocumentRepo(session, other.id).upsert(
+        rel_path="docs/other.md", title="Other", doc_type="markdown", content_hash="h3"
+    )
+    await ChunkRepo(session, own.id).replace_for_document(
+        own_doc.id, [ChunkDraft(0, "Own > Anchor", "own", "c1", 1, 1, 1, _vec(0))]
+    )
+    await ChunkRepo(session, own.id).replace_for_document(
+        stale_doc.id, [ChunkDraft(0, "Stale > Anchor", "stale", "c2", 1, 1, 1, _vec(1))]
+    )
+    await ChunkRepo(session, other.id).replace_for_document(
+        other_doc.id, [ChunkDraft(0, "Other > Anchor", "other", "c3", 1, 1, 1, _vec(2))]
+    )
+    await DocumentRepo(session, own.id).mark_failed("docs/stale.md", "parse failed")
+    await session.commit()
+
+    assert await ChunkRepo(session, own.id).list_reference_anchors() == [
+        ("docs/own.md", "Own > Anchor")
+    ]

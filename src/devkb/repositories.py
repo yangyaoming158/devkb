@@ -182,6 +182,24 @@ class ChunkRepo:
         stmt = select(func.count()).where(Chunk.project_id == self._project_id)
         return (await self._session.execute(stmt)).scalar_one()
 
+    async def list_reference_anchors(self) -> list[tuple[str, str]]:
+        """列出当前项目可检索 chunk 的路径和标题路径。
+
+        评测运行前用它验证 rel_path + anchor 标注在当前语料快照中
+        可解析，避免把评测天花板缺失误判为检索器质量问题。
+        """
+        stmt = (
+            select(Document.rel_path, Chunk.title_path)
+            .join(Document, Chunk.document_id == Document.id)
+            .where(
+                Chunk.project_id == self._project_id,
+                Document.status == "active",
+            )
+            .order_by(Document.rel_path, Chunk.ordinal)
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return [(row[0], row[1]) for row in rows]
+
 
 class RunRepo:
     def __init__(self, session: AsyncSession, project_id: uuid.UUID) -> None:

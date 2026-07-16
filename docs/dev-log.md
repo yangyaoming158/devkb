@@ -188,3 +188,12 @@
 - 冻结源 HEAD=`cfb49f5`；未运行 ask/eval/holdout，未读取 P1 输出。25/25 可答题与 35/35 anchor 通过，不改 v0 JSONL，也不改变 17+4、8+2 分组。
 - 三态期望冻结为 u01/u02/u03/u05=refusal、u04/u06=partial。u06 是本轮最有价值的边界修正：Java 明确 `Algorithm.HMAC256(secret)`，但配置只有单 secret/expiry，没有 kid、多 key 或轮换窗口，因此只能部分回答。
 - 产物：`evalsets/v1/label-audit.worksheet.md`、`answer-expectations.jsonl`、`label-change-log.md`。后续 T11.1 可开始，但 holdout 仍受 U2.3 单独授权约束。
+
+## 2026-07-16 · T11.1 · P1 开发前 vector-exact dev 基线
+
+做了什么：在 P0 已验收的 mini-mall 全量 Markdown 语料（39 文档/1370 chunks）上，用冻结的 Qwen3-Embedding-0.6B 和精确余弦扫描运行 17 个 retrieval dev 问题；产出不可覆盖的 JSON 原始报告与 Markdown 摘要（证据：本提交）。
+
+- 口径判断：T11.1 在执行图上早于 T13 Java/config parser 和 445 文件语料视图，所以本次“P1 前全量”是相对 T1 的 500 块抽样而言，指 P0 冻结摄取范围的生产全量。报告显式标记 `scope=p0-frozen-markdown-full`，避免与 T15 将来的 P1 445 文件同快照对照混淆。
+- 先验证天花板再跑分：Repository 增加受 project/status 约束的路径+标题索引读取，实测 25/25 个 `rel_path + anchor` 在当前可检索 chunks 中可解析，避免重演 T1 “锚点不在语料却解读召回率”的教训；隔离测试同时锁定 failed 文档和其他 project 不可见。
+- 机器计算结果：Recall@5=`0.647`、Recall@10=`0.824`、MRR@10=`0.511`；q02/q08/q15 在 top-10 未命中标注锚点。这些负结果原样留档，未因结果修改标注、检索参数或语料。
+- 数据纪律：脚本只读取冻结的 17 题 dev 文件，不提供 holdout 参数；原始报告记录 `holdout_accessed=false`、devkb/source commit、worktree 状态、模型配置、逐题 top-10 与语料 SHA-256。
