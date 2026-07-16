@@ -172,3 +172,11 @@
 - P1 规格把“功能名”改写成可失败的工程 Gate：Hybrid 必须与 exact/lexical 同快照对照，HNSW 测 top-10 overlap；Agent 必须覆盖 full/partial/refusal、补检、L0/L1 重生成和第二次失败降级；供应商总请求（含重试）硬上限 6。
 - Evaluation v1 继续复用 31 问，不为 P1 擅自扩题；Java parser 用 contract/golden 测，不冒充真实问答质量。CI 只守确定性机制，真实 Qwen/DeepSeek dev Gate 单独留档，避免用 Fake 指标包装效果。
 - P0 暴露但不阻断验收的 CLI 基础设施异常呈现债务，收敛进 P1 T19 共用 service/异常映射，而不是清单外顺手改代码。
+
+## 2026-07-16 · 治理 · P1 开工前规格收紧
+
+用户在开工前复核发现三处歧义，本次只修规划契约、不实现 P1 代码（证据：本提交）。
+
+- Holdout 从跨语料绝对 Gate 改为同快照相对 Gate：`hybrid-rrf Recall@10 >= vector-exact Recall@10`。P0 的 0.875 来自 39 文档/1370 chunks，只保留历史对照；P1 增加 Java/config 后不能把绝对下降直接归罪于 Hybrid。
+- 评测 mode 统一为 `vector-exact|vector-hnsw|lexical|hybrid-rrf|agentic|all`；问答链路对照另用 `--pipeline fixed-rag|agentic`，避免同一个参数承载两套枚举。
+- 把 P0 临时组目录固化为版本化 corpus view：当前只读源快照审计为 37 docs Markdown + 2 README + 392 Java + 14 config = 445 文件；manifest 记录源 commit/hash，并强制排除指令文件、隐藏目录、node_modules 和 target/build/dist。P1 禁止直接 ingest mini-mall 根目录。

@@ -41,6 +41,8 @@ P1 不新增问题，以遵守 Evaluation v0 的 31 问上限。Java 解析质�
 | `hybrid-rrf` | P1 默认检索，对照前三者 |
 | `agentic` | 完整 plan→retrieve→evaluate→refine→generate→verify |
 
+CLI 的统一评测枚举为 `vector-exact|vector-hnsw|lexical|hybrid-rrf|agentic|all`；`all` 不是第六种算法，而是按表中五种模式依次运行并产出同快照对照。报告、dev 和 holdout 命令均不得再使用 `vector`、`hybrid`、`vector-fixed`、`agentic-hybrid` 等别名。
+
 每次真实评测记录：日期、commit、数据库语料 hash/文档数/chunk 数、模型名、Prompt 版本、配置、RRF k、每路候选数、top_k、命令和环境开关。
 
 ## 4. 指标
@@ -154,19 +156,20 @@ devkb eval run --split holdout --mode all --confirm-holdout
 
 必须同时报告：
 
-- vector-exact、lexical、hybrid-rrf 的 Recall@5/10、MRR@10；
-- 与 P0 holdout 的同口径对照；
+- vector-exact、vector-hnsw、lexical、hybrid-rrf 的 Recall@5/10、MRR@10，以及 agentic 的回答/引用/轨迹指标；
+- P1 同一 445 文件候选语料视图/同一 chunk 快照下，vector-exact 与 hybrid-rrf 的相对对照；
+- 与 P0 39 文档/1370 chunks、Recall@10=`0.875` 的历史同口径对照，但明确标注语料规模已经变化；
 - 2 个不可答题的 mode 和理由；
 - L0/L1、引用 proxy、轮次、调用、token、cost、latency；
 - 逐题原始结果与争议标签说明。
 
 Holdout 硬 Gate：
 
-- Hybrid Recall@10 不低于 P0 已留档的 `0.875`；
+- P1 同一语料/chunk 快照上 `hybrid-rrf Recall@10 >= vector-exact Recall@10`；
 - 最终 L0/L1 均为 100%；
 - 0 个 run 超出硬预算或无终态。
 
-其余指标如实报告，不在看过 holdout 后继续调参。若硬 Gate 失败，P1 不勾选；修复必须基于新增 dev 证据或机制缺陷，之后是否允许再次运行 holdout由用户裁决并在报告中显著标记，不得静默重跑挑最好成绩。
+P0 的绝对值 `0.875` 只作历史参照，不作 P1 硬 Gate：P1 新增 392 个 Java 和配置文件后，候选 chunks 的规模与干扰分布已经改变，绝对召回下降不能单独归因为 Hybrid 退化。其余指标如实报告，不在看过 holdout 后继续调参。若硬 Gate 失败，P1 不勾选；修复必须基于新增 dev 证据或机制缺陷，之后是否允许再次运行 holdout 由用户裁决并在报告中显著标记，不得静默重跑挑最好成绩。
 
 ## 8. 报告文件
 
