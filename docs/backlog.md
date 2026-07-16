@@ -14,3 +14,4 @@
 | 2026-07-14 | 用户/Fable 5/Codex | Multi-Agent | 覆盖专业 Agent 协作、上下文隔离与 supervisor 编排 | ✅ 纳入 P3，非投递前置；须证明相对单 Agent 的收益 |
 | 2026-07-14 | 用户/Fable 5/Codex | GraphRAG + Neo4j sidecar | 覆盖跨文档关系、调用链和影响分析类问题 | ✅ 纳入 P3，非投递前置；Hybrid 失败问题集与对照评测是引入门槛 |
 | 2026-07-15 | Fable 5 | `devkb ask --json` stdout 纯净化 | T10.3 实跑发现 structlog 的 run_finished 日志混入 stdout，`--json` 输出无法被管道直接解析（需跳过前缀）；建议日志改道 stderr | ✅ 2026-07-15 用户裁决直接修：根因是 configure_logging 从未被 CLI 调用（structlog 默认打 stdout，脱敏也未生效）；已在 CLI 回调接入 + logger_factory 指 stderr，真实 ask --json 管道解析验证通过 |
+| 2026-07-16 | Fable 5 | CLI 非领域异常兜底（DB 不可达输出原始 traceback） | GPT 审查发现、复现确认（exit=1 正确，仅呈现不友好）；经 P1 规格 §13 与 T19.1 吸收，P0 不单独修 | ✅ 归入 P1 T19.1，随共用 service 异常映射一并实现 |
