@@ -180,3 +180,11 @@
 - Holdout 从跨语料绝对 Gate 改为同快照相对 Gate：`hybrid-rrf Recall@10 >= vector-exact Recall@10`。P0 的 0.875 来自 39 文档/1370 chunks，只保留历史对照；P1 增加 Java/config 后不能把绝对下降直接归罪于 Hybrid。
 - 评测 mode 统一为 `vector-exact|vector-hnsw|lexical|hybrid-rrf|agentic|all`；问答链路对照另用 `--pipeline fixed-rag|agentic`，避免同一个参数承载两套枚举。
 - 把 P0 临时组目录固化为版本化 corpus view：当前只读源快照审计为 37 docs Markdown + 2 README + 392 Java + 14 config = 445 文件；manifest 记录源 commit/hash，并强制排除指令文件、隐藏目录、node_modules 和 target/build/dist。P1 禁止直接 ingest mini-mall 根目录。
+
+## 2026-07-16 · U2.1 · Evaluation v1 盲标注审计
+
+做了什么：只读取 31 道题与 mini-mall 允许语料，对 25 个可答题逐路径/anchor 核验，并对 6 个边界题跨 Markdown/Java/config 做反证搜索；用户最终全部确认（证据：本提交）。
+
+- 冻结源 HEAD=`cfb49f5`；未运行 ask/eval/holdout，未读取 P1 输出。25/25 可答题与 35/35 anchor 通过，不改 v0 JSONL，也不改变 17+4、8+2 分组。
+- 三态期望冻结为 u01/u02/u03/u05=refusal、u04/u06=partial。u06 是本轮最有价值的边界修正：Java 明确 `Algorithm.HMAC256(secret)`，但配置只有单 secret/expiry，没有 kid、多 key 或轮换窗口，因此只能部分回答。
+- 产物：`evalsets/v1/label-audit.worksheet.md`、`answer-expectations.jsonl`、`label-change-log.md`。后续 T11.1 可开始，但 holdout 仍受 U2.3 单独授权约束。
