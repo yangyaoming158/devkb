@@ -72,6 +72,19 @@ def ingest(
         console.print(fail_table)
 
 
+@app.command("backfill-search")
+def backfill_search(
+    project: str = typer.Option(..., "--project", help="项目 slug"),
+) -> None:
+    """为已有 chunks 回填 FTS search_text（幂等；失败整体回滚，不改 embedding）。"""
+    try:
+        total, updated = asyncio.run(_run_backfill_search(project))
+    except DevKbError as exc:
+        console.print(f"[red]{exc.code}[/red] {exc}")
+        raise typer.Exit(1) from exc
+    console.print(f"project '{project}'：chunks 共 {total}，本次更新 {updated}（重跑幂等应为 0）")
+
+
 @app.command()
 def ask(
     question: str = typer.Argument(..., help="要提问的问题"),
@@ -152,6 +165,24 @@ async def _resolve_project(session: Any, slug: str) -> Any:
     if project is None:
         raise NotFoundError(f"项目 '{slug}' 不存在（先执行 devkb ingest）")
     return project
+
+
+async def _run_backfill_search(project_slug: str) -> tuple[int, int]:
+    from devkb.config import get_settings
+    from devkb.db import create_engine, create_session_factory
+    from devkb.repositories import ChunkRepo
+    from devkb.retrieval import build_search_text
+
+    settings = get_settings()
+    engine = create_engine(settings.database_url)
+    try:
+        async with create_session_factory(engine)() as session:
+            project = await _resolve_project(session, project_slug)
+            result = await ChunkRepo(session, project.id).backfill_search_text(build_search_text)
+            await session.commit()
+            return result
+    finally:
+        await engine.dispose()
 
 
 async def _run_ask(question: str, project_slug: str, top_k: int | None) -> dict[str, Any]:

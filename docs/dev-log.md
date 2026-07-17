@@ -236,3 +236,13 @@
 - ORM 侧一个小坑：部分索引的 WHERE 在 SQLAlchemy 里要 `text()`，而 D7 分层扫描禁止 models.py 导入 text——索引因此只在迁移里建，模型 docstring 注明归属，不为绕过扫描开豁免。
 - 测试自建独立临时库（不复用 conftest 会话级已迁移库，那个不允许被降级）：`upgrade head → 种子 P0 四表 → downgrade 0001 → 断言新表/新列消失且数据原样 → upgrade head → 断言数据仍在、默认值就位`；嵌入用 `<=>` 距离=0 断言逐字节回读一致。schema 一致性测试精确断言两张新表字段集、unique(run_id,seq) 与 GIN/HNSW indexdef。
 - 本地生产库执行非破坏 `alembic upgrade head`：mini-mall 1370 chunks 全部保留且 search_text=''（另 16 块属 P0 fixtures-t7 项目，非漂移）。质量门：ruff/pyright 零错误，pytest 68 passed。
+
+## 2026-07-17 · T12.2 · P0 chunks search_text backfill
+
+做了什么：实现规格 §7 的 FTS token 化纯函数（`retrieval.py`，摄取期/查询期共用），`ChunkRepo.backfill_search_text` 单事务回填 + `devkb backfill-search` CLI；对真实库 mini-mall 1370 chunks 完成回填（证据：本提交）。
+
+- 顺序裁决（清单 T12.2 在 T14 之前，但 §7 说"具体函数由 T14 spike 冻结"）：按清单的自然读法，函数在 T12.2 诞生——"与新摄取相同"表达的是共用约束而非冻结时点；T14.1 再补中文/英文/Java 符号/RabbitMQ/URL/错误码 golden 全集并冻结。backfill 幂等可重跑，若 T14 微调函数只需重执行一次 UPDATE，不推倒任何东西。
+- token 化按 §7 七条规则：保留原词（小写化）、snake/camel/字母数字边界拆分、路径/routing key/错误码整词 + 分段、jieba 独立 Tokenizer HMM=False 保证确定性、空/超长（>64 字符）token 丢弃、同 token 计入 ≤10 次（保词频信号防病态膨胀）、总量 ≤8192 确定性截断。
+- backfill 设计：只 UPDATE `search_text` 单列（`search_tsv` 生成列自动跟随），结果一致的行跳过——幂等由"算出来一样就不写"保证；不在 Repository 内 commit，事务归调用方，失败自然整体回滚（集成测试用显式 rollback 证明零残留）。
+- 真实库结果：第一次 1370/1370 更新，第二次 0 更新；非空率 100%；`plainto_tsquery('simple','orderstatemachine')` 命中 6 块、`订单` 110 块，GIN 可查。fixtures-t7 的 16 块属 P0 测试遗留项目，不在本任务范围，未回填。
+- 质量门：ruff/pyright 零错误，pytest 78 passed（新增 token 化单测 8 项 + backfill 集成测试 2 项）。

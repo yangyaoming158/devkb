@@ -8,12 +8,12 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -181,6 +181,34 @@ class ChunkRepo:
     async def count(self) -> int:
         stmt = select(func.count()).where(Chunk.project_id == self._project_id)
         return (await self._session.execute(stmt)).scalar_one()
+
+    async def backfill_search_text(self, build: Callable[[str, str], str]) -> tuple[int, int]:
+        """按 build(title_path, content) 重算当前项目全部 chunks 的 search_text。
+
+        返回 (总数, 实际更新数)；结果已一致的行跳过，重复执行幂等。
+        只改 search_text 单列（search_tsv 为生成列自动跟随），不触碰 embedding。
+        事务由调用方掌控：不在此 commit，失败时整体可回滚（T12.2）。
+        """
+        rows = (
+            await self._session.execute(
+                select(Chunk.id, Chunk.title_path, Chunk.content, Chunk.search_text)
+                .where(Chunk.project_id == self._project_id)
+                .order_by(Chunk.id)
+            )
+        ).all()
+        updated = 0
+        for chunk_id, title_path, content, current in rows:
+            desired = build(title_path, content)
+            if desired == current:
+                continue
+            await self._session.execute(
+                update(Chunk)
+                .where(Chunk.project_id == self._project_id, Chunk.id == chunk_id)
+                .values(search_text=desired)
+            )
+            updated += 1
+        await self._session.flush()
+        return len(rows), updated
 
     async def list_reference_anchors(self) -> list[tuple[str, str]]:
         """列出当前项目可检索 chunk 的路径和标题路径。
