@@ -1,10 +1,11 @@
-"""摄取管道（规格 §7：同步、逐文档隔离失败）。
+"""摄取管道（规格 §7/§6：同步、按后缀分派、逐文档隔离失败）。
 
-扫描（仅 .md/.txt，单文件 ≤5MB，跳过隐藏目录/文件）→ 编码规范化
-（charset-normalizer → UTF-8）→ content_hash 未变跳过 → 标题树分块 →
-批量嵌入（batch 由 Embedder 内部按基准值控制，OOM 减半退避）→
-单文档事务内删旧插新。单文档失败记 status='failed' + parse_error 后
-继续下一文档；数据库级故障不属于单文档问题，照常抛出中断批次。
+扫描（.md/.txt/.java，单文件 ≤5MB，跳过隐藏目录/文件）→ 编码规范化
+（charset-normalizer → UTF-8）→ content_hash 未变跳过 → 按后缀分块
+（Markdown 标题树 / Java 结构成员）→ 批量嵌入（batch 由 Embedder 内部
+按基准值控制，OOM 减半退避）→ 单文档事务内删旧插新。单文档失败
+（含 Java 语法坏文件）记 status='failed' + parse_error 后继续下一文档；
+数据库级故障不属于单文档问题，照常抛出中断批次。
 
 数据访问全部经 Repository（D7：本模块不构造任何 sqlalchemy 查询）。
 """
@@ -22,13 +23,14 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fi
 
 from devkb.embedding import Embedder
 from devkb.errors import EmbeddingError, ParseError, UnsupportedFileError
-from devkb.ingest.markdown import TokenCounter, chunk_markdown
+from devkb.ingest.java import JavaChunk, chunk_java
+from devkb.ingest.markdown import MdChunk, TokenCounter, chunk_markdown
 from devkb.repositories import ChunkDraft, ChunkRepo, DocumentRepo
 
 logger = structlog.get_logger(__name__)
 
 MAX_FILE_BYTES = 5 * 1024 * 1024
-SUPPORTED_SUFFIXES = frozenset({".md", ".txt"})
+SUPPORTED_SUFFIXES = frozenset({".md", ".txt", ".java"})
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,8 @@ def _normalize_text(raw: bytes) -> str:
 
 
 def _doc_title(source: str, path: Path) -> str:
+    if path.suffix.lower() == ".java":
+        return path.stem  # 类名即文件名（Java 惯例）
     for line in source.splitlines():
         stripped = line.strip()
         if stripped.startswith("#"):
@@ -80,6 +84,23 @@ def _doc_title(source: str, path: Path) -> str:
         if stripped:
             break
     return path.stem
+
+
+def _suffix_doc_type(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".java":
+        return "java"
+    return "markdown" if suffix == ".md" else "text"
+
+
+def _chunk_source(
+    source: str, path: Path, *, count_tokens: TokenCounter, target_tokens: int
+) -> tuple[list[MdChunk] | list[JavaChunk], str]:
+    """按后缀分派分块器，返回 (chunks, doc_type)。"""
+    doc_type = _suffix_doc_type(path)
+    if doc_type == "java":
+        return chunk_java(source, count_tokens=count_tokens, target_tokens=target_tokens), doc_type
+    return chunk_markdown(source, count_tokens=count_tokens, target_tokens=target_tokens), doc_type
 
 
 @retry(
@@ -125,9 +146,11 @@ async def ingest_directory(
                 continue
 
             try:
-                chunks = chunk_markdown(
-                    source, count_tokens=count_tokens, target_tokens=target_tokens
+                chunks, doc_type = _chunk_source(
+                    source, path, count_tokens=count_tokens, target_tokens=target_tokens
                 )
+            except ParseError:
+                raise  # 分块器已给出明确失败原因（如 Java 无法识别结构）
             except Exception as exc:  # 分块器对任意文本的未知崩溃也按单文档失败隔离
                 raise ParseError(f"分块失败：{type(exc).__name__}: {exc}") from exc
 
@@ -135,7 +158,7 @@ async def ingest_directory(
             document = await doc_repo.upsert(
                 rel_path=rel_path,
                 title=_doc_title(source, path),
-                doc_type="markdown" if path.suffix.lower() == ".md" else "text",
+                doc_type=doc_type,
                 content_hash=content_hash,
             )
             n = await chunk_repo.replace_for_document(
@@ -160,7 +183,7 @@ async def ingest_directory(
         except (UnsupportedFileError, ParseError, EmbeddingError, OSError) as exc:
             await session.rollback()
             reason = f"{type(exc).__name__}: {exc}"
-            await doc_repo.mark_failed(rel_path, reason)
+            await doc_repo.mark_failed(rel_path, reason, doc_type=_suffix_doc_type(path))
             await session.commit()
             report.outcomes.append(FileOutcome(rel_path, "failed", error=reason))
             logger.warning("document_failed", rel_path=rel_path, error=reason)

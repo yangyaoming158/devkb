@@ -38,9 +38,12 @@ def test_content_is_verbatim_line_slice(name: str) -> None:
     source, chunks = _chunk_fixture(name)
     lines = source.splitlines()
     for c in chunks:
-        assert c.content == "\n".join(lines[c.start_line - 1 : c.end_line]), (
-            f"chunk 内容必须逐字对应源行：{c.title_path}"
-        )
+        cited = "\n".join(lines[c.start_line - 1 : c.end_line])
+        if c.content != cited:
+            # 超长拆分子块：内容 = 签名上下文 + 引用区间；两段都必须逐字来自源文件
+            prefix, sep, rest = c.content.partition("\n" + cited)
+            assert sep and not rest, f"chunk 内容必须以引用区间逐字结尾：{c.title_path}"
+            assert prefix in source, f"签名上下文必须逐字来自源文件：{c.title_path}"
         assert c.content_hash == hashlib.sha256(c.content.encode("utf-8")).hexdigest()
 
 
@@ -114,14 +117,29 @@ def test_interface_enum_record_recognized() -> None:
     assert "PENDING_PAYMENT" in by_title[f"{pkg}.OrderStatus > OrderStatus > constants"].content
 
 
-def test_long_method_kept_whole_until_t13_2() -> None:
-    _, chunks = _chunk_fixture("long_method")
-    by_title = {c.title_path: c for c in chunks}
-    reconcile = by_title[
-        "com.example.batch.InventoryReconcileJob > InventoryReconcileJob > reconcile"
-    ]
-    assert "step-0" in reconcile.content and "step-29" in reconcile.content
-    assert reconcile.token_count > 400, "该 fixture 必须超目标（T13.2 拆分的对象）"
+def test_long_method_split_with_signature_context() -> None:
+    source, chunks = _chunk_fixture("long_method")
+    lines = source.splitlines()
+    title = "com.example.batch.InventoryReconcileJob > InventoryReconcileJob > reconcile"
+    parts = [c for c in chunks if c.title_path == title]
+    assert len(parts) >= 2, "超目标方法必须被拆分为多个子块"
+
+    assert parts[0].content.lstrip().startswith("public void reconcile()"), "首块从签名开始"
+    for sub in parts[1:]:
+        assert sub.content.startswith("    public void reconcile() {"), (
+            "后续子块必须重复最小签名上下文"
+        )
+        cited = "\n".join(lines[sub.start_line - 1 : sub.end_line])
+        assert sub.content == "    public void reconcile() {\n" + cited, (
+            "签名之外的内容必须逐字等于引用区间"
+        )
+        assert cited.lstrip().startswith(("int drift", "audit(")), "拆分落在真实语句边界"
+
+    # 全部子块拼起来覆盖整个方法体（区间连续无缝、无重叠）
+    for prev, cur in itertools.pairwise(parts):
+        assert cur.start_line == prev.end_line + 1, "子块引用区间必须连续"
+    assert "step-0" in parts[0].content and "step-29" in parts[-1].content
+    assert all(c.token_count <= 400 + 60 for c in parts), "子块规模受目标 token 约束"
 
 
 def test_broken_file_recovers_parseable_members() -> None:

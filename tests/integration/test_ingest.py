@@ -158,3 +158,42 @@ async def test_failed_update_excludes_stale_chunks_from_search(
     assert not any(  # 但绝不能再被检索到
         rel_path == "guide.md" for _, rel_path, _ in await chunk_repo.vector_search(query, 5)
     )
+
+
+async def test_java_dispatch_and_broken_isolation(session: AsyncSession, tmp_path: Path) -> None:
+    """T13.2：.java 走结构分块入库；坏 Java 隔离为 failed 且批次继续；重摄取幂等。"""
+    good = tmp_path / "src" / "OrderService.java"
+    good.parent.mkdir()
+    good.write_text(
+        (Path(__file__).parents[1] / "fixtures" / "corpus_java" / "order_service.java").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "src" / "Garbage.java").write_text("%%% 完全不是 Java %%%", encoding="utf-8")
+    (tmp_path / "note.md").write_text("# 说明\n\nJava 摄取测试。\n", encoding="utf-8")
+    project_id = await _new_project(session)
+
+    report = await ingest_directory(
+        session, project_id, tmp_path, embedder=FakeEmbedder(), count_tokens=approx_token_counter
+    )
+    assert report.count("ingested") == 2 and report.count("failed") == 1
+
+    doc_repo = DocumentRepo(session, project_id)
+    java_doc = await doc_repo.get_by_rel_path("src/OrderService.java")
+    assert java_doc is not None and java_doc.doc_type == "java" and java_doc.status == "active"
+    garbage = await doc_repo.get_by_rel_path("src/Garbage.java")
+    assert garbage is not None and garbage.status == "failed" and garbage.doc_type == "java"
+    assert garbage.parse_error is not None and "无法" in garbage.parse_error
+
+    # Java symbol 词面可检索（search_text 在插入点生成）且引用元数据真实
+    hits = await ChunkRepo(session, project_id).lexical_search("createorder", top_k=5)
+    assert hits, "Java 方法名应可词面命中"
+    chunk, rel_path, _ = hits[0]
+    assert rel_path == "src/OrderService.java"
+    assert "createOrder" in chunk.title_path and chunk.start_line >= 1
+
+    second = await ingest_directory(
+        session, project_id, tmp_path, embedder=FakeEmbedder(), count_tokens=approx_token_counter
+    )
+    assert second.count("skipped") == 2 and second.count("ingested") == 0

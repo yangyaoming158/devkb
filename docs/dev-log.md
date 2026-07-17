@@ -288,3 +288,13 @@
 - 行号契约比 markdown 更严：content 逐字 = `lines[start-1:end]` 连接、不做 strip——Java 引用行号将被 T13.5 抽查和 U2.2 人工复核逐字核对。语法错误容错：tree-sitter 恢复出的完好成员照常成 chunk（broken fixture 验证），完全无结构才抛 ParseError（单文件隔离归 T13.2 接线）。
 - 超长方法（fixture 实测 token_count>400）当前整块保留，T13.2 做有界拆分；`target_tokens` 参数已预留。
 - 质量门：ruff/pyright 零错误，pytest 111 passed。
+
+## 2026-07-17 · T13.2 · Java 超长拆分与坏文件隔离
+
+做了什么：`chunk_java` 超目标成员沿方法体顶层语句边界拆分；摄取管道按后缀分派（.java → 结构分块，doc_type=java），坏 Java 单文件隔离批次继续（证据：本提交）。
+
+- 拆分与引用契约的张力是本任务核心：规格要求"子块带最小签名上下文"同时"引用行号只指真实源区间"。落法：后续子块 content = 成员声明到 `{` 行的逐字签名 + 子块源行，start/end_line 只指子块区间；逐字不变量测试升级为"content 必须以引用区间逐字结尾，前缀必须逐字来自源文件"。
+- 拆分算法与 markdown 分块同哲学：语句/注释起始行为边界（段间连续无缝）→ 单条超长语句按行二分（单行下限）→ 贪心装箱到 target_tokens；首块从成员起始行（含吸附注释+签名）开始，子块区间彼此连续（golden + pairwise 断言锁定）。
+- 管道分派：`_chunk_source` 按后缀返回 (chunks, doc_type)；ParseError 直接透传（分块器已给明确原因），未知崩溃仍包装为 ParseError 单文档隔离；`mark_failed` 增加 doc_type 参数，坏 Java 不再被误记为 markdown。
+- 真实语料复跑：392 文件 3468 chunks（拆分新增 162 块）、164 个成员被拆、最大子块 881 token（单行原子下限所致，有界）、零失败。
+- 质量门：ruff/pyright 零错误，pytest 112 passed（含新集成测试：Java 词面检索命中 createOrder、垃圾文件 failed 后幂等重摄取）。

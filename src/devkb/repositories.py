@@ -100,7 +100,7 @@ class DocumentRepo:
         result = await self._session.execute(stmt, execution_options={"populate_existing": True})
         return result.scalar_one()
 
-    async def mark_failed(self, rel_path: str, error: str) -> None:
+    async def mark_failed(self, rel_path: str, error: str, *, doc_type: str = "markdown") -> None:
         stmt = (
             pg_insert(Document)
             .values(
@@ -108,7 +108,7 @@ class DocumentRepo:
                 project_id=self._project_id,
                 rel_path=rel_path,
                 title="",
-                doc_type="markdown",
+                doc_type=doc_type,
                 content_hash="",
                 status="failed",
                 parse_error=error[:2000],

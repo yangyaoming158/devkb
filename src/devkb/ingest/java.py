@@ -11,7 +11,12 @@ chunk 单位 = 结构成员：
 
 每个成员 chunk 向上吸附紧邻注释/Javadoc（相隔 ≤1 行，不越过前一成员）；
 content 为源行逐字切片，start/end_line 1-based 含端点——引用契约与 P0 一致。
-超长成员的有界拆分在 T13.2；本模块当前整块保留。
+
+超长成员（T13.2）沿方法体顶层语句边界贪心装箱，单条超长语句再按行二分：
+- 首个子块从成员起始行（含吸附注释与签名）开始；
+- 后续子块 content = 最小签名上下文（成员声明到 ``{`` 行的逐字源行）+ 子块源行，
+  而 start/end_line 只指向子块真实源区间——签名是重复展示的上下文，不进引用行号。
+
 语法错误容错解析可识别部分；整文件无有效 chunk 时抛 ParseError（单文件隔离）。
 """
 
@@ -67,6 +72,9 @@ class _Span:
     title_path: str
     start_row: int  # 0-based，含
     end_row: int  # 0-based，含
+    # 超长拆分的后续子块：重复的最小签名上下文行（不计入引用行号）
+    prefix_start: int | None = None
+    prefix_end: int | None = None
 
 
 def _node_text(node: Node) -> str:
@@ -108,12 +116,101 @@ def _member_title(node: Node) -> str:
     return f"({node.type})"
 
 
-def _walk_type(node: Node, path: list[str], spans: list[_Span], header_start: int) -> None:
+def _row_text(lines: list[str], start_row: int, end_row: int) -> str:
+    return "\n".join(lines[start_row : end_row + 1])
+
+
+def _split_rows(
+    start_row: int,
+    end_row: int,
+    lines: list[str],
+    count_tokens: TokenCounter,
+    target_tokens: int,
+) -> list[tuple[int, int]]:
+    """超目标的行区间按行二分递归切分；单行是切分下限。"""
+    if end_row <= start_row:
+        return [(start_row, end_row)]
+    if count_tokens(_row_text(lines, start_row, end_row)) <= target_tokens:
+        return [(start_row, end_row)]
+    mid = (start_row + end_row) // 2
+    return _split_rows(start_row, mid, lines, count_tokens, target_tokens) + _split_rows(
+        mid + 1, end_row, lines, count_tokens, target_tokens
+    )
+
+
+def _member_spans(
+    member: Node,
+    title_path: str,
+    start_row: int,
+    lines: list[str],
+    count_tokens: TokenCounter,
+    target_tokens: int,
+) -> list[_Span]:
+    """成员 → 1..n 个 span：超目标时沿方法体顶层语句边界拆分（§6.3）。"""
+    end_row = member.end_point.row
+    if count_tokens(_row_text(lines, start_row, end_row)) <= target_tokens:
+        return [_Span(title_path, start_row, end_row)]
+
+    body = member.child_by_field_name("body")
+    if body is None:  # static_initializer 等：无 body 字段时找 block 子节点
+        body = next((c for c in member.children if c.type.endswith("block")), None)
+    if body is None or body.end_point.row - body.start_point.row < 2:
+        return [_Span(title_path, start_row, end_row)]  # 无体或体太短：整块保留
+    sig_end = body.start_point.row  # 最小签名上下文：成员声明起始行到 '{' 行
+
+    # 语句/注释起始行为切分边界；相邻边界间的行归前一段（段与段连续无缝）
+    boundaries = sorted(
+        {c.start_point.row for c in body.children if c.is_named and c.start_point.row > sig_end}
+    )
+    if not boundaries:
+        boundaries = [sig_end + 1]
+    segments = [
+        (row, (boundaries[i + 1] - 1) if i + 1 < len(boundaries) else end_row)
+        for i, row in enumerate(boundaries)
+    ]
+    atoms = [
+        atom
+        for seg_start, seg_end in segments
+        if seg_end >= seg_start
+        for atom in _split_rows(seg_start, seg_end, lines, count_tokens, target_tokens)
+    ]
+
+    # 贪心装箱到目标 token
+    packs: list[tuple[int, int]] = []
+    pack_start, pack_end, pack_tokens = atoms[0][0], atoms[0][1], 0
+    for atom_start, atom_end in atoms:
+        atom_tokens = count_tokens(_row_text(lines, atom_start, atom_end))
+        if atom_start != pack_start and pack_tokens + atom_tokens > target_tokens:
+            packs.append((pack_start, pack_end))
+            pack_start, pack_tokens = atom_start, 0
+        pack_end = atom_end
+        pack_tokens += atom_tokens
+    packs.append((pack_start, pack_end))
+
+    if len(packs) == 1:
+        return [_Span(title_path, start_row, end_row)]
+    spans = [_Span(title_path, start_row, packs[0][1])]  # 首块含吸附注释与签名
+    spans.extend(
+        _Span(title_path, p_start, p_end, prefix_start=start_row, prefix_end=sig_end)
+        for p_start, p_end in packs[1:]
+    )
+    return spans
+
+
+@dataclass
+class _Ctx:
+    lines: list[str]
+    count_tokens: TokenCounter
+    target_tokens: int
+    spans: list[_Span]
+
+
+def _walk_type(node: Node, path: list[str], ctx: _Ctx, header_start: int) -> None:
     type_path = [*path, _type_name(node)]
     body = node.child_by_field_name("body")
     # 类型头：吸附的 Javadoc + 注解 + 签名（record 组件在签名行内）到 body 开括号行
     header_end = body.start_point.row if body is not None else node.end_point.row
-    spans.append(_Span(" > ".join(type_path), header_start, header_end))
+    ctx.spans.append(_Span(" > ".join(type_path), header_start, header_end))
     if body is None:
         return
 
@@ -121,7 +218,7 @@ def _walk_type(node: Node, path: list[str], spans: list[_Span], header_start: in
     if body.type == "enum_body":
         constants = [c for c in members if c.type == "enum_constant"]
         if constants:
-            spans.append(
+            ctx.spans.append(
                 _Span(
                     " > ".join([*type_path, "constants"]),
                     _attach_comments(members, members.index(constants[0]), header_end),
@@ -137,7 +234,7 @@ def _walk_type(node: Node, path: list[str], spans: list[_Span], header_start: in
     def flush_fields() -> None:
         nonlocal last_end_row
         if field_run:
-            spans.append(
+            ctx.spans.append(
                 _Span(" > ".join([*type_path, "fields"]), field_run[0][0], field_run[-1][1])
             )
             last_end_row = field_run[-1][1]
@@ -152,13 +249,16 @@ def _walk_type(node: Node, path: list[str], spans: list[_Span], header_start: in
         flush_fields()
         start_row = _attach_comments(members, index, last_end_row)
         if member.type in _TYPE_NODES:
-            _walk_type(member, type_path, spans, start_row)
+            _walk_type(member, type_path, ctx, start_row)
         elif member.type in _NAMED_MEMBER_NODES or member.type == "static_initializer":
-            spans.append(
-                _Span(
+            ctx.spans.extend(
+                _member_spans(
+                    member,
                     " > ".join([*type_path, _member_title(member)]),
                     start_row,
-                    member.end_point.row,
+                    ctx.lines,
+                    ctx.count_tokens,
+                    ctx.target_tokens,
                 )
             )
         else:
@@ -170,8 +270,7 @@ def _walk_type(node: Node, path: list[str], spans: list[_Span], header_start: in
 def chunk_java(
     source: str, *, count_tokens: TokenCounter, target_tokens: int = 400
 ) -> list[JavaChunk]:
-    """结构化分块入口。target_tokens 供 T13.2 超长拆分使用，当前不切分。"""
-    del target_tokens  # T13.2 接入
+    """结构化分块入口；超目标成员沿语句边界有界拆分（T13.2）。"""
     tree = Parser(_LANGUAGE).parse(source.encode("utf-8"))
     root = tree.root_node
     lines = source.splitlines()
@@ -188,7 +287,8 @@ def chunk_java(
     # 其余顶层类型各用自己的 FQN 作根，面包屑不误挂到主类型下
     fqn_root = _fqn(_type_name(top_types[0]) if top_types else "")
 
-    spans: list[_Span] = []
+    ctx = _Ctx(lines=lines, count_tokens=count_tokens, target_tokens=target_tokens, spans=[])
+    spans = ctx.spans
     top_children = list(root.children)
     header_nodes = [
         (i, c)
@@ -211,7 +311,7 @@ def chunk_java(
             _walk_type(
                 child,
                 [_fqn(_type_name(child))],
-                spans,
+                ctx,
                 _attach_comments(top_children, index, last_top_row),
             )
             last_top_row = child.end_point.row
@@ -221,9 +321,12 @@ def chunk_java(
 
     chunks: list[JavaChunk] = []
     for span in spans:
-        content = "\n".join(lines[span.start_row : span.end_row + 1])
+        content = _row_text(lines, span.start_row, span.end_row)
         if not content.strip():
             continue
+        if span.prefix_start is not None and span.prefix_end is not None:
+            # 拆分子块：重复签名上下文进 content，引用行号仍只指真实子块区间
+            content = _row_text(lines, span.prefix_start, span.prefix_end) + "\n" + content
         chunks.append(
             JavaChunk(
                 ordinal=len(chunks),
