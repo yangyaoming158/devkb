@@ -348,3 +348,12 @@
 - 安全判据：全程绑定参数，plainto 对任意输入不抛语法错（空 tsquery 是 `||` 幺元，实测确认）；注入文本只会变成普通词素——新增"夹带注入的查询正常返回命中且表完好"测试；超长输入 4096 字符截断 + 32 token 硬上限（单测锁定确定性截断）。
 - 口径补齐：failed 文档保留的陈旧 chunks 在 lexical 路径同样不可见（与 vector_search 同理由：回滚保留的上一版 chunks 行号已不可信），新增测试。
 - 质量门：ruff/pyright 零错误，pytest 132 passed。
+
+## 2026-07-17 · T14.3 · lexical 排名与解释性字段
+
+做了什么：`retrieval.lexical_retrieve` 组装 `LexicalHit`——chunk 引用元数据之外带 lexical_rank（1-based）、ts_rank_cd 原始分、命中 query 与 query_tokens（证据：本提交）。
+
+- 字段设计对齐规格 §8 第 6 条：这些解释字段是 T15 RRF（保留各 channel rank）和 T18 轨迹的输入口径；score 注释明确"只用于 channel 内排序解释，不与余弦分数混加"（§8 反混加纪律前置到类型层）。
+- query_tokens 的一致性依据：token 化是纯函数，retrieve 层复算的结果与 lexical_search 内部构造 tsquery 所用完全一致（同函数同输入），不需要跨层传递。
+- 排名可精确断言的两层证据：受控种子数据上"命中 2 词 > 命中 1 词 > 无关不出现"的完整顺序 + 全部解释字段断言；真实 Java fixture 经管道摄取后，查询 `shouldRetry`（语料中唯一原词）精确命中该方法块 rank=1、rel_path/行号正确。
+- 质量门：ruff/pyright 零错误，pytest 134 passed。
