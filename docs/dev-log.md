@@ -277,3 +277,14 @@
 - 中等（GUC 恢复不真）：原实现恢复写死 'on' 且 ef_search 整个事务残留，同事务内结果依赖调用顺序——清单里"查询后即恢复"的说法名不副实。修复：查询前 `current_setting` 记录全部将改 GUC（含 hnsw.ef_search），查询后按原值恢复；异常路径事务必然中止、is_local 设置随回滚撤销，无需 try/finally。回归覆盖"外部预设 off/77 不被覆写回默认"。
 - 连带教训：GIN 计划断言在合成小数据上赌 planner 成本模型（800 行 + ANALYZE 也会翻转），改为确定性形状验证（无 project 谓词时 GIN 是 tsv 唯一可用索引）；带全谓词的自然计划验证归 T14.4 在真实 1370 块语料上落盘。
 - 质量门：ruff/pyright 零错误，pytest 93 passed；生产库 revision=0003、五个新约束就位、1370 chunks search_text 无损。
+
+## 2026-07-17 · T13.1 · tree-sitter Java parser 与 chunk 模型
+
+做了什么：实现 `ingest/java.py` 结构化分块——package/imports 区、类型头（注解+签名到 `{` 行）、enum 常量区、constructor/method/field group/static 块逐成员成 chunk，嵌套类型递归；4 个 fixture、4 份 golden、18 项测试（证据：本提交）。
+
+- 本任务最大收获是一个上游 bug：tree-sitter 0.26.0 在真实 mini-mall 的 `GatewayAuthenticationFilterTest.java`（339 行普通 Java）上遍历 `class_body.children` 时节点内存损坏，`start_point.row` 吐出 139088220913665 之类的垃圾值随后 SIGSEGV。T11.2 的最小 spike 和本任务全部 fixture 均无法复现——只有在提交前跑的"392 个真实文件全量冒烟"抓到了它。同 grammar + 同文件在 0.25.2 下 105 个成员完整遍历无异常，392 文件 3306 chunks 零失败。已降级锁定 `>=0.25.2,<0.26`，spike 文档留了复现记录和"新版必须先重跑真实语料压测再放开上限"的条件。教训写死：最小 spike 证明 API 兼容，不能替代真实语料压测。
+- title_path 设计：根 = 类型 FQN（`com.example.order.OrderService > OrderService > createOrder`，与规格 §6.3 示例一致）；同文件多个顶层类型各用自身 FQN 作根，不误挂到主类型下（golden 人工审阅时发现并修正）；package/imports 区归文件主类型 FQN。
+- 注释吸附规则：成员向上吸附相隔 ≤1 行的连续注释/Javadoc，以前一成员末行为地板防重叠；文件头 license 注释归 package/imports 区。初版漏了"类型头也要吸附"（只有成员吸附），测试抓出后把吸附行传进 `_walk_type`。
+- 行号契约比 markdown 更严：content 逐字 = `lines[start-1:end]` 连接、不做 strip——Java 引用行号将被 T13.5 抽查和 U2.2 人工复核逐字核对。语法错误容错：tree-sitter 恢复出的完好成员照常成 chunk（broken fixture 验证），完全无结构才抛 ParseError（单文件隔离归 T13.2 接线）。
+- 超长方法（fixture 实测 token_count>400）当前整块保留，T13.2 做有界拆分；`target_tokens` 参数已预留。
+- 质量门：ruff/pyright 零错误，pytest 111 passed。

@@ -1,0 +1,101 @@
+[
+  {
+    "ordinal": 0,
+    "title_path": "com.example.order.OrderService > package/imports",
+    "content": "/*\n * License header: for fixture purposes only.\n */\npackage com.example.order;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;",
+    "content_hash": "967026bd84681bf9dfb9c896d05a11ce9bc237c97e9281b12aa0205044276193",
+    "token_count": 43,
+    "start_line": 1,
+    "end_line": 8
+  },
+  {
+    "ordinal": 1,
+    "title_path": "com.example.order.OrderService > OrderService",
+    "content": "/**\n * 订单应用服务：创建、取消与状态查询。\n */\n@Service\n@Transactional(rollbackFor = Exception.class)\npublic class OrderService {",
+    "content_hash": "aa21f809ba54f2da032c8513819707b26245bd0d45a4a247837c39de651bebee",
+    "token_count": 40,
+    "start_line": 10,
+    "end_line": 15
+  },
+  {
+    "ordinal": 2,
+    "title_path": "com.example.order.OrderService > OrderService > fields",
+    "content": "    /** 幂等键缓存：requestId -> orderId。 */\n    private final Map<String, Long> idempotencyCache = new ConcurrentHashMap<>();\n\n    private final OrderRepository orderRepository;\n    private static final int MAX_RETRY = 3;",
+    "content_hash": "67385cd09ca84a704fdd3ba8466a0a06b69529cfab4bf9331eab2f195f6c309c",
+    "token_count": 58,
+    "start_line": 17,
+    "end_line": 21
+  },
+  {
+    "ordinal": 3,
+    "title_path": "com.example.order.OrderService > OrderService > static {}",
+    "content": "    static {\n        System.setProperty(\"order.service.loaded\", \"true\");\n    }",
+    "content_hash": "6785dd10a7dea1b17e246cbf1663c229d7ccc90becdea5d2394892f5693b098c",
+    "token_count": 20,
+    "start_line": 23,
+    "end_line": 25
+  },
+  {
+    "ordinal": 4,
+    "title_path": "com.example.order.OrderService > OrderService > OrderService",
+    "content": "    /**\n     * 构造注入仓储。\n     */\n    public OrderService(OrderRepository orderRepository) {\n        this.orderRepository = orderRepository;\n    }",
+    "content_hash": "861e16b6348f80c874113382327631574e5c09a9c3dca815b713482407250522",
+    "token_count": 41,
+    "start_line": 27,
+    "end_line": 32
+  },
+  {
+    "ordinal": 5,
+    "title_path": "com.example.order.OrderService > OrderService > createOrder",
+    "content": "    /**\n     * 创建订单：重复的 requestId 返回既有订单（幂等）。\n     *\n     * @param requestId 客户端幂等键\n     */\n    public Long createOrder(String requestId, List<OrderItem> items) {\n        Long existing = idempotencyCache.get(requestId);\n        if (existing != null) {\n            return existing;\n        }\n        Long orderId = orderRepository.save(items);\n        idempotencyCache.put(requestId, orderId);\n        return orderId;\n    }",
+    "content_hash": "1e7ca3b792dea2d9d23fbe358031f5340437ea871b92e4df5f5046f93641b3ec",
+    "token_count": 122,
+    "start_line": 34,
+    "end_line": 47
+  },
+  {
+    "ordinal": 6,
+    "title_path": "com.example.order.OrderService > OrderService > groupBy",
+    "content": "    // 泛型辅助：按键聚合\n    private <K, V> Map<K, List<V>> groupBy(List<V> values, KeyFn<K, V> fn) {\n        Map<K, List<V>> grouped = new ConcurrentHashMap<>();\n        for (V value : values) {\n            grouped.computeIfAbsent(fn.key(value), k -> new java.util.ArrayList<>()).add(value);\n        }\n        return grouped;\n    }",
+    "content_hash": "2304f552a7c7b80cc421f014a8e40a2431f0a652a3089a2b47dc209725e93934",
+    "token_count": 87,
+    "start_line": 49,
+    "end_line": 56
+  },
+  {
+    "ordinal": 7,
+    "title_path": "com.example.order.OrderService > OrderService > RetryPolicy",
+    "content": "    /**\n     * 内部重试策略（嵌套类）。\n     */\n    public static class RetryPolicy {",
+    "content_hash": "5a0358532e1871a73a6077251621c0dc43526be314bcf0a0f0f6307d4e7453e2",
+    "token_count": 25,
+    "start_line": 58,
+    "end_line": 61
+  },
+  {
+    "ordinal": 8,
+    "title_path": "com.example.order.OrderService > OrderService > RetryPolicy > fields",
+    "content": "        private final int maxAttempts;",
+    "content_hash": "5281d95c63a12e3ac66c055899d58e7744493510423b8c4b5285b84185f7c895",
+    "token_count": 10,
+    "start_line": 63,
+    "end_line": 63
+  },
+  {
+    "ordinal": 9,
+    "title_path": "com.example.order.OrderService > OrderService > RetryPolicy > RetryPolicy",
+    "content": "        public RetryPolicy(int maxAttempts) {\n            this.maxAttempts = maxAttempts;\n        }",
+    "content_hash": "197930986cc2fc2737608d70cdad7351caf27f550f661e067f09c45bca60780e",
+    "token_count": 25,
+    "start_line": 65,
+    "end_line": 67
+  },
+  {
+    "ordinal": 10,
+    "title_path": "com.example.order.OrderService > OrderService > RetryPolicy > shouldRetry",
+    "content": "        public boolean shouldRetry(int attempt) {\n            return attempt < maxAttempts;\n        }",
+    "content_hash": "fa0d46d4881ccfa918b54d80ffad629d3756e315197339ca0342e02584aa236f",
+    "token_count": 26,
+    "start_line": 69,
+    "end_line": 71
+  }
+]

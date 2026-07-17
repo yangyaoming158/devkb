@@ -1,0 +1,38 @@
+[
+  {
+    "ordinal": 0,
+    "title_path": "com.example.batch.InventoryReconcileJob > package/imports",
+    "content": "package com.example.batch;",
+    "content_hash": "c145a5b46363a0b15f99a42b4366b0b5e9d6f2903c46c3553d0aff2d87f95303",
+    "token_count": 7,
+    "start_line": 1,
+    "end_line": 1
+  },
+  {
+    "ordinal": 1,
+    "title_path": "com.example.batch.InventoryReconcileJob > InventoryReconcileJob",
+    "content": "/**\n * 超长方法 fixture：T13.1 整块保留，T13.2 起有界拆分。\n */\nclass InventoryReconcileJob {",
+    "content_hash": "eed31b8ad822c6a6082617e9717a6595c849c3b6778dcfd4214f1902727efb8a",
+    "token_count": 29,
+    "start_line": 3,
+    "end_line": 6
+  },
+  {
+    "ordinal": 2,
+    "title_path": "com.example.batch.InventoryReconcileJob > InventoryReconcileJob > reconcile",
+    "content": "    public void reconcile() {\n        int drift0 = 0;\n        audit(\"step-0\", drift0);\n        int drift1 = 1;\n        audit(\"step-1\", drift1);\n        int drift2 = 2;\n        audit(\"step-2\", drift2);\n        int drift3 = 3;\n        audit(\"step-3\", drift3);\n        int drift4 = 4;\n        audit(\"step-4\", drift4);\n        int drift5 = 5;\n        audit(\"step-5\", drift5);\n        int drift6 = 6;\n        audit(\"step-6\", drift6);\n        int drift7 = 7;\n        audit(\"step-7\", drift7);\n        int drift8 = 8;\n        audit(\"step-8\", drift8);\n        int drift9 = 9;\n        audit(\"step-9\", drift9);\n        int drift10 = 10;\n        audit(\"step-10\", drift10);\n        int drift11 = 11;\n        audit(\"step-11\", drift11);\n        int drift12 = 12;\n        audit(\"step-12\", drift12);\n        int drift13 = 13;\n        audit(\"step-13\", drift13);\n        int drift14 = 14;\n        audit(\"step-14\", drift14);\n        int drift15 = 15;\n        audit(\"step-15\", drift15);\n        int drift16 = 16;\n        audit(\"step-16\", drift16);\n        int drift17 = 17;\n        audit(\"step-17\", drift17);\n        int drift18 = 18;\n        audit(\"step-18\", drift18);\n        int drift19 = 19;\n        audit(\"step-19\", drift19);\n        int drift20 = 20;\n        audit(\"step-20\", drift20);\n        int drift21 = 21;\n        audit(\"step-21\", drift21);\n        int drift22 = 22;\n        audit(\"step-22\", drift22);\n        int drift23 = 23;\n        audit(\"step-23\", drift23);\n        int drift24 = 24;\n        audit(\"step-24\", drift24);\n        int drift25 = 25;\n        audit(\"step-25\", drift25);\n        int drift26 = 26;\n        audit(\"step-26\", drift26);\n        int drift27 = 27;\n        audit(\"step-27\", drift27);\n        int drift28 = 28;\n        audit(\"step-28\", drift28);\n        int drift29 = 29;\n        audit(\"step-29\", drift29);\n    }",
+    "content_hash": "e166798df7cc2754155a8677e91cef3c350695fdcb23063ce7465c0e20622250",
+    "token_count": 457,
+    "start_line": 8,
+    "end_line": 69
+  },
+  {
+    "ordinal": 3,
+    "title_path": "com.example.batch.InventoryReconcileJob > InventoryReconcileJob > audit",
+    "content": "    private void audit(String step, int drift) {\n        System.out.println(step + \":\" + drift);\n    }",
+    "content_hash": "7b6105493b288f3311e63644bfa2fa87b01ee955949a84faae6704fd5ccb5e07",
+    "token_count": 26,
+    "start_line": 71,
+    "end_line": 73
+  }
+]

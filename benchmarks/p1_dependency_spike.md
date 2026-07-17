@@ -12,10 +12,12 @@
 |---|---|---|---|---|
 | LangGraph 状态图 | `langgraph==1.2.9`; `langchain-core==1.4.9` | 两者均标记 MIT | PyPI 包上传时间分别为 2026-07-10 / 2026-07-08；上游 release 持续更新 | 只使用 `StateGraph`；不引入 `langchain` 元包、ChatModel、VectorStore 或 provider adapter |
 | FastAPI async + ASGI server | `fastapi==0.139.1`; `uvicorn==0.51.0`; 测试 `httpx==0.28.1` | FastAPI 标记 MIT；Uvicorn/HTTPX 标记 BSD-3-Clause | FastAPI/Uvicorn 包上传时间为 2026-07-16 / 2026-07-08；HTTPX 最新稳定包为 2024-12-06 | 不使用 `fastapi[standard]`，避免引入 CLI/模板等无关 extras；HTTPX 只是 dev 直接依赖 |
-| Java 纯解析 | `tree-sitter==0.26.0`; `tree-sitter-java==0.23.5` | 两者均标记 MIT | Python binding 包于 2026-06-30 上传；Java grammar 最新 PyPI release 为 2024-12-21，官方仓库仍开放维护 | grammar 发版节奏较慢；用真实 ABI + CST 结构测试锁定兼容性，解析器永不执行 Java |
+| Java 纯解析 | `tree-sitter==0.25.2`（初锁 0.26.0，见下方修订）; `tree-sitter-java==0.23.5` | 两者均标记 MIT | Python binding 包于 2026-06-30 上传；Java grammar 最新 PyPI release 为 2024-12-21，官方仓库仍开放维护 | grammar 发版节奏较慢；用真实 ABI + CST 结构测试锁定兼容性，解析器永不执行 Java |
 | CJK 预分词 | `jieba==0.42.1` | 标记 MIT | 最新 PyPI release 为 2020-01-20，上游活跃度低 | Python 3.12 首次编译会报 invalid escape `SyntaxWarning`，但功能 spike 通过；T14 必须封装为纯函数、关闭 HMM 并用 golden 锁输出 |
 
 直接依赖版本在 `pyproject.toml` 记录下界，本次实际解析版本由 `uv.lock` 精确锁定。未引入 Redis、reranker、PyMuPDF、LlamaIndex、LangFuse/MCP SDK、Neo4j driver 或 Dify/n8n 运行依赖。
+
+**修订（2026-07-17，T13.1）**：`tree-sitter` 0.26.0 在真实 mini-mall 语料（`GatewayAuthenticationFilterTest.java`，339 行普通 Java）上遍历 `class_body.children` 时出现节点内存损坏——`start_point.row` 返回 139088220913665 之类的垃圾值随后 SIGSEGV；小 fixture（T11.2 spike 与 golden）不能复现，只有该真实文件触发。同一 grammar（0.23.5）+ 同一文件在 0.25.2 下完整遍历 105 个成员无任何异常，392 个真实 Java 文件全量解析 0 失败。据此把锁定版本降级为 `>=0.25.2,<0.26`；上游发布新版本后必须先重跑本节的真实语料全量解析再放开上限。教训：最小 spike 证明 API 兼容，不能替代真实语料压测。
 
 LangGraph 1.2.9 的必需转递依赖包含 `langgraph-checkpoint`、`langgraph-prebuilt`、`langgraph-sdk`；`langchain-core` 的依赖链包含 `langsmith`。P1 不导入或配置 LangSmith，不引入 PostgreSQL checkpoint adapter，不启用 LangGraph checkpointer。这些转递包不代表对应能力已纳入范围。
 

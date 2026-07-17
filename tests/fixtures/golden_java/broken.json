@@ -1,0 +1,47 @@
+[
+  {
+    "ordinal": 0,
+    "title_path": "com.example.broken.HalfBroken > package/imports",
+    "content": "package com.example.broken;",
+    "content_hash": "129eaf345180e0914ef2c3819ea6bb4982f3823cfd7912047cac3f81305e8058",
+    "token_count": 7,
+    "start_line": 1,
+    "end_line": 1
+  },
+  {
+    "ordinal": 1,
+    "title_path": "com.example.broken.HalfBroken > HalfBroken",
+    "content": "/**\n * 语法错误 fixture：缺右花括号 + 游离 token，tree-sitter 应容错恢复可识别部分。\n */\npublic class HalfBroken {",
+    "content_hash": "64afddfea5d22fe84f23726b821083675b8d9508158a04ed969090bc847abb6b",
+    "token_count": 39,
+    "start_line": 3,
+    "end_line": 6
+  },
+  {
+    "ordinal": 2,
+    "title_path": "com.example.broken.HalfBroken > HalfBroken > fields",
+    "content": "    private int counter;",
+    "content_hash": "39ad46ecc95e820266056702df1ec94ea4440cb60cc47d9cd71d1449b25966e1",
+    "token_count": 6,
+    "start_line": 8,
+    "end_line": 8
+  },
+  {
+    "ordinal": 3,
+    "title_path": "com.example.broken.HalfBroken > HalfBroken > increment",
+    "content": "    public int increment() {\n        counter++;\n        return counter;\n    }",
+    "content_hash": "87d519abd39b57b9045f1ffe19f1aaf5bd387f2eaac9e42e4c54a723e98201fd",
+    "token_count": 20,
+    "start_line": 10,
+    "end_line": 13
+  },
+  {
+    "ordinal": 4,
+    "title_path": "com.example.broken.HalfBroken > HalfBroken > broken",
+    "content": "    public void broken(  {\n        this is not java at all %%%\n}",
+    "content_hash": "51070b220499ce5da7365e4c3b024c727745c5c9d5cbcf26cac2dc0aa7490aa7",
+    "token_count": 16,
+    "start_line": 15,
+    "end_line": 17
+  }
+]

@@ -1,0 +1,101 @@
+[
+  {
+    "ordinal": 0,
+    "title_path": "com.example.contract.PaymentGateway > package/imports",
+    "content": "package com.example.contract;",
+    "content_hash": "79f75190fbcd3301d1da95c73771a9ecf79d17df84d9dbdbe51487e9389b101a",
+    "token_count": 8,
+    "start_line": 1,
+    "end_line": 1
+  },
+  {
+    "ordinal": 1,
+    "title_path": "com.example.contract.PaymentGateway > PaymentGateway",
+    "content": "/**\n * 支付网关契约（接口 + 常量 + default 方法）。\n */\npublic interface PaymentGateway {",
+    "content_hash": "95f7acc186a07b6e8bcb493c5f0f471036cde30bd60b85f337ee61d87c8dbf50",
+    "token_count": 28,
+    "start_line": 3,
+    "end_line": 6
+  },
+  {
+    "ordinal": 2,
+    "title_path": "com.example.contract.PaymentGateway > PaymentGateway > fields",
+    "content": "    /** 网关侧幂等重放错误码。 */\n    int DUPLICATE_PAY_CODE = 40901;\n    String CHANNEL = \"rabbitmq\";",
+    "content_hash": "42b86716a5d65fec4d0d790850be081ce6548066f0572828a9dc630963e6f996",
+    "token_count": 31,
+    "start_line": 8,
+    "end_line": 10
+  },
+  {
+    "ordinal": 3,
+    "title_path": "com.example.contract.PaymentGateway > PaymentGateway > charge",
+    "content": "    PaymentResult charge(String orderId, long amountCents);",
+    "content_hash": "5d0d5cd4125c6b49e7ca9d9f9896de109149402b0e05c9672a6d1889ca1d48c7",
+    "token_count": 15,
+    "start_line": 12,
+    "end_line": 12
+  },
+  {
+    "ordinal": 4,
+    "title_path": "com.example.contract.PaymentGateway > PaymentGateway > isDuplicate",
+    "content": "    default boolean isDuplicate(int code) {\n        return code == DUPLICATE_PAY_CODE;\n    }",
+    "content_hash": "649e9625b12d9ffa802263b2e1f0e939fa6b0f70037ab38daac71bbec918b238",
+    "token_count": 23,
+    "start_line": 14,
+    "end_line": 16
+  },
+  {
+    "ordinal": 5,
+    "title_path": "com.example.contract.OrderStatus > OrderStatus",
+    "content": "/**\n * 订单状态（枚举 + 方法）。\n */\nenum OrderStatus {",
+    "content_hash": "b77a0ecbac4f2fe4d7f6ddd4574ea89845b53f41e9adf7c1efe5516705a4caba",
+    "token_count": 17,
+    "start_line": 19,
+    "end_line": 22
+  },
+  {
+    "ordinal": 6,
+    "title_path": "com.example.contract.OrderStatus > OrderStatus > constants",
+    "content": "    /** 待支付。 */\n    PENDING_PAYMENT,\n    PAID,\n    CLOSED;",
+    "content_hash": "024b2e7bd08ae05d4472605bd849435102b0541101fdc2a0c6a21f919da7ace6",
+    "token_count": 17,
+    "start_line": 24,
+    "end_line": 27
+  },
+  {
+    "ordinal": 7,
+    "title_path": "com.example.contract.OrderStatus > OrderStatus > isTerminal",
+    "content": "    public boolean isTerminal() {\n        return this == CLOSED;\n    }",
+    "content_hash": "d5e662e0c1cbd5cda9bf485418adfc91b68c12ce1814b6bc3f1d764c5eac397f",
+    "token_count": 18,
+    "start_line": 29,
+    "end_line": 31
+  },
+  {
+    "ordinal": 8,
+    "title_path": "com.example.contract.PaymentResult > PaymentResult",
+    "content": "/**\n * 支付结果（record + 紧凑构造器）。\n */\nrecord PaymentResult(String orderId, int code, String message) {",
+    "content_hash": "864e01c2fda8a4d7b8aaaf7bc69207b21b377e1a0b722bcefa013fdb13e29582",
+    "token_count": 31,
+    "start_line": 34,
+    "end_line": 37
+  },
+  {
+    "ordinal": 9,
+    "title_path": "com.example.contract.PaymentResult > PaymentResult > PaymentResult",
+    "content": "    PaymentResult {\n        if (orderId == null) {\n            throw new IllegalArgumentException(\"orderId required\");\n        }\n    }",
+    "content_hash": "a326d82ad335931435eba225b28c8c69533dcf52bdf6b28f8657e1fc5ff4e39a",
+    "token_count": 34,
+    "start_line": 39,
+    "end_line": 43
+  },
+  {
+    "ordinal": 10,
+    "title_path": "com.example.contract.PaymentResult > PaymentResult > ok",
+    "content": "    public boolean ok() {\n        return code == 0;\n    }",
+    "content_hash": "1cd542575d35b1f369c2392e9b5174fe5c9dba5866c513f2d24150651c03e687",
+    "token_count": 15,
+    "start_line": 45,
+    "end_line": 47
+  }
+]

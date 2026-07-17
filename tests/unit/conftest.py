@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from devkb.ingest.java import JavaChunk
 from devkb.ingest.markdown import MdChunk
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
@@ -18,7 +19,7 @@ CORPUS_MD_DIR = FIXTURES_DIR / "corpus_md"
 GoldenCheck = Callable[[Path, list[dict[str, Any]]], None]
 
 
-def chunks_to_jsonable(chunks: list[MdChunk]) -> list[dict[str, Any]]:
+def chunks_to_jsonable(chunks: list[MdChunk] | list[JavaChunk]) -> list[dict[str, Any]]:
     return [
         {
             "ordinal": c.ordinal,

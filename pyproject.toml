@@ -21,7 +21,9 @@ dependencies = [
     "langchain-core>=1.4.9",
     "fastapi>=0.139.1",
     "uvicorn>=0.51.0",
-    "tree-sitter>=0.26.0",
+    # tree-sitter 0.26.0 节点遍历内存损坏（真实语料 SIGSEGV，2026-07-17 复现，
+    # 见 benchmarks/p1_dependency_spike.md），0.25.2 实测稳定；新版须重验后才放开上限
+    "tree-sitter>=0.25.2,<0.26",
     "tree-sitter-java>=0.23.5",
     "jieba>=0.42.1",
 ]
