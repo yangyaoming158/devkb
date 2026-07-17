@@ -328,3 +328,13 @@
 - 抽查：seed=20260717 随机 6 个 Java chunk，路径/行号/正文逐字对照原始仓库全部通过（含 package/imports 区与方法块）。
 - 一个口径备注：此前用近似计数器冒烟得 3468 java chunks，真实 Qwen tokenizer 下为 3387——拆分边界随计数器不同而不同，属预期；评测口径以真实摄取为准。
 - 质量门：ruff/pyright 零错误，pytest 119 passed。
+
+## 2026-07-17 · T14.1 · token 化 golden 全集与冻结
+
+做了什么：为 T12.2 诞生的 `tokenize_for_search` 补齐 golden 全集并正式冻结（证据：本提交）。
+
+- golden 覆盖：中文、英文、Java 符号（含 `OrderStateMachine.transition()`/`order_status_machine`）、RabbitMQ 名称（exchange/routing key/死信）、URL/路径（含 `{orderId}` 路径变量）、错误码（40901/409/`ORDER_STATE_CONFLICT`）+ 混合真实查询与 snake/kebab，共 8 case，快照人工逐条审阅后提交；另设"关键 token 语义抽查"测试防止未来 DEVKB_UPDATE_GOLDEN 照单全收错误输出。
+- 已知确定性行为（审阅记录）：jieba HMM=False 下词典外词如"回补/幂等"拆成单字——检索仍可经拆分词命中，不影响原文引用；`v1` camel 拆出 `v`+`1` 略有噪声但规则一致，不为个案加特判。
+- 判据口径说明：清单"去重"按规格 §7 第 7 条（优先级更高）落为"重复 token 有确定性上限"——MAX_TOKEN_REPEAT=10 保留词频信号防病态膨胀，完全去重反而会抹掉 ts_rank_cd 的词频证据；该行为 T12.2 已有测试锁定。
+- 冻结含义写入 fts.py 模块 docstring：输出变化必须人工审 golden diff 并对存量语料重跑 `devkb backfill-search`，否则摄取/查询两侧 token 不对称、FTS 静默漏检。
+- 质量门：ruff/pyright 零错误，pytest 127 passed。

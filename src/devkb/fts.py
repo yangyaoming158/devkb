@@ -3,7 +3,10 @@
 独立成模块的原因：repositories.py 在 chunk 插入点统一计算 search_text（新摄取
 与 backfill 必然同函数，T12.2 复评修复），而 retrieval.py 依赖 repositories，
 函数留在 retrieval 会形成循环导入。本模块无 SQL、无 IO，只做确定性文本变换。
-当前版本诞生于 T12.2；golden 全集与最终冻结在 T14.1。
+
+T14.1 起由 tests/fixtures/golden_fts/ 快照冻结：任何输出变化都要人工审阅
+golden diff，并对存量语料重跑 `devkb backfill-search`，否则摄取期写入的
+search_text 与查询期 token 不再对称，FTS 会静默漏检。
 """
 
 from __future__ import annotations
