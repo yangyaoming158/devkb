@@ -367,3 +367,12 @@
 - 延迟：85 样本 P50=17.6ms/P95=78.3ms，报告显式声明小样本+WSL2 开发机，不外推生产结论。
 - 机械分组规则（正则可复现，非人工标注）同时为 T15.4 Gate 第 3 条留下"预先归类 token 题"依据。
 - 质量门：ruff/pyright 零错误，pytest 全绿。
+
+## 2026-07-17 · T14 复评修复 · EXPLAIN 绑定参数与诊断归档
+
+做了什么：GPT 复评 T14 提出 1 阻断 + 2 报告证据问题，全部属实，修复（证据：本提交及下一提交）。
+
+- 阻断项（T14.2）：`explain_lexical_search` 用 literal_binds 把参数内联再 f-string 拼进 `EXPLAIN`——功能对但确实不是参数绑定，与判据字面不符。修复：自定义 `_Explain(Executable)` + `@compiles`，把 `EXPLAIN (ANALYZE, BUFFERS)` 作为编译期前缀、内层 select 连同全部绑定参数原样走 extended protocol（实测 asyncpg 下 EXPLAIN 可带参执行，之前"EXPLAIN 无法带绑定参数"的判断是错的）；`'simple'` 恢复为绑定参数（literal_column 的动机随 literal_binds 一起消失）。新增 EXPLAIN 敌意输入回归测试。
+- 证据项 1（T14.4 报告出处）：报告生成时工作树 dirty 且所记 commit（30c561c）不含生成器代码。复评已独立复跑确认指标逐题一致，但按纪律应从干净提交重新生成——本次代码提交后重跑，新报告与旧报告并存（时间戳报告不覆盖原则），清单证据指向新报告。
+- 证据项 2（排序变体无原始证据）：scratchpad 诊断脚本整理归档为 `benchmarks/p1_lexical_variants_diag.py`（只读诊断；为注入 ts_rank_cd 归一化参数使用本地 SQL，与集成测试中诊断 SQL 同一口径，业务查询构造仍收口 repositories），原始输出落 `benchmarks/results/lexical_variants_diag.txt`，报告措辞改为引用归档物。重跑与 scratchpad 结果完全一致（6 变体 R@10 均 0.059）。
+- 质量门：ruff/pyright 零错误，pytest 135 passed。

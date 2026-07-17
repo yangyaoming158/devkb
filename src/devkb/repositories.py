@@ -13,9 +13,11 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Literal
 
-from sqlalchemy import Select, delete, func, literal_column, select, text, update
+from sqlalchemy import Select, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.expression import ClauseElement, Executable
 
 from devkb.fts import build_search_text, tokenize_query
 from devkb.models import AgentRun, AgentStep, Chunk, Document, Project, ToolInvocation
@@ -24,6 +26,20 @@ VectorSearchMode = Literal["exact", "hnsw"]
 
 # T15.3 之前 ef_search 未冻结；上限防误配（pgvector 合法范围 1–1000）
 MAX_EF_SEARCH = 1000
+
+
+class _Explain(Executable, ClauseElement):
+    """EXPLAIN (ANALYZE, BUFFERS) 包装：内层语句连同绑定参数原样执行，无字符串拼接。"""
+
+    inherit_cache = False
+
+    def __init__(self, statement: Select[Any]) -> None:
+        self.statement = statement
+
+
+@compiles(_Explain)
+def _compile_explain(element: _Explain, compiler: Any, **kw: Any) -> str:
+    return "EXPLAIN (ANALYZE, BUFFERS) " + compiler.process(element.statement, **kw)
 
 
 class ProjectRepo:
@@ -250,11 +266,7 @@ class ChunkRepo:
         tokens = tokenize_query(query)
         if not tokens:
             return None
-        # 'simple' 是代码内常量（regconfig），以 SQL 字面量内联——绑定参数在
-        # EXPLAIN 的 literal_binds 编译下没有 REGCONFIG 渲染器；token 才是外部
-        # 输入，全部保持绑定参数
-        config = literal_column("'simple'")
-        parts = [func.plainto_tsquery(config, token) for token in tokens]
+        parts = [func.plainto_tsquery("simple", token) for token in tokens]
         tsquery = parts[0]
         for part in parts[1:]:
             tsquery = tsquery.op("||")(part)
@@ -275,18 +287,14 @@ class ChunkRepo:
         """对与 lexical_search 完全同源的查询形状跑 EXPLAIN (ANALYZE, BUFFERS)。
 
         评测报告用（T14.4：真实语料上验证 GIN 计划），不在业务路径调用。
-        参数以 literal_binds 内联——EXPLAIN 无法带绑定参数执行，且此处输入
-        是 tokenize_query 产出的受限 token（小写字母数字与 ._/:- ），非原始
-        用户输入。
+        经 _Explain 包装编译：内层语句与全部绑定参数原样保留（extended protocol
+        下 EXPLAIN 可带参执行），与 lexical_search 一样不做任何字符串拼接
+        （T14.2 复评修复：撤销 literal_binds 内联）。
         """
         stmt = self._lexical_stmt(query, top_k)
         if stmt is None:
             return ""
-        compiled = stmt.compile(
-            dialect=self._session.get_bind().dialect,
-            compile_kwargs={"literal_binds": True},
-        )
-        result = await self._session.execute(text(f"EXPLAIN (ANALYZE, BUFFERS) {compiled}"))
+        result = await self._session.execute(_Explain(stmt))
         return "\n".join(result.scalars())
 
     async def count(self) -> int:

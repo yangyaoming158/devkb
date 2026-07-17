@@ -123,6 +123,28 @@ async def test_lexical_search_is_safe_for_hostile_and_cjk_input(session: AsyncSe
     assert await repo.count() == 1, "chunks 表必须还在（未被注入删除）"
 
 
+async def test_explain_lexical_search_is_bound_and_safe(session: AsyncSession) -> None:
+    pid = await _seed_project(
+        session,
+        "fts-explain",
+        [ChunkDraft(0, "Data > 支付", "PaymentService 发布 支付 事件", "c0", 8, 1, 3, _vec(0))],
+    )
+    repo = ChunkRepo(session, pid)
+
+    plan = await repo.explain_lexical_search("支付 paymentservice", top_k=5)
+    assert "chunks" in plan and "ts_rank_cd" in plan, "EXPLAIN 输出的是同源查询形状"
+
+    for hostile in [
+        "PaymentService'; DROP TABLE chunks; --",
+        "$1); DELETE FROM chunks; --",
+        "a & | ! ( ) : * <-> b",
+    ]:
+        hostile_plan = await repo.explain_lexical_search(hostile, top_k=5)
+        assert isinstance(hostile_plan, str), f"敌意输入不得抛错：{hostile[:30]!r}"
+    assert await repo.explain_lexical_search("", top_k=5) == "", "空查询返回空串不触发 SQL"
+    assert await repo.count() == 1, "EXPLAIN 路径同样只走绑定参数，表必须完好"
+
+
 async def test_lexical_search_or_semantics_and_multi_term_ranking(session: AsyncSession) -> None:
     pid = await _seed_project(
         session,

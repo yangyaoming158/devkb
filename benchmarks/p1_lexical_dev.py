@@ -203,7 +203,8 @@ def render_markdown(report: dict[str, Any]) -> str:
             "- **机器实验**：诊断列显示多数未命中题的相关块连 top-100 都未进入。"
             "另在同一快照上对照了 ts_rank_cd 归一化 flag 1/4/32 与查询侧丢弃单字 "
             "CJK token 共 6 个排序变体，R@10 全部不变（0.059）——这不是排序调参"
-            "能解决的问题。",
+            "能解决的问题。变体诊断可复现：`benchmarks/p1_lexical_variants_diag.py`，"
+            "原始输出归档于 `benchmarks/results/lexical_variants_diag.txt`。",
             "- **人工判断（根因）**：11/17 题是中文自然语言问题，而其标注证据"
             "（多为 `docs/dev-log.md` 的任务记录）正文以英文命令与要点为主，"
             "查询与证据的词面几乎零重叠。词汇鸿沟（含跨语言改写）是 lexical 检索的"
