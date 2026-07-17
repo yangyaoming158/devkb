@@ -206,3 +206,13 @@
 - 转递依赖的边界要靠使用约束而非假装不存在：LangGraph 自身要求 `langgraph-checkpoint/prebuilt/sdk`，`langchain-core` 要求 `langsmith`。这些包只是锁定的上游依赖，P1 不导入/配置 LangSmith、不启用 checkpointer，也不把它们宣称为已实现能力。
 - 真实兼容性结果：LangGraph `START→node→END`、HTTPX `ASGITransport` async 请求、Java package/class/field/constructor/method CST、jieba `HMM=False` 重复分词全部通过；整个 spike 不启动网络端口、不执行 Java。
 - 维护风险：jieba 0.42.1 自 2020-01 后无新 PyPI release，Python 3.12 首次编译还会报 invalid escape `SyntaxWarning`。规格已冻结 jieba，本任务不擅自换库；后续 T14 以纯函数封装、`HMM=False` 和 golden 防漂移。
+
+## 2026-07-17 · T11.3 · ADR-0005/0006/0008 转写
+
+做了什么：把《范围冻结与架构决策》D6–D9 及 P0/P1 已冻结实现契约转写为 ADR-0005 项目隔离、ADR-0006 LLM/确定性边界和 ADR-0008 引用分级；本任务只落决策记录，不修改冻结规格或提前实现后续代码（证据：本提交）。
+
+- 编号审计：开工前现有文件为 0001/0002/0003/0004/0007/0009，冻结 ADR 清单中 0005/0006/0008 已分别预留给本任务。落盘后 0001–0009 每个编号恰好一份，无重复、无抢占。
+- ADR-0005 不沿用“编译不过”的假保证，而是明确 Repository 绑定、DB 约束、可信 project 注入、双项目测试和 SQL 静态扫描五层措施；RLS 保持 P2 可选纵深防御，不偷渡进 P1。
+- ADR-0006 区分“逻辑调用上限”与“供应商总请求上限”：plan/evaluate/refine/generate 四类调用的所有格式/传输重试共享 6 次预算，路由始终由代码根据结构化信号和计数器判定。
+- ADR-0008 把“引用存在”、“引文与原文匹配”和“证据语义支持 claim”拆为 L0/L1/L2；P1 在线只做确定性 L0+L1，L2/NLI/judge 仍是 P2 离线评测。同时保留 D8 的诚实边界：引用保证可追溯不保证为真，风险只能“分层降低，不可消除”。
+- 验证过程如实记录：首次 `make ci` 的 Ruff/Pyright 和 46 个非数据库测试通过，18 个集成测试因 PostgreSQL 容器未运行而统一 `ConnectionRefused`；`docker compose up -d --wait` 达到 healthy 后原样重跑，最终 Ruff/Pyright 零错、pytest 64 passed。
