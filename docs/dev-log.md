@@ -226,3 +226,13 @@
 - `p1-api-v1` 是报告和 API schema 元数据，不改变冻结路由：P1 仍使用 `/ask`、`/runs/{run_id}`、`/healthz`，不提前引入 `/v1` 或多版本路由。
 - 报告纪律落成明确约束：新报告写入四个字段；任一标识递增后生成新的带时间戳报告，不覆盖旧报告。P1 不实现协商、adapter、弃用周期或迁移注册表。
 - 两条单元测试锁定精确版本值、JSON 可序列化和返回映射无共享可变状态；完整质量门最终为 Ruff/Pyright 零错误、pytest 66 passed。
+
+## 2026-07-17 · T12.1 · P1 Alembic revision（检索字段 + 轨迹表）
+
+做了什么：新增 revision 0002——chunks 加 `search_text`（NOT NULL DEFAULT ''）与 `search_tsv`、GIN 与部分 HNSW 索引，创建 `agent_steps`/`tool_invocations` 两张轨迹表；ORM 同步扩展并写入往返迁移集成测试（证据：本提交）。
+
+- 方案裁决（规格 §5.1 留了两条路）：`search_tsv` 采用 STORED 生成列而非 Repository 同步写入。理由：一致性由数据库保证、无双写漂移，T12.2 backfill 只需 UPDATE search_text 单列，downgrade 只需删列——可逆性最简，正好命中"以迁移 spike 可逆性为准"。副作用是规格中"普通列 + Repository 写入才要求一致性测试"的分支不再适用，仍在 schema 测试里用 UPDATE→tsquery 命中断言锁了生成行为。
+- HNSW 建为部分索引 `WHERE embedding IS NOT NULL`（§5.1 只覆盖非空 embedding），m=16/ef_construction=64 显式写死（即 pgvector 默认值，写死为了复现）；vector(1024) 沿用 ADR-0002 不动。精确扫描路径不受影响，评测基线仍可用。
+- ORM 侧一个小坑：部分索引的 WHERE 在 SQLAlchemy 里要 `text()`，而 D7 分层扫描禁止 models.py 导入 text——索引因此只在迁移里建，模型 docstring 注明归属，不为绕过扫描开豁免。
+- 测试自建独立临时库（不复用 conftest 会话级已迁移库，那个不允许被降级）：`upgrade head → 种子 P0 四表 → downgrade 0001 → 断言新表/新列消失且数据原样 → upgrade head → 断言数据仍在、默认值就位`；嵌入用 `<=>` 距离=0 断言逐字节回读一致。schema 一致性测试精确断言两张新表字段集、unique(run_id,seq) 与 GIN/HNSW indexdef。
+- 本地生产库执行非破坏 `alembic upgrade head`：mini-mall 1370 chunks 全部保留且 search_text=''（另 16 块属 P0 fixtures-t7 项目，非漂移）。质量门：ruff/pyright 零错误，pytest 68 passed。
