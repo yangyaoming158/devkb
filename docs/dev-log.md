@@ -216,3 +216,13 @@
 - ADR-0006 区分“逻辑调用上限”与“供应商总请求上限”：plan/evaluate/refine/generate 四类调用的所有格式/传输重试共享 6 次预算，路由始终由代码根据结构化信号和计数器判定。
 - ADR-0008 把“引用存在”、“引文与原文匹配”和“证据语义支持 claim”拆为 L0/L1/L2；P1 在线只做确定性 L0+L1，L2/NLI/judge 仍是 P2 离线评测。同时保留 D8 的诚实边界：引用保证可追溯不保证为真，风险只能“分层降低，不可消除”。
 - 验证过程如实记录：首次 `make ci` 的 Ruff/Pyright 和 46 个非数据库测试通过，18 个集成测试因 PostgreSQL 容器未运行而统一 `ConnectionRefused`；`docker compose up -d --wait` 达到 healthy 后原样重跑，最终 Ruff/Pyright 零错、pytest 64 passed。
+
+## 2026-07-17 · T11.4 · P1 契约版本标识冻结
+
+做了什么：冻结 Prompt bundle、AgentState、Answer 和 HTTP API 四个 P1 契约版本，集中放入 `src/devkb/contracts.py`，并提供可直接写入 JSON 报告和轨迹摘要的 `contract_versions()`；完整口径记录在 `docs/P1版本标识.md`（证据：本提交）。
+
+- 包版本与契约版本分离：`devkb.__version__` 仍表达软件发布版本；四个契约只在对应 Prompt、schema 或 API 语义变化时分别递增，避免内部修复无意义地制造报告口径变化。
+- Prompt 采用单一 `p1-agent-v1` bundle 标识，覆盖 plan/evaluate/refine/generate，不为四个节点提前建立独立版本系统；后续 T16 从常量导入，不复制字面量。
+- `p1-api-v1` 是报告和 API schema 元数据，不改变冻结路由：P1 仍使用 `/ask`、`/runs/{run_id}`、`/healthz`，不提前引入 `/v1` 或多版本路由。
+- 报告纪律落成明确约束：新报告写入四个字段；任一标识递增后生成新的带时间戳报告，不覆盖旧报告。P1 不实现协商、adapter、弃用周期或迁移注册表。
+- 两条单元测试锁定精确版本值、JSON 可序列化和返回映射无共享可变状态；完整质量门最终为 Ruff/Pyright 零错误、pytest 66 passed。
