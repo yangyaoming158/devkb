@@ -83,6 +83,62 @@ def _split_block(
     ) + _split_block(_Block(mid, block.end), lines, count_tokens, target_tokens)
 
 
+def chunk_plaintext(
+    source: str, *, count_tokens: TokenCounter, target_tokens: int = 400
+) -> list[MdChunk]:
+    """纯文本行分块（T13.4 配置文件用）：不解析任何语法、不解释占位符。
+
+    空行分隔的连续非空行为一个块（YAML/properties 的自然段落），贪心装箱到
+    目标 token，超目标块按行二分；title_path 恒为空——纯文本没有可信的标题结构，
+    不做 markdown 那种标题解读（YAML 的 ``#`` 注释不是标题）。行号契约与其余
+    分块器一致：content 逐字对应 1-based 起止行。
+    """
+    lines = source.splitlines()
+    blocks: list[_Block] = []
+    run_start: int | None = None
+    for i, line in enumerate(lines):
+        if line.strip():
+            if run_start is None:
+                run_start = i
+        elif run_start is not None:
+            blocks.append(_Block(run_start, i))
+            run_start = None
+    if run_start is not None:
+        blocks.append(_Block(run_start, len(lines)))
+
+    chunks: list[MdChunk] = []
+    pack: list[_Block] = []
+    pack_tokens = 0
+
+    def flush() -> None:
+        nonlocal pack, pack_tokens
+        if pack:
+            start, end = pack[0].start, pack[-1].end
+            content = "\n".join(lines[start:end])
+            chunks.append(
+                MdChunk(
+                    ordinal=len(chunks),
+                    title_path="",
+                    content=content,
+                    content_hash=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                    token_count=count_tokens(content),
+                    start_line=start + 1,
+                    end_line=end,
+                )
+            )
+        pack, pack_tokens = [], 0
+
+    for raw_block in blocks:
+        for block in _split_block(raw_block, lines, count_tokens, target_tokens):
+            block_tokens = count_tokens("\n".join(lines[block.start : block.end]))
+            if pack and pack_tokens + block_tokens > target_tokens:
+                flush()
+            pack.append(block)
+            pack_tokens += block_tokens
+    flush()
+    return chunks
+
+
 def chunk_markdown(
     source: str, *, count_tokens: TokenCounter, target_tokens: int = 400
 ) -> list[MdChunk]:

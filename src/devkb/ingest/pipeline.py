@@ -24,13 +24,14 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fi
 from devkb.embedding import Embedder
 from devkb.errors import EmbeddingError, ParseError, UnsupportedFileError
 from devkb.ingest.java import JavaChunk, chunk_java
-from devkb.ingest.markdown import MdChunk, TokenCounter, chunk_markdown
+from devkb.ingest.markdown import MdChunk, TokenCounter, chunk_markdown, chunk_plaintext
 from devkb.repositories import ChunkDraft, ChunkRepo, DocumentRepo
 
 logger = structlog.get_logger(__name__)
 
 MAX_FILE_BYTES = 5 * 1024 * 1024
-SUPPORTED_SUFFIXES = frozenset({".md", ".txt", ".java"})
+CONFIG_SUFFIXES = frozenset({".yml", ".yaml", ".properties"})
+SUPPORTED_SUFFIXES = frozenset({".md", ".txt", ".java"}) | CONFIG_SUFFIXES
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,8 @@ def _normalize_text(raw: bytes) -> str:
 def _doc_title(source: str, path: Path) -> str:
     if path.suffix.lower() == ".java":
         return path.stem  # 类名即文件名（Java 惯例）
+    if path.suffix.lower() in CONFIG_SUFFIXES:
+        return path.name  # 配置文件不解析内容，首行 # 是注释不是标题
     for line in source.splitlines():
         stripped = line.strip()
         if stripped.startswith("#"):
@@ -90,6 +93,8 @@ def _suffix_doc_type(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix == ".java":
         return "java"
+    if suffix in CONFIG_SUFFIXES:
+        return "config"
     return "markdown" if suffix == ".md" else "text"
 
 
@@ -100,6 +105,10 @@ def _chunk_source(
     doc_type = _suffix_doc_type(path)
     if doc_type == "java":
         return chunk_java(source, count_tokens=count_tokens, target_tokens=target_tokens), doc_type
+    if doc_type == "config":
+        # 纯文本结构摄取：不解析 YAML/properties、不解释或展开占位符（§6.1）
+        chunks = chunk_plaintext(source, count_tokens=count_tokens, target_tokens=target_tokens)
+        return chunks, doc_type
     return chunk_markdown(source, count_tokens=count_tokens, target_tokens=target_tokens), doc_type
 
 

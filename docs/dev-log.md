@@ -308,3 +308,12 @@
 - 真实运行：445 文件精确命中 2026-07-16 审计基线，源 commit=cfb49f5 与 U2.1/T11.1 冻结一致；`dirty=True` 如实入 manifest，核实仅 `.taskmaster/state.json`（隐藏目录、本就排除），语料文件零改动。
 - 配置文件占位符 `${SECRET}` 原样字节保留（不解析不展开），symlink 一律跳过并 stderr 告警；manifest 以 `.` 开头，scan_files 天然不会摄取它。
 - 质量门：ruff/pyright 零错误，pytest 115 passed。
+
+## 2026-07-17 · T13.4 · 配置文件纯文本摄取
+
+做了什么：`chunk_plaintext` 纯文本分块 + 管道接入 .yml/.yaml/.properties（doc_type=config），复用 markdown 模块的行装箱与二分机制（证据：本提交）。
+
+- 为什么不复用 chunk_markdown：YAML/properties 的 `#` 行是注释，markdown 分块会把它解读成 h1 标题、污染 title_path。chunk_plaintext 完全不解析语法：空行分隔的连续非空行为块、贪心装箱、超长块按行二分，title_path 恒空；文档 title 用文件名（application.yml），同理不取首行。
+- 安全判据落点：占位符 `${...}` 逐字保留（分块/入库/检索全链路无任何解析或展开），集成测试用 `${RABBIT_PASSWORD}` 全程断言；隐藏目录与 5MB 上限走既有 scan/校验路径，对 config 后缀重新验证。
+- 行号契约与其它分块器一致（content 逐字 = 源行切片），且超长块拆分后全部源行恰好覆盖一次（单测锁定）。
+- 质量门：ruff/pyright 零错误，pytest 119 passed。

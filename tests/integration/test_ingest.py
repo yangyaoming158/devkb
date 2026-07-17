@@ -197,3 +197,43 @@ async def test_java_dispatch_and_broken_isolation(session: AsyncSession, tmp_pat
         session, project_id, tmp_path, embedder=FakeEmbedder(), count_tokens=approx_token_counter
     )
     assert second.count("skipped") == 2 and second.count("ingested") == 0
+
+
+async def test_config_files_ingested_as_plaintext(session: AsyncSession, tmp_path: Path) -> None:
+    """T13.4：yml/yaml/properties 纯文本摄取；占位符不展开；隐藏目录与 5MB 限制生效。"""
+    (tmp_path / "application.yml").write_text(
+        "# 服务配置\nspring:\n  rabbitmq:\n    password: ${RABBIT_PASSWORD}\n"
+        "\nserver:\n  port: 8080\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "app.properties").write_text("jwt.secret=${JWT_SECRET}\n", encoding="utf-8")
+    (tmp_path / "compose.yaml").write_text("services:\n  db:\n    image: pg\n", encoding="utf-8")
+    (tmp_path / ".hidden").mkdir()
+    (tmp_path / ".hidden" / "secret.yml").write_text("nope: 1\n", encoding="utf-8")
+    (tmp_path / "huge.properties").write_bytes(b"k=v\n" * (MAX_FILE_BYTES // 4 + 1))
+    project_id = await _new_project(session)
+
+    report = await ingest_directory(
+        session, project_id, tmp_path, embedder=FakeEmbedder(), count_tokens=approx_token_counter
+    )
+    assert report.count("ingested") == 3 and report.count("failed") == 1  # huge 超限
+    assert ".hidden/secret.yml" not in {o.rel_path for o in report.outcomes}
+
+    doc_repo = DocumentRepo(session, project_id)
+    yml = await doc_repo.get_by_rel_path("application.yml")
+    assert yml is not None and yml.doc_type == "config" and yml.title == "application.yml"
+    huge = await doc_repo.get_by_rel_path("huge.properties")
+    assert huge is not None and huge.status == "failed" and huge.doc_type == "config"
+
+    # 占位符逐字保留 + 行号真实 + 词面可检索
+    hits = await ChunkRepo(session, project_id).lexical_search("rabbit_password", top_k=5)
+    assert len(hits) == 1
+    chunk, rel_path, _ = hits[0]
+    assert rel_path == "application.yml" and "${RABBIT_PASSWORD}" in chunk.content
+    source_lines = (tmp_path / "application.yml").read_text(encoding="utf-8").splitlines()
+    assert chunk.content == "\n".join(source_lines[chunk.start_line - 1 : chunk.end_line])
+
+    second = await ingest_directory(
+        session, project_id, tmp_path, embedder=FakeEmbedder(), count_tokens=approx_token_counter
+    )
+    assert second.count("skipped") == 3 and second.count("ingested") == 0
