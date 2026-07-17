@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from devkb.repositories import (
@@ -15,7 +17,6 @@ from devkb.repositories import (
     RunRepo,
     ToolInvocationRepo,
 )
-from devkb.retrieval import build_search_text
 
 
 def _vec(hot: int) -> list[float]:
@@ -96,8 +97,6 @@ async def test_lexical_search_cannot_cross_projects(session: AsyncSession) -> No
     await ChunkRepo(session, pb.id).replace_for_document(
         doc_b.id, [ChunkDraft(0, "B > 一", "SharedTokenXyz 在 B", "cb", 10, 1, 5, _vec(1))]
     )
-    await ChunkRepo(session, pa.id).backfill_search_text(build_search_text)
-    await ChunkRepo(session, pb.id).backfill_search_text(build_search_text)
     await session.commit()
 
     hits = await ChunkRepo(session, pa.id).lexical_search("sharedtokenxyz", top_k=10)
@@ -154,3 +153,32 @@ async def test_steps_and_tools_scoped_by_project(session: AsyncSession) -> None:
     own_tools = await ToolInvocationRepo(session, pa.id).list_for_run(run.id)
     assert [s.node for s in own_steps] == ["retrieve"]
     assert [t.tool_name for t in own_tools] == ["hybrid_retrieve"]
+
+
+async def test_trace_writes_reject_cross_project_and_cross_run_mismatch(
+    session: AsyncSession,
+) -> None:
+    """复评修复回归（0003 复合 FK）：错配写入必须在数据库层被拒。"""
+    projects = ProjectRepo(session)
+    pa = await projects.create(_slug("mis-a"), "A")
+    pb = await projects.create(_slug("mis-b"), "B")
+    run_a = await RunRepo(session, pa.id).create("A 的 run")
+    await session.commit()
+
+    # 项目 B 的 step 引用项目 A 的 run
+    with pytest.raises(IntegrityError):
+        await AgentStepRepo(session, pb.id).add(run_a.id, seq=1, node="plan", status="succeeded")
+    await session.rollback()
+
+    # run 2 的 tool 引用 run 1 的 step（同项目内跨 run 错配）
+    pa2 = await ProjectRepo(session).create(_slug("mis-c"), "C")
+    run1 = await RunRepo(session, pa2.id).create("run 1")
+    run2 = await RunRepo(session, pa2.id).create("run 2")
+    step_run1 = await AgentStepRepo(session, pa2.id).add(
+        run1.id, seq=1, node="retrieve", status="succeeded"
+    )
+    with pytest.raises(IntegrityError):
+        await ToolInvocationRepo(session, pa2.id).add(
+            run2.id, step_run1.id, tool_name="hybrid_retrieve", status="succeeded"
+        )
+    await session.rollback()

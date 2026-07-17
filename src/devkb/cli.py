@@ -171,14 +171,13 @@ async def _run_backfill_search(project_slug: str) -> tuple[int, int]:
     from devkb.config import get_settings
     from devkb.db import create_engine, create_session_factory
     from devkb.repositories import ChunkRepo
-    from devkb.retrieval import build_search_text
 
     settings = get_settings()
     engine = create_engine(settings.database_url)
     try:
         async with create_session_factory(engine)() as session:
             project = await _resolve_project(session, project_slug)
-            result = await ChunkRepo(session, project.id).backfill_search_text(build_search_text)
+            result = await ChunkRepo(session, project.id).backfill_search_text()
             await session.commit()
             return result
     finally:

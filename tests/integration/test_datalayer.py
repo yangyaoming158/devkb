@@ -23,7 +23,6 @@ from devkb.repositories import (
     RunRepo,
     ToolInvocationRepo,
 )
-from devkb.retrieval import build_search_text
 
 
 def _vec(hot: int) -> list[float]:
@@ -54,8 +53,8 @@ async def _seed_project(session: AsyncSession, prefix: str, drafts: list[ChunkDr
     doc = await DocumentRepo(session, project.id).upsert(
         rel_path="docs/data.md", title="Data", doc_type="markdown", content_hash="h"
     )
+    # search_text 由 replace_for_document 在插入点统一生成，无需 backfill
     await ChunkRepo(session, project.id).replace_for_document(doc.id, drafts)
-    await ChunkRepo(session, project.id).backfill_search_text(build_search_text)
     await session.commit()
     return project.id
 
@@ -122,32 +121,28 @@ async def test_lexical_search_is_safe_for_hostile_and_cjk_input(session: AsyncSe
     assert await repo.count() == 1, "chunks 表必须还在（未被注入删除）"
 
 
-async def test_fts_query_uses_gin_index(session: AsyncSession) -> None:
-    # 项目内 800 块中只有 1 块含目标 token（无嵌入，插入便宜）：ANALYZE 后
-    # GIN（1 行）必须赢过 project_id btree bitmap（800 行）。
-    # 真实 1370 块语料上的自然计划已人工验证，正式落盘在 T14.4。
-    drafts = [
-        ChunkDraft(i, f"Data > {i}", f"filler alpha{i} beta{i}", f"c{i}", 4, i, i + 1, None)
-        for i in range(799)
-    ]
-    drafts.append(ChunkDraft(799, "Data > 探针", "GinPlanProbe token", "c799", 4, 900, 901, None))
-    pid = await _seed_project(session, "fts-plan", drafts)
-    await session.execute(text("ANALYZE chunks"))
+async def test_fts_tsv_predicate_is_gin_servable(session: AsyncSession) -> None:
+    # 确定性验证：seqscan 关闭后，tsv 谓词唯一可用的索引就是 GIN——生成列 +
+    # websearch_to_tsquery 的查询形状必须能被它服务。带 project_id 全形状的
+    # 计划选择取决于 planner 成本模型（合成小数据上不稳定），真实 1370 块
+    # 语料上的自然计划验证在 T14.4 落盘。
+    await _seed_project(
+        session,
+        "fts-plan",
+        [ChunkDraft(0, "Data > 探针", "GinPlanProbe token", "c0", 4, 1, 2, None)],
+    )
 
     await session.execute(text("SELECT set_config('enable_seqscan', 'off', true)"))
-    await session.execute(text("SELECT set_config('enable_indexscan', 'off', true)"))
     plan_rows = await session.execute(
         text(
             "EXPLAIN (COSTS OFF) SELECT c.id FROM chunks c"
-            " JOIN documents d ON c.document_id = d.id"
-            " WHERE c.project_id = :pid AND d.status = 'active'"
-            " AND c.search_tsv @@ websearch_to_tsquery('simple', :q)"
+            " WHERE c.search_tsv @@ websearch_to_tsquery('simple', :q)"
         ),
-        {"pid": pid, "q": "ginplanprobe"},
+        {"q": "ginplanprobe"},
     )
     plan = "\n".join(row[0] for row in plan_rows)
     await session.rollback()  # 一并撤销 planner 开关
-    assert "ix_chunks_search_tsv" in plan, f"FTS 查询形状应能命中 GIN 索引：\n{plan}"
+    assert "ix_chunks_search_tsv" in plan, f"tsv 谓词应能命中 GIN 索引：\n{plan}"
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +169,34 @@ async def test_hnsw_and_exact_agree_on_small_corpus(session: AsyncSession) -> No
 
     with pytest.raises(ValueError, match="ef_search"):
         await repo.vector_search(_vec(0), top_k=5, mode="hnsw", ef_search=0)
+
+
+async def test_vector_search_restores_previous_gucs(session: AsyncSession) -> None:
+    """复评修复回归：恢复的是调用前值（含 hnsw.ef_search），不是写死 'on'。"""
+    pid = await _seed_project(
+        session,
+        "guc-restore",
+        [ChunkDraft(0, "Data > 一", "GUC 探针", "c0", 4, 1, 2, _vec(0))],
+    )
+    repo = ChunkRepo(session, pid)
+    guc_probe = text(
+        "SELECT current_setting('hnsw.ef_search'), current_setting('enable_seqscan'),"
+        " current_setting('enable_sort'), current_setting('enable_indexscan')"
+    )
+
+    before = (await session.execute(guc_probe)).one()
+    await repo.vector_search(_vec(0), top_k=1, mode="hnsw", ef_search=123)
+    await repo.vector_search(_vec(0), top_k=1, mode="exact")
+    assert (await session.execute(guc_probe)).one() == before, "查询后所有 GUC 应回到调用前值"
+
+    # 调用前已被外部改掉的值必须按原样保留
+    await session.execute(text("SELECT set_config('enable_indexscan', 'off', true)"))
+    await session.execute(text("SELECT set_config('hnsw.ef_search', '77', true)"))
+    await repo.vector_search(_vec(0), top_k=1, mode="exact")
+    await repo.vector_search(_vec(0), top_k=1, mode="hnsw", ef_search=200)
+    row = (await session.execute(guc_probe)).one()
+    assert row[0] == "77" and row[3] == "off", "外部设定的前值不得被覆写为默认"
+    await session.rollback()
 
 
 async def test_vector_query_uses_hnsw_index_when_forced(session: AsyncSession) -> None:

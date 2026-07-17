@@ -267,3 +267,13 @@
 - 三处 asyncio 陷阱记录：`expire_all()` 后访问 ORM 属性触发同步 IO 抛 MissingGreenlet（改为先取 UUID）；EXPLAIN 断言消息里直接内嵌完整计划文本，失败时不用二次排查。
 - HNSW-exact 全等断言的适用条件：30 块 + ef_search=200（覆盖全集）下 HNSW 必然穷尽，与 exact 逐位一致；这不外推到 1370 块生产语料——那是 T15.3 的 overlap Gate 的事。
 - 质量门：ruff/pyright 零错误，pytest 90 passed。
+
+## 2026-07-17 · T12 复评修复 · 三项审查发现全部属实并修复
+
+做了什么：外部复评指出 2 个阻断 + 1 个中等问题，核实全部属实；重开 T12.2–T12.4 修复并补回归测试（证据：本提交）。
+
+- 阻断 1（新摄取不生成 search_text）：根因是我把"摄取期写入"划给了 T14.2，留下"重摄取会静默清空 FTS"的中间态，且测试还把这个漏洞断言成了预期行为。修复：token 化函数迁至独立 `fts.py`（repositories 依赖它、retrieval 依赖 repositories，留在 retrieval 会循环导入），`replace_for_document` 在插入点统一计算——chunk 唯一写入口径收口后不存在"忘了填"的路径；`backfill_search_text()` 收窄为无参（面向存量数据与 T14 函数升级），与新摄取必然同函数。回归：摄取后无需 backfill 即可词面检索、立即重算 0 更新。
+- 阻断 2（轨迹表错配写入）：0002 的独立 FK 只保证"目标行存在"，挡不住项目 A 的 step 挂项目 B 的 run、run A 的 tool 挂 run B 的 step。修复：迁移 0003 复合 FK——`agent_steps(run_id,project_id)→agent_runs(id,project_id)`、`tool_invocations(step_id,run_id)→agent_steps(id,run_id)` + `(run_id,project_id)→agent_runs`，被引用侧补 `(id,project_id)`/`(id,run_id)` 唯一约束；错配写入在数据库层直接 IntegrityError，与 D7/ADR-0005 的项目归属一致性对齐。轨迹表无生产数据，无需数据修复；往返迁移测试经 0003 全绿，生产库已非破坏升级。
+- 中等（GUC 恢复不真）：原实现恢复写死 'on' 且 ef_search 整个事务残留，同事务内结果依赖调用顺序——清单里"查询后即恢复"的说法名不副实。修复：查询前 `current_setting` 记录全部将改 GUC（含 hnsw.ef_search），查询后按原值恢复；异常路径事务必然中止、is_local 设置随回滚撤销，无需 try/finally。回归覆盖"外部预设 off/77 不被覆写回默认"。
+- 连带教训：GIN 计划断言在合成小数据上赌 planner 成本模型（800 行 + ANALYZE 也会翻转），改为确定性形状验证（无 project 谓词时 GIN 是 tsv 唯一可用索引）；带全谓词的自然计划验证归 T14.4 在真实 1370 块语料上落盘。
+- 质量门：ruff/pyright 零错误，pytest 93 passed；生产库 revision=0003、五个新约束就位、1370 chunks search_text 无损。

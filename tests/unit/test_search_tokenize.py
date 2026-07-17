@@ -6,7 +6,7 @@ golden 全集与最终冻结在 T14.1。
 
 from __future__ import annotations
 
-from devkb.retrieval import (
+from devkb.fts import (
     MAX_TOKEN_REPEAT,
     MAX_TOTAL_TOKENS,
     build_search_text,

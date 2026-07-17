@@ -222,7 +222,7 @@ def test_upgrade_downgrade_upgrade_preserves_p0_data(fresh_db_url: str) -> None:
 
     # ---- 再升级到 head：数据仍在，新列默认值就位 ----
     _alembic(fresh_db_url, "upgrade", "head")
-    assert _scalar(fresh_db_url, "SELECT version_num FROM alembic_version") == "0002"
+    assert _scalar(fresh_db_url, "SELECT version_num FROM alembic_version") == "0003"
     _assert_p0_rows_intact(fresh_db_url, ids)
     assert (
         _scalar(

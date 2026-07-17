@@ -14,6 +14,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Computed,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -92,6 +93,8 @@ class Chunk(Base):
 
 class AgentRun(Base):
     __tablename__ = "agent_runs"
+    # (id, project_id) 唯一：供轨迹表复合 FK 引用，从库层锁死 step 与 run 同项目（0003）
+    __table_args__ = (UniqueConstraint("id", "project_id", name="uq_agent_runs_id_project"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
@@ -114,18 +117,27 @@ class AgentStep(Base):
     """P1 节点轨迹（《P1实现规格》§5.2）：每个 LangGraph 节点执行一行，含降级/失败。
 
     input_summary/output_summary 只存有限摘要——不写 chain-of-thought、secret 或整篇正文。
+    (run_id, project_id) 复合 FK 使"step 挂到别的项目的 run"在库层即 IntegrityError（0003）。
     """
 
     __tablename__ = "agent_steps"
-    __table_args__ = (UniqueConstraint("run_id", "seq"),)
+    __table_args__ = (
+        UniqueConstraint("run_id", "seq"),
+        # (id, run_id) 唯一：供 tool_invocations 复合 FK 引用，锁死 tool 与 step 同 run
+        UniqueConstraint("id", "run_id", name="uq_agent_steps_id_run"),
+        ForeignKeyConstraint(
+            ["run_id", "project_id"],
+            ["agent_runs.id", "agent_runs.project_id"],
+            name="fk_agent_steps_run_project",
+            ondelete="CASCADE",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
-    run_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
-    )
+    run_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     seq: Mapped[int] = mapped_column(Integer)
     node: Mapped[str] = mapped_column(String(32))
     attempt: Mapped[int] = mapped_column(Integer, default=1)
@@ -141,6 +153,7 @@ class ToolInvocation(Base):
     """P1 工具轨迹（《P1实现规格》§5.3）：检索等确定性能力每次调用一行。
 
     arguments/result_summary 只存脱敏参数与摘要——不写 API key、完整 Prompt 或文档正文。
+    两个复合 FK 使"tool 的 step 属于别的 run"或"run 属于别的项目"在库层即 IntegrityError（0003）。
     """
 
     __tablename__ = "tool_invocations"
@@ -148,18 +161,26 @@ class ToolInvocation(Base):
         # FK 列的 btree：run 级回放读取与级联删除都按这两列查
         Index("ix_tool_invocations_run_id", "run_id"),
         Index("ix_tool_invocations_step_id", "step_id"),
+        ForeignKeyConstraint(
+            ["run_id", "project_id"],
+            ["agent_runs.id", "agent_runs.project_id"],
+            name="fk_tool_invocations_run_project",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["step_id", "run_id"],
+            ["agent_steps.id", "agent_steps.run_id"],
+            name="fk_tool_invocations_step_run",
+            ondelete="CASCADE",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
-    run_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("agent_runs.id", ondelete="CASCADE"), nullable=False
-    )
-    step_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("agent_steps.id", ondelete="CASCADE"), nullable=False
-    )
+    run_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    step_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     tool_name: Mapped[str] = mapped_column(String(64))
     arguments: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
     result_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)

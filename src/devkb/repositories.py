@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Literal
@@ -17,6 +17,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from devkb.fts import build_search_text
 from devkb.models import AgentRun, AgentStep, Chunk, Document, Project, ToolInvocation
 
 VectorSearchMode = Literal["exact", "hnsw"]
@@ -136,7 +137,11 @@ class ChunkRepo:
     async def replace_for_document(
         self, document_id: uuid.UUID, drafts: Sequence[ChunkDraft]
     ) -> int:
-        """单文档事务内删旧插新（规格 §7）。"""
+        """单文档事务内删旧插新（规格 §7）。
+
+        search_text 在此统一计算（T12.2 复评修复）：chunk 的唯一写入口径收口后，
+        新摄取/重摄取与 backfill 必然使用同一 token 化函数，不存在"忘了填"的路径。
+        """
         await self._session.execute(
             delete(Chunk).where(
                 Chunk.project_id == self._project_id, Chunk.document_id == document_id
@@ -154,6 +159,7 @@ class ChunkRepo:
                 start_line=d.start_line,
                 end_line=d.end_line,
                 embedding=d.embedding,
+                search_text=build_search_text(d.title_path, d.content),
             )
             for d in drafts
         )
@@ -174,24 +180,31 @@ class ChunkRepo:
           HNSW 近邻序（btree/顺扫怎么选都不影响精确性）；
         - hnsw：关 seqscan 与 sort——距离序只能由 0002 的 HNSW 索引提供；
           只关 seqscan 不够，小表下 planner 会走 btree+Sort 得出"假 HNSW"的
-          精确结果，让 T15.3 的 overlap 对照失去意义。ef_search 仅本事务生效。
-        planner 开关（set_config is_local）都在查询后立即恢复，不污染同事务后续查询。
+          精确结果，让 T15.3 的 overlap 对照失去意义。
+        所有 GUC（含 hnsw.ef_search）先记录调用前值、查询后恢复原值（T12.3 复评
+        修复：不能写死恢复 'on'，结果不得依赖同事务内的调用顺序）。查询抛错时
+        事务必然中止，set_config(is_local) 随回滚一并撤销，无需 try/finally。
 
         仅检索 status='active' 文档的 chunks：active 文档更新失败时事务回滚会保留
         上一版 chunks（文档已标 failed），不过滤会引用与当前文件行号不符的陈旧内容。
         """
-        if mode == "exact":
-            toggles = ["enable_indexscan"]
-        else:
-            toggles = ["enable_seqscan", "enable_sort"]
-            if ef_search is not None:
-                if not 1 <= ef_search <= MAX_EF_SEARCH:
-                    raise ValueError(f"ef_search 必须在 1..{MAX_EF_SEARCH}：{ef_search}")
-                await self._session.execute(
-                    select(func.set_config("hnsw.ef_search", str(ef_search), True))
-                )
-        for toggle in toggles:
-            await self._session.execute(select(func.set_config(toggle, "off", True)))
+        overrides: dict[str, str] = (
+            {"enable_indexscan": "off"}
+            if mode == "exact"
+            else {"enable_seqscan": "off", "enable_sort": "off"}
+        )
+        if mode == "hnsw" and ef_search is not None:
+            if not 1 <= ef_search <= MAX_EF_SEARCH:
+                raise ValueError(f"ef_search 必须在 1..{MAX_EF_SEARCH}：{ef_search}")
+            overrides["hnsw.ef_search"] = str(ef_search)
+
+        names = list(overrides)
+        previous_row = (
+            await self._session.execute(select(*[func.current_setting(n) for n in names]))
+        ).one()
+        previous = dict(zip(names, previous_row, strict=True))
+        for name, value in overrides.items():
+            await self._session.execute(select(func.set_config(name, value, True)))
 
         distance = Chunk.embedding.cosine_distance(embedding).label("distance")
         stmt = (
@@ -206,8 +219,8 @@ class ChunkRepo:
             .limit(top_k)
         )
         rows = (await self._session.execute(stmt)).all()
-        for toggle in toggles:
-            await self._session.execute(select(func.set_config(toggle, "on", True)))
+        for name, value in previous.items():
+            await self._session.execute(select(func.set_config(name, value, True)))
         return [(row[0], row[1], 1.0 - float(row[2])) for row in rows]
 
     async def lexical_search(self, query: str, top_k: int) -> list[tuple[Chunk, str, float]]:
@@ -237,9 +250,10 @@ class ChunkRepo:
         stmt = select(func.count()).where(Chunk.project_id == self._project_id)
         return (await self._session.execute(stmt)).scalar_one()
 
-    async def backfill_search_text(self, build: Callable[[str, str], str]) -> tuple[int, int]:
-        """按 build(title_path, content) 重算当前项目全部 chunks 的 search_text。
+    async def backfill_search_text(self) -> tuple[int, int]:
+        """用与新摄取相同的 build_search_text 重算当前项目全部 chunks 的 search_text。
 
+        面向迁移前存量数据和 token 化函数升级（T14 冻结时若有调整）两种场景。
         返回 (总数, 实际更新数)；结果已一致的行跳过，重复执行幂等。
         只改 search_text 单列（search_tsv 为生成列自动跟随），不触碰 embedding。
         事务由调用方掌控：不在此 commit，失败时整体可回滚（T12.2）。
@@ -253,7 +267,7 @@ class ChunkRepo:
         ).all()
         updated = 0
         for chunk_id, title_path, content, current in rows:
-            desired = build(title_path, content)
+            desired = build_search_text(title_path, content)
             if desired == current:
                 continue
             await self._session.execute(
