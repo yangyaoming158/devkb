@@ -317,3 +317,14 @@
 - 安全判据落点：占位符 `${...}` 逐字保留（分块/入库/检索全链路无任何解析或展开），集成测试用 `${RABBIT_PASSWORD}` 全程断言；隐藏目录与 5MB 上限走既有 scan/校验路径，对 config 后缀重新验证。
 - 行号契约与其它分块器一致（content 逐字 = 源行切片），且超长块拆分后全部源行恰好覆盖一次（单测锁定）。
 - 质量门：ruff/pyright 零错误，pytest 119 passed。
+
+## 2026-07-17 · T13.5 · 真语料摄取与幂等
+
+做了什么：从 T13.3 审计视图（445 文件，manifest sha256=058a576…）真实摄取 mini-mall 全量 Markdown+Java+config，留档 `benchmarks/p1_ingest_mini_mall.md`（证据：本提交）。
+
+- 流程纪律：摄取前脚本断言指令文件/生成物/依赖/隐藏路径为零；全程 `devkb ingest <视图目录>`，未触碰仓库根目录；真模型双开关（unset 代理 + HF_HUB_OFFLINE=1）照 CLAUDE.md 执行，全程无网络问题。
+- 结果：首跑 406 成功/39 跳过/0 失败，新增 3418 chunks（java 3387 + config 31），95 秒，GPU 峰值 7103MB（8GB 内）；二跑 445 全跳过新增 0。终态 445 docs / 4788 chunks，search_text 全部非空（T12.2 复评修复的插入点生成在真语料上兑现，无需 backfill）。
+- P0 兼容：39 个 Markdown 因 content_hash 未变全部跳过——1370 个 P0 chunks 与嵌入原样保留，Java parser 改动零漂移。
+- 抽查：seed=20260717 随机 6 个 Java chunk，路径/行号/正文逐字对照原始仓库全部通过（含 package/imports 区与方法块）。
+- 一个口径备注：此前用近似计数器冒烟得 3468 java chunks，真实 Qwen tokenizer 下为 3387——拆分边界随计数器不同而不同，属预期；评测口径以真实摄取为准。
+- 质量门：ruff/pyright 零错误，pytest 119 passed。
