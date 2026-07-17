@@ -11,13 +11,18 @@ import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from devkb.models import AgentRun, Chunk, Document, Project
+from devkb.models import AgentRun, AgentStep, Chunk, Document, Project, ToolInvocation
+
+VectorSearchMode = Literal["exact", "hnsw"]
+
+# T15.3 之前 ef_search 未冻结；上限防误配（pgvector 合法范围 1–1000）
+MAX_EF_SEARCH = 1000
 
 
 class ProjectRepo:
@@ -156,13 +161,36 @@ class ChunkRepo:
         return len(drafts)
 
     async def vector_search(
-        self, embedding: list[float], top_k: int
+        self,
+        embedding: list[float],
+        top_k: int,
+        *,
+        mode: VectorSearchMode = "exact",
+        ef_search: int | None = None,
     ) -> list[tuple[Chunk, str, float]]:
-        """余弦相似度精确扫描（P0 无 HNSW），返回 (chunk, 所属文档 rel_path, 相似度) 降序。
+        """余弦相似度检索，返回 (chunk, 所属文档 rel_path, 相似度) 降序。
+
+        - exact：临时关 indexscan 强制顺序扫描——评测基线要求真精确，
+          不能让 planner 静默换成近邻索引；
+        - hnsw：临时关 seqscan 强制走 0002 的 HNSW 索引（小表下 planner 否则
+          总选顺扫，无从对照）；ef_search 仅本事务生效（set_config is_local）。
+        两种模式的 planner 开关都在查询后立即恢复，不污染同事务后续查询。
 
         仅检索 status='active' 文档的 chunks：active 文档更新失败时事务回滚会保留
         上一版 chunks（文档已标 failed），不过滤会引用与当前文件行号不符的陈旧内容。
         """
+        if mode == "exact":
+            toggle = "enable_indexscan"
+        else:
+            toggle = "enable_seqscan"
+            if ef_search is not None:
+                if not 1 <= ef_search <= MAX_EF_SEARCH:
+                    raise ValueError(f"ef_search 必须在 1..{MAX_EF_SEARCH}：{ef_search}")
+                await self._session.execute(
+                    select(func.set_config("hnsw.ef_search", str(ef_search), True))
+                )
+        await self._session.execute(select(func.set_config(toggle, "off", True)))
+
         distance = Chunk.embedding.cosine_distance(embedding).label("distance")
         stmt = (
             select(Chunk, Document.rel_path, distance)
@@ -176,7 +204,31 @@ class ChunkRepo:
             .limit(top_k)
         )
         rows = (await self._session.execute(stmt)).all()
+        await self._session.execute(select(func.set_config(toggle, "on", True)))
         return [(row[0], row[1], 1.0 - float(row[2])) for row in rows]
+
+    async def lexical_search(self, query: str, top_k: int) -> list[tuple[Chunk, str, float]]:
+        """FTS 检索（§8 lexical channel），返回 (chunk, rel_path, ts_rank_cd 分数) 降序。
+
+        query 应传入 retrieval 层 token 化后的文本；websearch_to_tsquery 对任意
+        输入都不抛语法错误，且全程参数绑定——特殊字符只可能不命中，不可能注入。
+        排序用 (rank desc, chunk_id) 保证并列时输出确定。
+        """
+        tsquery = func.websearch_to_tsquery("simple", query)
+        rank = func.ts_rank_cd(Chunk.search_tsv, tsquery).label("rank")
+        stmt = (
+            select(Chunk, Document.rel_path, rank)
+            .join(Document, Chunk.document_id == Document.id)
+            .where(
+                Chunk.project_id == self._project_id,
+                Document.status == "active",
+                Chunk.search_tsv.op("@@")(tsquery),
+            )
+            .order_by(rank.desc(), Chunk.id)
+            .limit(top_k)
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return [(row[0], row[1], float(row[2])) for row in rows]
 
     async def count(self) -> int:
         stmt = select(func.count()).where(Chunk.project_id == self._project_id)
@@ -278,5 +330,103 @@ class RunRepo:
             .where(AgentRun.project_id == self._project_id)
             .order_by(AgentRun.created_at.desc())
             .limit(limit)
+        )
+        return (await self._session.execute(stmt)).scalars().all()
+
+
+class AgentStepRepo:
+    """节点轨迹写读（§5.2/§11）。summary 字段由调用方负责脱敏与限长。"""
+
+    def __init__(self, session: AsyncSession, project_id: uuid.UUID) -> None:
+        self._session = session
+        self._project_id = project_id
+
+    async def add(
+        self,
+        run_id: uuid.UUID,
+        *,
+        seq: int,
+        node: str,
+        status: str,
+        attempt: int = 1,
+        input_summary: dict[str, Any] | None = None,
+        output_summary: dict[str, Any] | None = None,
+        latency_ms: int | None = None,
+        error: str | None = None,
+    ) -> AgentStep:
+        step = AgentStep(
+            project_id=self._project_id,
+            run_id=run_id,
+            seq=seq,
+            node=node,
+            attempt=attempt,
+            status=status,
+            input_summary=input_summary,
+            output_summary=output_summary,
+            latency_ms=latency_ms,
+            error=error,
+        )
+        self._session.add(step)
+        await self._session.flush()
+        return step
+
+    async def list_for_run(self, run_id: uuid.UUID) -> Sequence[AgentStep]:
+        """按 seq 升序返回本项目该 run 的全部节点轨迹；跨项目 run_id 得到空列表。"""
+        stmt = (
+            select(AgentStep)
+            .where(AgentStep.project_id == self._project_id, AgentStep.run_id == run_id)
+            .order_by(AgentStep.seq)
+        )
+        return (await self._session.execute(stmt)).scalars().all()
+
+
+class ToolInvocationRepo:
+    """工具轨迹写读（§5.3/§11）。arguments/result_summary 由调用方负责脱敏与限长。"""
+
+    def __init__(self, session: AsyncSession, project_id: uuid.UUID) -> None:
+        self._session = session
+        self._project_id = project_id
+
+    async def add(
+        self,
+        run_id: uuid.UUID,
+        step_id: uuid.UUID,
+        *,
+        tool_name: str,
+        status: str,
+        arguments: dict[str, Any] | None = None,
+        result_summary: dict[str, Any] | None = None,
+        latency_ms: int | None = None,
+        error: str | None = None,
+    ) -> ToolInvocation:
+        invocation = ToolInvocation(
+            project_id=self._project_id,
+            run_id=run_id,
+            step_id=step_id,
+            tool_name=tool_name,
+            status=status,
+            arguments=arguments,
+            result_summary=result_summary,
+            latency_ms=latency_ms,
+            error=error,
+        )
+        self._session.add(invocation)
+        await self._session.flush()
+        return invocation
+
+    async def list_for_run(self, run_id: uuid.UUID) -> Sequence[ToolInvocation]:
+        """按所属 step 的 seq 升序返回；跨项目 run_id 得到空列表。
+
+        同一 step 内多次调用以 (created_at, id) 兜底排序——created_at 是事务时间戳，
+        同事务内并列，严格的步内顺序语义待 T18 落轨迹时按需明确。
+        """
+        stmt = (
+            select(ToolInvocation)
+            .join(AgentStep, ToolInvocation.step_id == AgentStep.id)
+            .where(
+                ToolInvocation.project_id == self._project_id,
+                ToolInvocation.run_id == run_id,
+            )
+            .order_by(AgentStep.seq, ToolInvocation.created_at, ToolInvocation.id)
         )
         return (await self._session.execute(stmt)).scalars().all()

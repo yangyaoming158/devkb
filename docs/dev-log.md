@@ -246,3 +246,13 @@
 - backfill 设计：只 UPDATE `search_text` 单列（`search_tsv` 生成列自动跟随），结果一致的行跳过——幂等由"算出来一样就不写"保证；不在 Repository 内 commit，事务归调用方，失败自然整体回滚（集成测试用显式 rollback 证明零残留）。
 - 真实库结果：第一次 1370/1370 更新，第二次 0 更新；非空率 100%；`plainto_tsquery('simple','orderstatemachine')` 命中 6 块、`订单` 110 块，GIN 可查。fixtures-t7 的 16 块属 P0 测试遗留项目，不在本任务范围，未回填。
 - 质量门：ruff/pyright 零错误，pytest 78 passed（新增 token 化单测 8 项 + backfill 集成测试 2 项）。
+
+## 2026-07-17 · T12.3 · Repository 扩展（FTS / HNSW 模式 / 轨迹写读）
+
+做了什么：`ChunkRepo` 增加 `lexical_search` 与 `vector_search` 的 exact/hnsw 双模式，新增 `AgentStepRepo`/`ToolInvocationRepo`；全部以 project_id 实例化，查询方法不接受外部 project_id（证据：本提交）。
+
+- exact/hnsw 的真实困难在 planner：小表下 planner 几乎总选顺扫（HNSW 建了也不用），而评测基线又要求"精确"名副其实（不能被 planner 静默换成近邻索引）。方案：`set_config('enable_indexscan'/'enable_seqscan', 'off', is_local=true)` 事务级强制，查询后立即恢复 'on'，不污染同事务后续查询；ef_search 同样 set_config 传入（带 1..1000 校验），全程无字符串拼 SQL。
+- `lexical_search` 用 `websearch_to_tsquery('simple', :query)`：对任意输入不抛语法错误、天然参数绑定，特殊字符最多不命中、不可能注入；`ts_rank_cd` 排序并列时以 chunk_id 兜底，输出确定。查询期 query 构造的注入/超长压测与排名解释字段属 T14.2/T14.3，此处不提前铺。
+- `ToolInvocationRepo.list_for_run` 按所属 step 的 seq 排序；步内多次调用以 (created_at, id) 兜底——created_at 是事务时间戳、同事务内并列，规格 §5.3 最小字段集没有步内 seq，严格步内顺序语义待 T18 落轨迹时按需明确（docstring 已注明，不静默扩字段）。
+- 隔离测试新增 4 项：lexical 同词面双项目、hnsw 模式向量双项目、step/tool 跨项目 run_id 读取返回空（不报错不泄漏）。D7 分层静态扫描继续全绿。
+- 质量门：ruff/pyright 零错误，pytest 81 passed。
