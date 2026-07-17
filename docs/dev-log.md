@@ -298,3 +298,13 @@
 - 管道分派：`_chunk_source` 按后缀返回 (chunks, doc_type)；ParseError 直接透传（分块器已给明确原因），未知崩溃仍包装为 ParseError 单文档隔离；`mark_failed` 增加 doc_type 参数，坏 Java 不再被误记为 markdown。
 - 真实语料复跑：392 文件 3468 chunks（拆分新增 162 块）、164 个成员被拆、最大子块 881 token（单行原子下限所致，有界）、零失败。
 - 质量门：ruff/pyright 零错误，pytest 112 passed（含新集成测试：Java 词面检索命中 createOrder、垃圾文件 failed 后幂等重摄取）。
+
+## 2026-07-17 · T13.3 · 可复现 mini-mall P1 语料视图
+
+做了什么：`corpora/mini-mall-p1.toml`（版本化定义 + expected 数量哨兵）与标准库工具 `tools/build_corpus_view.py`；真实构建 445 文件视图并通过全部自检（证据：本提交）。
+
+- include/exclude 语义自实现最小 glob（`**` 跨层级、`*` 不跨 `/`、整串锚定）——fnmatch 的 `*` 会跨路径分隔符、PurePath.match 右锚定会误配非根 README，两者都不符合 §6.2 的"仅根级 README"。单测锁死 `sub/README.md`、根级非 README md 均不进视图。
+- 构建后强制自检四件事：manifest 无指令文件/隐藏路径/依赖生成物；逐文件复制字节 sha256 与源一致；数量与 expected 哨兵一致（39 md + 392 java + 14 config = 445，失败非零退出并要求显式更新 corpora 定义）；每次构建全新目录（时间戳+uuid 后缀），绝不复用。
+- 真实运行：445 文件精确命中 2026-07-16 审计基线，源 commit=cfb49f5 与 U2.1/T11.1 冻结一致；`dirty=True` 如实入 manifest，核实仅 `.taskmaster/state.json`（隐藏目录、本就排除），语料文件零改动。
+- 配置文件占位符 `${SECRET}` 原样字节保留（不解析不展开），symlink 一律跳过并 stderr 告警；manifest 以 `.` 开头，scan_files 天然不会摄取它。
+- 质量门：ruff/pyright 零错误，pytest 115 passed。

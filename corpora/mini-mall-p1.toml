@@ -1,0 +1,31 @@
+# mini-mall P1 语料视图定义（《P1实现规格》§6.2，T13.3）
+# 由 tools/build_corpus_view.py 消费；修改本文件 = 语料范围变更，必须复核 expected 并留档。
+
+version = "mini-mall-p1-v1"
+source = "/home/oslab/projects/mini-mall-order"
+
+# include 按声明顺序归类型（第一个命中生效）；* 不跨路径分隔符，** 跨任意层级
+[[include]]
+type = "markdown"
+patterns = ["docs/**/*.md", "README*.md"]  # docs 任意层级 + 仅根级 README
+
+[[include]]
+type = "java"
+patterns = ["**/*.java"]
+
+[[include]]
+type = "config"
+patterns = ["**/*.yml", "**/*.yaml", "**/*.properties"]
+
+[exclude]
+# include 命中后仍强制生效
+hidden = true  # 任意隐藏目录/文件（.github、.playwright-mcp 等）
+dir_names = ["node_modules", "target", "build", "dist"]
+file_names = ["CLAUDE.md", "AGENTS.md", "TASKMASTER.md"]  # 任意层级，P2 注入测试样本不进语料
+
+# 2026-07-16 审计基线：范围意外变化的哨兵，不替代 manifest 的 commit/hash
+[expected]
+markdown = 39  # 37 docs + 2 根 README
+java = 392
+config = 14
+total = 445
