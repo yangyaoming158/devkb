@@ -7,10 +7,13 @@ golden 全集与最终冻结在 T14.1。
 from __future__ import annotations
 
 from devkb.fts import (
+    MAX_QUERY_CHARS,
+    MAX_QUERY_TOKENS,
     MAX_TOKEN_REPEAT,
     MAX_TOTAL_TOKENS,
     build_search_text,
     tokenize_for_search,
+    tokenize_query,
 )
 
 
@@ -61,6 +64,27 @@ def test_total_token_hard_limit() -> None:
     tokens = tokenize_for_search(text)
     assert len(tokens) == MAX_TOTAL_TOKENS
     assert tokens[0] == "tok0"
+
+
+def test_tokenize_query_dedupes_preserving_order() -> None:
+    tokens = tokenize_query("OrderService order OrderService 订单 订单 service")
+    assert tokens == ["orderservice", "order", "service", "订单"], (
+        "查询侧完全去重且保首次出现顺序（重复 OR 分支无信号）"
+    )
+
+
+def test_tokenize_query_caps_token_count() -> None:
+    tokens = tokenize_query(" ".join(f"tok{i}" for i in range(200)))
+    assert len(tokens) == MAX_QUERY_TOKENS
+    assert tokens[0] == "tok0", "上限内确定性截断，保留靠前 token"
+
+
+def test_tokenize_query_truncates_pathological_input() -> None:
+    # 截断边界后的内容不参与 token 化
+    query = "a" * MAX_QUERY_CHARS + " zzzmarker"
+    tokens = tokenize_query(query)
+    assert "zzzmarker" not in tokens
+    assert tokenize_query("") == []
 
 
 def test_build_search_text_joins_title_and_content_tokens() -> None:

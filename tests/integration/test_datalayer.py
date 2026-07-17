@@ -118,7 +118,54 @@ async def test_lexical_search_is_safe_for_hostile_and_cjk_input(session: AsyncSe
         assert await repo.lexical_search(hostile, top_k=5) == [], (
             f"恶意/畸形输入应安全返回空：{hostile[:30]!r}"
         )
+    injected = await repo.lexical_search("PaymentService'; DELETE FROM chunks --", top_k=5)
+    assert len(injected) == 1, "夹带注入的查询按普通词素处理，正常返回命中"
     assert await repo.count() == 1, "chunks 表必须还在（未被注入删除）"
+
+
+async def test_lexical_search_or_semantics_and_multi_term_ranking(session: AsyncSession) -> None:
+    pid = await _seed_project(
+        session,
+        "fts-or",
+        [
+            ChunkDraft(0, "Data > 状态机", "OrderStateMachine 状态迁移", "c0", 8, 1, 3, _vec(0)),
+            ChunkDraft(1, "Data > 支付", "PaymentService 处理 支付", "c1", 8, 4, 6, _vec(1)),
+        ],
+    )
+    repo = ChunkRepo(session, pid)
+
+    # AND 语义（websearch 默认）下这类中英混合问题会因 CJK 词不在语料中而零命中，
+    # 是 T14.2 冻结 OR 构造的直接动机
+    hits = await repo.lexical_search("OrderStateMachine 在什么情况下取消", top_k=10)
+    assert [c.ordinal for c, _, _ in hits] == [0], "部分 token 命中即可返回，且无关块不出现"
+
+    hits = await repo.lexical_search("支付 状态迁移 OrderStateMachine", top_k=10)
+    assert [c.ordinal for c, _, _ in hits] == [0, 1], "命中更多查询词的块必须排前"
+
+
+async def test_lexical_search_excludes_failed_documents(session: AsyncSession) -> None:
+    project = await ProjectRepo(session).create(_slug("fts-failed"), "fts-failed")
+    doc_repo = DocumentRepo(session, project.id)
+    chunk_repo = ChunkRepo(session, project.id)
+    good = await doc_repo.upsert(
+        rel_path="docs/good.md", title="Good", doc_type="markdown", content_hash="h1"
+    )
+    bad = await doc_repo.upsert(
+        rel_path="docs/bad.md", title="Bad", doc_type="markdown", content_hash="h2"
+    )
+    await chunk_repo.replace_for_document(
+        good.id, [ChunkDraft(0, "", "lexicalprobe alpha", "c0", 4, 1, 1, _vec(0))]
+    )
+    await chunk_repo.replace_for_document(
+        bad.id, [ChunkDraft(0, "", "lexicalprobe beta", "c1", 4, 1, 1, _vec(1))]
+    )
+    await doc_repo.mark_failed("docs/bad.md", "ParseError: 模拟更新失败")
+    await session.commit()
+
+    hits = await chunk_repo.lexical_search("lexicalprobe", top_k=10)
+    assert [c.content for c, _, _ in hits] == ["lexicalprobe alpha"], (
+        "failed 文档保留的陈旧 chunks 不得进入 lexical 检索（与 vector 同口径）"
+    )
 
 
 async def test_fts_tsv_predicate_is_gin_servable(session: AsyncSession) -> None:

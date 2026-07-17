@@ -17,7 +17,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from devkb.fts import build_search_text
+from devkb.fts import build_search_text, tokenize_query
 from devkb.models import AgentRun, AgentStep, Chunk, Document, Project, ToolInvocation
 
 VectorSearchMode = Literal["exact", "hnsw"]
@@ -226,11 +226,27 @@ class ChunkRepo:
     async def lexical_search(self, query: str, top_k: int) -> list[tuple[Chunk, str, float]]:
         """FTS 检索（§8 lexical channel），返回 (chunk, rel_path, ts_rank_cd 分数) 降序。
 
-        query 应传入 retrieval 层 token 化后的文本；websearch_to_tsquery 对任意
-        输入都不抛语法错误，且全程参数绑定——特殊字符只可能不命中，不可能注入。
+        查询构造（T14.2 冻结）：原始 query 经 tokenize_query（与摄取期同一冻结
+        函数，两侧词素必然对称）取 ≤32 个去重 token，每个 token 作为**绑定参数**
+        经 plainto_tsquery('simple', ...) 生成子查询，再用 tsquery `||`（OR）合并：
+
+        - OR 而非 websearch 的 AND：中英混合问题（"OrderStateMachine 在什么情况
+          下…"）在 AND 语义下几乎必然零命中，会杀死整个 lexical channel；OR 之下
+          ts_rank_cd 的 cover density 自然让多词命中排前；
+        - token 内部保持 AND：'simple' 解析器把 order_status 拆成 order & status，
+          与索引侧 to_tsvector 对同一 token 的拆法完全一致；
+        - plainto_tsquery 对任意输入都不抛语法错误，且全程参数绑定——特殊字符
+          只可能不命中，不可能注入或崩溃。
+
         排序用 (rank desc, chunk_id) 保证并列时输出确定。
         """
-        tsquery = func.websearch_to_tsquery("simple", query)
+        tokens = tokenize_query(query)
+        if not tokens:
+            return []
+        parts = [func.plainto_tsquery("simple", token) for token in tokens]
+        tsquery = parts[0]
+        for part in parts[1:]:
+            tsquery = tsquery.op("||")(part)
         rank = func.ts_rank_cd(Chunk.search_tsv, tsquery).label("rank")
         stmt = (
             select(Chunk, Document.rel_path, rank)

@@ -25,6 +25,8 @@ _SEPARATORS_RE = re.compile(r"[._/:\-]+")
 MAX_TOKEN_LENGTH = 64  # 超长 token 丢弃整体、保留拆分词（tsvector 单词素上限 2KB 的安全余量）
 MAX_TOKEN_REPEAT = 10  # 同一 token 计入次数上限：保留词频信号但防止病态膨胀
 MAX_TOTAL_TOKENS = 8192  # 输出总量硬上限，确定性截断
+MAX_QUERY_CHARS = 4096  # 查询输入先截断再 token 化：病态超长查询的 CPU 上界
+MAX_QUERY_TOKENS = 32  # 查询 token 数硬上限：限定 tsquery 规模，确定性截断
 
 # 独立实例 + 关闭 HMM：不受全局用户词典影响，输出确定性（T11.2 spike 锁定）
 _JIEBA = jieba.Tokenizer()
@@ -65,6 +67,25 @@ def tokenize_for_search(text: str) -> list[str]:
             # CJK：jieba 精确模式，HMM=False 保证确定性
             for word in _JIEBA.cut(segment, HMM=False):
                 _add(word)
+    return tokens
+
+
+def tokenize_query(query: str) -> list[str]:
+    """查询期 token 化：复用同一冻结函数保证与摄取期对称，去重保序 + 硬上限。
+
+    与摄取期的差别：查询 token 只决定 tsquery 的词素集合，重复 token 生成的
+    OR 分支完全相同、不带来任何信号，所以这里完全去重；超长输入先截断到
+    MAX_QUERY_CHARS 再 token 化。两处截断都是确定性的。
+    """
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for token in tokenize_for_search(query[:MAX_QUERY_CHARS]):
+        if token in seen:
+            continue
+        seen.add(token)
+        tokens.append(token)
+        if len(tokens) >= MAX_QUERY_TOKENS:
+            break
     return tokens
 
 

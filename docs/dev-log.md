@@ -338,3 +338,13 @@
 - 判据口径说明：清单"去重"按规格 §7 第 7 条（优先级更高）落为"重复 token 有确定性上限"——MAX_TOKEN_REPEAT=10 保留词频信号防病态膨胀，完全去重反而会抹掉 ts_rank_cd 的词频证据；该行为 T12.2 已有测试锁定。
 - 冻结含义写入 fts.py 模块 docstring：输出变化必须人工审 golden diff 并对存量语料重跑 `devkb backfill-search`，否则摄取/查询两侧 token 不对称、FTS 静默漏检。
 - 质量门：ruff/pyright 零错误，pytest 127 passed。
+
+## 2026-07-17 · T14.2 · 查询期 query 构造冻结
+
+做了什么：冻结 lexical channel 的查询构造——`tokenize_query` + per-token `plainto_tsquery` 绑定参数 + tsquery `||`（OR）合并，落在 `ChunkRepo.lexical_search` 单一咽喉点（证据：本提交）。
+
+- 关键决策（OR 而非 websearch AND）：真实 dev 问题多为中英混合（"OrderStateMachine 在什么情况下…"），AND 语义要求全部词素命中，CJK 虚词稍有不匹配整个 channel 就归零；OR 之下 ts_rank_cd 的 cover density 自然让多词命中排前。集成测试直接锁定"AND 会零命中的查询在 OR 下命中正确块"。
+- 对称性依据：查询与摄取共用同一冻结 token 化函数，且 `plainto_tsquery`/`to_tsvector` 的 'simple' 解析器对同一 token 产出相同词素（psql 实测 `order_status`→两词素、`order.paid.event`→单 host 词素，两侧一致）；token 内多词素保持 AND，恰好等价于索引侧拆法。
+- 安全判据：全程绑定参数，plainto 对任意输入不抛语法错（空 tsquery 是 `||` 幺元，实测确认）；注入文本只会变成普通词素——新增"夹带注入的查询正常返回命中且表完好"测试；超长输入 4096 字符截断 + 32 token 硬上限（单测锁定确定性截断）。
+- 口径补齐：failed 文档保留的陈旧 chunks 在 lexical 路径同样不可见（与 vector_search 同理由：回滚保留的上一版 chunks 行号已不可信），新增测试。
+- 质量门：ruff/pyright 零错误，pytest 132 passed。
