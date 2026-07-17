@@ -170,26 +170,28 @@ class ChunkRepo:
     ) -> list[tuple[Chunk, str, float]]:
         """余弦相似度检索，返回 (chunk, 所属文档 rel_path, 相似度) 降序。
 
-        - exact：临时关 indexscan 强制顺序扫描——评测基线要求真精确，
-          不能让 planner 静默换成近邻索引；
-        - hnsw：临时关 seqscan 强制走 0002 的 HNSW 索引（小表下 planner 否则
-          总选顺扫，无从对照）；ef_search 仅本事务生效（set_config is_local）。
-        两种模式的 planner 开关都在查询后立即恢复，不污染同事务后续查询。
+        - exact：关 indexscan——评测基线要求真精确，不能让 planner 静默用
+          HNSW 近邻序（btree/顺扫怎么选都不影响精确性）；
+        - hnsw：关 seqscan 与 sort——距离序只能由 0002 的 HNSW 索引提供；
+          只关 seqscan 不够，小表下 planner 会走 btree+Sort 得出"假 HNSW"的
+          精确结果，让 T15.3 的 overlap 对照失去意义。ef_search 仅本事务生效。
+        planner 开关（set_config is_local）都在查询后立即恢复，不污染同事务后续查询。
 
         仅检索 status='active' 文档的 chunks：active 文档更新失败时事务回滚会保留
         上一版 chunks（文档已标 failed），不过滤会引用与当前文件行号不符的陈旧内容。
         """
         if mode == "exact":
-            toggle = "enable_indexscan"
+            toggles = ["enable_indexscan"]
         else:
-            toggle = "enable_seqscan"
+            toggles = ["enable_seqscan", "enable_sort"]
             if ef_search is not None:
                 if not 1 <= ef_search <= MAX_EF_SEARCH:
                     raise ValueError(f"ef_search 必须在 1..{MAX_EF_SEARCH}：{ef_search}")
                 await self._session.execute(
                     select(func.set_config("hnsw.ef_search", str(ef_search), True))
                 )
-        await self._session.execute(select(func.set_config(toggle, "off", True)))
+        for toggle in toggles:
+            await self._session.execute(select(func.set_config(toggle, "off", True)))
 
         distance = Chunk.embedding.cosine_distance(embedding).label("distance")
         stmt = (
@@ -204,7 +206,8 @@ class ChunkRepo:
             .limit(top_k)
         )
         rows = (await self._session.execute(stmt)).all()
-        await self._session.execute(select(func.set_config(toggle, "on", True)))
+        for toggle in toggles:
+            await self._session.execute(select(func.set_config(toggle, "on", True)))
         return [(row[0], row[1], 1.0 - float(row[2])) for row in rows]
 
     async def lexical_search(self, query: str, top_k: int) -> list[tuple[Chunk, str, float]]:

@@ -256,3 +256,14 @@
 - `ToolInvocationRepo.list_for_run` 按所属 step 的 seq 排序；步内多次调用以 (created_at, id) 兜底——created_at 是事务时间戳、同事务内并列，规格 §5.3 最小字段集没有步内 seq，严格步内顺序语义待 T18 落轨迹时按需明确（docstring 已注明，不静默扩字段）。
 - 隔离测试新增 4 项：lexical 同词面双项目、hnsw 模式向量双项目、step/tool 跨项目 run_id 读取返回空（不报错不泄漏）。D7 分层静态扫描继续全绿。
 - 质量门：ruff/pyright 零错误，pytest 81 passed。
+
+## 2026-07-17 · T12.4 · 数据层集成测试
+
+做了什么：补齐 T12 判据的综合集成测试 9 项（FTS 排名/注入安全/GIN 计划、HNSW-exact 对照/计划、FK/顺序/级联），连同 T12.2 的 backfill 测试与 T12.3 的隔离测试覆盖全部判据（证据：本提交）。
+
+- 抓到一个真 bug：T12.3 的 hnsw 模式只关 `enable_seqscan` 不够——小表下 planner 会走 project_id btree + Sort 给出"假 HNSW"的精确结果，T15.3 的 overlap 对照会因此变成 exact vs exact 而虚高。修复为同时关 `enable_sort`（距离序只能由 HNSW 索引提供），EXPLAIN 断言锁住 `ix_chunks_embedding_hnsw` 出现在计划里。
+- GIN 计划的教训：planner 在小项目上永远偏向 project_id btree bitmap，60 行 + ANALYZE 都不换。最终用 800 行/仅 1 行命中目标 token 的种子让选择性差距真实成立；真实 1370 块语料上先用 psql 人工验证了自然计划确实走 `Bitmap Index Scan on ix_chunks_search_tsv`（正式落盘归 T14.4）。
+- 注入安全断言：`'; DROP TABLE chunks; --`、tsquery 元字符、5000 字符超长串、空串一律安全返回空且表仍在——websearch_to_tsquery + 全参数绑定的组合成立。
+- 三处 asyncio 陷阱记录：`expire_all()` 后访问 ORM 属性触发同步 IO 抛 MissingGreenlet（改为先取 UUID）；EXPLAIN 断言消息里直接内嵌完整计划文本，失败时不用二次排查。
+- HNSW-exact 全等断言的适用条件：30 块 + ef_search=200（覆盖全集）下 HNSW 必然穷尽，与 exact 逐位一致；这不外推到 1370 块生产语料——那是 T15.3 的 overlap Gate 的事。
+- 质量门：ruff/pyright 零错误，pytest 90 passed。
