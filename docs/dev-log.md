@@ -357,3 +357,13 @@
 - query_tokens 的一致性依据：token 化是纯函数，retrieve 层复算的结果与 lexical_search 内部构造 tsquery 所用完全一致（同函数同输入），不需要跨层传递。
 - 排名可精确断言的两层证据：受控种子数据上"命中 2 词 > 命中 1 词 > 无关不出现"的完整顺序 + 全部解释字段断言；真实 Java fixture 经管道摄取后，查询 `shouldRetry`（语料中唯一原词）精确命中该方法块 rank=1、rel_path/行号正确。
 - 质量门：ruff/pyright 零错误，pytest 134 passed。
+
+## 2026-07-17 · T14.4 · lexical-only dev 报告与 GIN 计划验证
+
+做了什么：`benchmarks/p1_lexical_dev.py` 在 P1 全量快照（445 文档/4788 chunks）上跑 17 题 lexical-only 评测，报告落盘 `evalsets/reports/p1-dev-retrieval-lexical-20260717T185636+0800.{json,md}`（证据：本提交）。
+
+- 结果是负的，如实记录：R@10=0.059。第一版报告跑出这个数字后没有直接落盘，先做了根因诊断——(1) 逐题 top-100 名次显示 14/17 的相关块连 top-100 都进不去，不是"差一点"；(2) scratchpad 对照 ts_rank_cd 归一化 flag 1/4/32、查询侧去单字 CJK 共 6 个排序变体，R@10 全部纹丝不动——排除调参可救的假设；(3) 抽查标注证据原文确认根因：11/17 题是中文自然语言，而证据（dev-log 任务记录）正文是英文命令与要点，词面零重叠。词汇鸿沟是 lexical 的结构性盲区，这正是 vector/Hybrid 存在的理由；Evaluation v1 本就把 lexical 定位为"单独观察贡献"、不设 Gate。强项也兑现了：identifier 组 q14 精确 rank=1。
+- GIN 判据：给 ChunkRepo 加 `explain_lexical_search`（EXPLAIN 与业务查询同源形状；literal_binds 编译遇 REGCONFIG 无渲染器，把常量 'simple' 改为 SQL 字面量，token 仍走绑定参数）。真实语料结论：单稀有 token（40901）自然走 Bitmap Index Scan on ix_chunks_search_tsv（0.6ms）；宽 OR 查询因 camel 拆分子词高词频匹配 65% 行，planner 按成本正确顺扫（~100ms）——T12.4 遗留的"真实语料自然计划验证"就此落盘。宽 OR 演化与查询侧词频加权想法记 backlog，不在 P1 处理。
+- 延迟：85 样本 P50=17.6ms/P95=78.3ms，报告显式声明小样本+WSL2 开发机，不外推生产结论。
+- 机械分组规则（正则可复现，非人工标注）同时为 T15.4 Gate 第 3 条留下"预先归类 token 题"依据。
+- 质量门：ruff/pyright 零错误，pytest 全绿。

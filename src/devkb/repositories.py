@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Literal
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import Select, delete, func, literal_column, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -240,15 +240,26 @@ class ChunkRepo:
 
         排序用 (rank desc, chunk_id) 保证并列时输出确定。
         """
+        stmt = self._lexical_stmt(query, top_k)
+        if stmt is None:
+            return []
+        rows = (await self._session.execute(stmt)).all()
+        return [(row[0], row[1], float(row[2])) for row in rows]
+
+    def _lexical_stmt(self, query: str, top_k: int) -> Select[tuple[Chunk, str, Any]] | None:
         tokens = tokenize_query(query)
         if not tokens:
-            return []
-        parts = [func.plainto_tsquery("simple", token) for token in tokens]
+            return None
+        # 'simple' 是代码内常量（regconfig），以 SQL 字面量内联——绑定参数在
+        # EXPLAIN 的 literal_binds 编译下没有 REGCONFIG 渲染器；token 才是外部
+        # 输入，全部保持绑定参数
+        config = literal_column("'simple'")
+        parts = [func.plainto_tsquery(config, token) for token in tokens]
         tsquery = parts[0]
         for part in parts[1:]:
             tsquery = tsquery.op("||")(part)
         rank = func.ts_rank_cd(Chunk.search_tsv, tsquery).label("rank")
-        stmt = (
+        return (
             select(Chunk, Document.rel_path, rank)
             .join(Document, Chunk.document_id == Document.id)
             .where(
@@ -259,8 +270,24 @@ class ChunkRepo:
             .order_by(rank.desc(), Chunk.id)
             .limit(top_k)
         )
-        rows = (await self._session.execute(stmt)).all()
-        return [(row[0], row[1], float(row[2])) for row in rows]
+
+    async def explain_lexical_search(self, query: str, top_k: int) -> str:
+        """对与 lexical_search 完全同源的查询形状跑 EXPLAIN (ANALYZE, BUFFERS)。
+
+        评测报告用（T14.4：真实语料上验证 GIN 计划），不在业务路径调用。
+        参数以 literal_binds 内联——EXPLAIN 无法带绑定参数执行，且此处输入
+        是 tokenize_query 产出的受限 token（小写字母数字与 ._/:- ），非原始
+        用户输入。
+        """
+        stmt = self._lexical_stmt(query, top_k)
+        if stmt is None:
+            return ""
+        compiled = stmt.compile(
+            dialect=self._session.get_bind().dialect,
+            compile_kwargs={"literal_binds": True},
+        )
+        result = await self._session.execute(text(f"EXPLAIN (ANALYZE, BUFFERS) {compiled}"))
+        return "\n".join(result.scalars())
 
     async def count(self) -> int:
         stmt = select(func.count()).where(Chunk.project_id == self._project_id)
