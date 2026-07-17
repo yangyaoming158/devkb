@@ -1,0 +1,2161 @@
+{
+  "schema_version": "p1-dev-retrieval-lexical-v1",
+  "run": {
+    "started_at": "2026-07-18T00:35:16+08:00",
+    "devkb_commit": "3a2de50332684cf878934584506242df4a6ac5ec",
+    "devkb_worktree_dirty": false,
+    "command": "uv run python benchmarks/p1_lexical_dev.py",
+    "holdout_accessed": false
+  },
+  "corpus": {
+    "scope": "p1-445-full",
+    "project": "mini-mall",
+    "document_count": 445,
+    "chunk_count": 4788,
+    "sha256": "0b8af698f960489ae335633a488a7a8cde0cb76b44d1c78e0878c2b760194670"
+  },
+  "dataset": {
+    "path": "evalsets/v0/retrieval_dev.jsonl",
+    "question_count": 17
+  },
+  "config": {
+    "mode": "lexical",
+    "top_k": 10,
+    "query_construction": "tokenize_query（去重保序，≤32 tokens / ≤4096 chars）→ per-token plainto_tsquery('simple') 绑定参数 → tsquery || (OR)，ts_rank_cd 降序 + chunk_id 决并列",
+    "group_rule": "[A-Za-z][A-Za-z0-9_.\\-/]{4,}|\\d{3,}",
+    "latency_repeats": 5
+  },
+  "coverage": {
+    "total": 25,
+    "resolved": 25,
+    "missing": []
+  },
+  "metrics": {
+    "recall_at_5": 0.058823529411764705,
+    "recall_at_10": 0.058823529411764705,
+    "mrr_at_10": 0.058823529411764705
+  },
+  "group_metrics": {
+    "identifier/path/number": {
+      "count": 6,
+      "recall_at_5": 0.16666666666666666,
+      "recall_at_10": 0.16666666666666666,
+      "mrr_at_10": 0.16666666666666666
+    },
+    "natural-language": {
+      "count": 11,
+      "recall_at_5": 0.0,
+      "recall_at_10": 0.0,
+      "mrr_at_10": 0.0
+    }
+  },
+  "latency_ms": {
+    "sample_count": 85,
+    "p50": 18.504011999993963,
+    "p95": 79.05568479986869,
+    "max": 120.16432500013252,
+    "environment": "WSL2 开发机，后台负载不受控；小样本，不外推为生产结论"
+  },
+  "explain_plans": [
+    {
+      "query": "支付成功事件用的 exchange、routing key 和两个消费队列分别是什么？",
+      "gin_used": false,
+      "plan": "Limit  (cost=982.72..982.74 rows=10 width=1440) (actual time=20.774..20.776 rows=10 loops=1)\n  Buffers: shared hit=9251\n  ->  Sort  (cost=982.72..985.25 rows=1013 width=1440) (actual time=20.773..20.775 rows=10 loops=1)\n        Sort Key: (ts_rank_cd(chunks.search_tsv, '''支付'' | ''成功'' | ''事件'' | ''用'' | ''的'' | ''exchange'' | ''routing'' | ''key'' | ''和'' | ''两个'' | ''消费'' | ''队列'' | ''分别'' | ''是'' | ''什么'''::tsquery)) DESC, chunks.id\n        Sort Method: top-N heapsort  Memory: 56kB\n        Buffers: shared hit=9251\n        ->  Hash Join  (cost=27.42..960.83 rows=1013 width=1440) (actual time=0.186..20.419 rows=636 loops=1)\n              Hash Cond: (chunks.document_id = documents.id)\n              Buffers: shared hit=9251\n              ->  Seq Scan on chunks  (cost=0.00..928.19 rows=1013 width=1356) (actual time=0.059..9.640 rows=636 loops=1)\n                    Filter: ((search_tsv @@ '''支付'' | ''成功'' | ''事件'' | ''用'' | ''的'' | ''exchange'' | ''routing'' | ''key'' | ''和'' | ''两个'' | ''消费'' | ''队列'' | ''分别'' | ''是'' | ''什么'''::tsquery) AND (project_id = '46eebe95-e041-4f2f-85bc-4b2ed0d8bceb'::uuid))\n                    Rows Removed by Filter: 4168\n                    Buffers: shared hit=7604\n              ->  Hash  (cost=21.71..21.71 rows=457 width=96) (actual time=0.078..0.079 rows=450 loops=1)\n                    Buckets: 1024  Batches: 1  Memory Usage: 65kB\n                    Buffers: shared hit=16\n                    ->  Seq Scan on documents  (cost=0.00..21.71 rows=457 width=96) (actual time=0.003..0.048 rows=450 loops=1)\n                          Filter: ((status)::text = 'active'::text)\n                          Buffers: shared hit=16\nPlanning:\n  Buffers: shared hit=7\nPlanning Time: 0.243 ms\nExecution Time: 20.790 ms"
+    },
+    {
+      "query": "创建订单接口是怎么防止用户重复提交的？",
+      "gin_used": false,
+      "plan": "Limit  (cost=970.70..970.73 rows=10 width=1440) (actual time=11.249..11.252 rows=10 loops=1)\n  Buffers: shared hit=8387\n  ->  Sort  (cost=970.70..972.11 rows=564 width=1440) (actual time=11.248..11.250 rows=10 loops=1)\n        Sort Key: (ts_rank_cd(chunks.search_tsv, '''创建'' | ''订单'' | ''接口'' | ''是'' | ''怎么'' | ''防止'' | ''用户'' | ''重复'' | ''提交'' | ''的'''::tsquery)) DESC, chunks.id\n        Sort Method: top-N heapsort  Memory: 61kB\n        Buffers: shared hit=8387\n        ->  Hash Join  (cost=27.42..958.52 rows=564 width=1440) (actual time=0.616..11.070 rows=284 loops=1)\n              Hash Cond: (chunks.document_id = documents.id)\n              Buffers: shared hit=8387\n              ->  Seq Scan on chunks  (cost=0.00..928.19 rows=564 width=1356) (actual time=0.519..7.838 rows=284 loops=1)\n                    Filter: ((search_tsv @@ '''创建'' | ''订单'' | ''接口'' | ''是'' | ''怎么'' | ''防止'' | ''用户'' | ''重复'' | ''提交'' | ''的'''::tsquery) AND (project_id = '46eebe95-e041-4f2f-85bc-4b2ed0d8bceb'::uuid))\n                    Rows Removed by Filter: 4520\n                    Buffers: shared hit=7604\n              ->  Hash  (cost=21.71..21.71 rows=457 width=96) (actual time=0.073..0.074 rows=450 loops=1)\n                    Buckets: 1024  Batches: 1  Memory Usage: 65kB\n                    Buffers: shared hit=16\n                    ->  Seq Scan on documents  (cost=0.00..21.71 rows=457 width=96) (actual time=0.003..0.044 rows=450 loops=1)\n                          Filter: ((status)::text = 'active'::text)\n                          Buffers: shared hit=16\nPlanning:\n  Buffers: shared hit=7\nPlanning Time: 0.190 ms\nExecution Time: 11.274 ms"
+    },
+    {
+      "query": "40901",
+      "gin_used": true,
+      "plan": "Limit  (cost=401.58..401.60 rows=10 width=1440) (actual time=0.252..0.254 rows=10 loops=1)\n  Buffers: shared hit=132\n  ->  Sort  (cost=401.58..401.64 rows=24 width=1440) (actual time=0.252..0.253 rows=10 loops=1)\n        Sort Key: (ts_rank_cd(chunks.search_tsv, '''40901'''::tsquery)) DESC, chunks.id\n        Sort Method: quicksort  Memory: 53kB\n        Buffers: shared hit=132\n        ->  Hash Join  (cost=316.63..401.06 rows=24 width=1440) (actual time=0.185..0.240 rows=13 loops=1)\n              Hash Cond: (chunks.document_id = documents.id)\n              Buffers: shared hit=132\n              ->  Bitmap Heap Scan on chunks  (cost=289.20..373.51 rows=24 width=1356) (actual time=0.104..0.118 rows=13 loops=1)\n                    Recheck Cond: (search_tsv @@ '''40901'''::tsquery)\n                    Filter: (project_id = '46eebe95-e041-4f2f-85bc-4b2ed0d8bceb'::uuid)\n                    Heap Blocks: exact=13\n                    Buffers: shared hit=81\n                    ->  Bitmap Index Scan on ix_chunks_search_tsv  (cost=0.00..289.20 rows=24 width=0) (actual time=0.101..0.101 rows=13 loops=1)\n                          Index Cond: (search_tsv @@ '''40901'''::tsquery)\n                          Buffers: shared hit=68\n              ->  Hash  (cost=21.71..21.71 rows=457 width=96) (actual time=0.070..0.070 rows=450 loops=1)\n                    Buckets: 1024  Batches: 1  Memory Usage: 65kB\n                    Buffers: shared hit=16\n                    ->  Seq Scan on documents  (cost=0.00..21.71 rows=457 width=96) (actual time=0.003..0.041 rows=450 loops=1)\n                          Filter: ((status)::text = 'active'::text)\n                          Buffers: shared hit=16\nPlanning:\n  Buffers: shared hit=7\nPlanning Time: 0.171 ms\nExecution Time: 0.269 ms"
+    }
+  ],
+  "questions": [
+    {
+      "id": "q01",
+      "question": "创建订单接口是怎么防止用户重复提交的？",
+      "group": "natural-language",
+      "relevant": [
+        {
+          "rel_path": "docs/dev-log.md",
+          "anchor": "Task 10.5 - Duplicate submit idempotency for create order"
+        },
+        {
+          "rel_path": "docs/api-gateway-contract.md",
+          "anchor": "4.1 Customer And Public APIs"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": null,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "创建",
+        "订单",
+        "接口",
+        "是",
+        "怎么",
+        "防止",
+        "用户",
+        "重复",
+        "提交",
+        "的"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "dc7bb71c-80aa-4b1f-a151-86ff73a73cf2",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第二部分：微服务架构审查 > 三个真实的架构问题",
+          "start_line": 122,
+          "end_line": 129,
+          "score": 2.1000001430511475
+        },
+        {
+          "rank": 2,
+          "chunk_id": "71b1886d-3bce-4fe0-9b2c-45c284bdd78f",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）",
+          "start_line": 63,
+          "end_line": 72,
+          "score": 2.0
+        },
+        {
+          "rank": 3,
+          "chunk_id": "ab516134-8aac-4a09-9a41-c7f99df4c6ce",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 1. 总体结论",
+          "start_line": 8,
+          "end_line": 14,
+          "score": 2.0
+        },
+        {
+          "rank": 4,
+          "chunk_id": "cd46c108-3628-4335-a085-c54227a16908",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 已知限制",
+          "start_line": 183,
+          "end_line": 202,
+          "score": 1.8000000715255737
+        },
+        {
+          "rank": 5,
+          "chunk_id": "cc301681-486e-4a58-bb73-1d776d87eec3",
+          "rel_path": "docs/history/phase1-frontend-prereview.md",
+          "title_path": "Phase 1 前端接手前置审查（只读） > 三、风险点（按优先级） > R1（高）订单数据结构：`items[]` vs 文档的扁平字段",
+          "start_line": 68,
+          "end_line": 72,
+          "score": 1.600000023841858
+        },
+        {
+          "rank": 6,
+          "chunk_id": "751f6501-459f-46f8-83ff-595c5401efbd",
+          "rel_path": "docs/history/phase1-frontend-design.md",
+          "title_path": "Phase 1 前端 UI 设计方案（MiniMall 用户前台） > 7. 用户购买闭环页面流转",
+          "start_line": 182,
+          "end_line": 222,
+          "score": 1.5
+        },
+        {
+          "rank": 7,
+          "chunk_id": "7d631707-f1d4-492c-9cee-70b4242184f4",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 9. 数据一致性与事务专项审查",
+          "start_line": 176,
+          "end_line": 185,
+          "score": 1.5
+        },
+        {
+          "rank": 8,
+          "chunk_id": "95a58f74-ef5f-4de1-845e-6ff6b86921c1",
+          "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+          "title_path": "Phase A 修复规划 —— 消除订单取消/支付并发竞争 > 1. 背景与目标",
+          "start_line": 8,
+          "end_line": 25,
+          "score": 1.5
+        },
+        {
+          "rank": 9,
+          "chunk_id": "dcdc6c22-ce54-44e7-ae52-1aa4bbc3e7d8",
+          "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+          "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B6（决策门，默认跳过）：M2 —— 下单 saga 缺口",
+          "start_line": 126,
+          "end_line": 143,
+          "score": 1.399999976158142
+        },
+        {
+          "rank": 10,
+          "chunk_id": "02cbd941-bebb-42a8-9b1f-4a8ed2c7118d",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 1. 总体结论",
+          "start_line": 15,
+          "end_line": 20,
+          "score": 1.2000000476837158
+        }
+      ]
+    },
+    {
+      "id": "q02",
+      "question": "库存扣减的幂等键是什么？同一订单重复扣减会发生什么？",
+      "group": "natural-language",
+      "relevant": [
+        {
+          "rel_path": "docs/dev-log.md",
+          "anchor": "Task 8.3 - Inventory deduct/release records and idempotency"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": null,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "库存",
+        "扣减",
+        "的",
+        "幂",
+        "等",
+        "键",
+        "是",
+        "什么",
+        "同一",
+        "订单",
+        "重复",
+        "会",
+        "发生"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "71b1886d-3bce-4fe0-9b2c-45c284bdd78f",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）",
+          "start_line": 63,
+          "end_line": 72,
+          "score": 3.200000047683716
+        },
+        {
+          "rank": 2,
+          "chunk_id": "cd46c108-3628-4335-a085-c54227a16908",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 已知限制",
+          "start_line": 183,
+          "end_line": 202,
+          "score": 3.0
+        },
+        {
+          "rank": 3,
+          "chunk_id": "dc7bb71c-80aa-4b1f-a151-86ff73a73cf2",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第二部分：微服务架构审查 > 三个真实的架构问题",
+          "start_line": 122,
+          "end_line": 129,
+          "score": 2.700000047683716
+        },
+        {
+          "rank": 4,
+          "chunk_id": "7d631707-f1d4-492c-9cee-70b4242184f4",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 9. 数据一致性与事务专项审查",
+          "start_line": 176,
+          "end_line": 185,
+          "score": 2.6000001430511475
+        },
+        {
+          "rank": 5,
+          "chunk_id": "ab516134-8aac-4a09-9a41-c7f99df4c6ce",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 1. 总体结论",
+          "start_line": 8,
+          "end_line": 14,
+          "score": 2.6000001430511475
+        },
+        {
+          "rank": 6,
+          "chunk_id": "042a387d-9d76-414d-9de8-ab5c89433c35",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第三部分：核心业务链路审查 > 不变量保护核对表",
+          "start_line": 144,
+          "end_line": 157,
+          "score": 2.4000000953674316
+        },
+        {
+          "rank": 7,
+          "chunk_id": "9577527d-1ccb-44ab-8dac-ca9f7de47ddf",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 5. P2 级问题 > P2-4：重复支付返回 409 而非幂等重放，idempotencyKey 存而不用",
+          "start_line": 107,
+          "end_line": 115,
+          "score": 2.0
+        },
+        {
+          "rank": 8,
+          "chunk_id": "cd6ea319-b84b-4e54-8e26-3eae359cb11a",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 5. P2 级问题 > P2-3：库存调整幂等检查未按 productId 区分，requestId 复用会静默吞掉合法调整",
+          "start_line": 98,
+          "end_line": 106,
+          "score": 2.0
+        },
+        {
+          "rank": 9,
+          "chunk_id": "4252cc1e-6269-46a2-8289-c3174a11342f",
+          "rel_path": "docs/history/project-acceptance-report.md",
+          "title_path": "MiniMall Order Project Acceptance Report > Completed Task Tree",
+          "start_line": 35,
+          "end_line": 59,
+          "score": 1.899999976158142
+        },
+        {
+          "rank": 10,
+          "chunk_id": "02cbd941-bebb-42a8-9b1f-4a8ed2c7118d",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 1. 总体结论",
+          "start_line": 15,
+          "end_line": 20,
+          "score": 1.8000000715255737
+        }
+      ]
+    },
+    {
+      "id": "q03",
+      "question": "订单状态机允许哪些状态流转？",
+      "group": "natural-language",
+      "relevant": [
+        {
+          "rel_path": "docs/dev-log.md",
+          "anchor": "Task 9.2 - OrderStateMachine status transitions"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": null,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "订单",
+        "状态机",
+        "允许",
+        "哪些",
+        "状态",
+        "流转"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "751f6501-459f-46f8-83ff-595c5401efbd",
+          "rel_path": "docs/history/phase1-frontend-design.md",
+          "title_path": "Phase 1 前端 UI 设计方案（MiniMall 用户前台） > 7. 用户购买闭环页面流转",
+          "start_line": 182,
+          "end_line": 222,
+          "score": 1.2000000476837158
+        },
+        {
+          "rank": 2,
+          "chunk_id": "c12b3347-671a-4c8f-b6a1-760440a6f703",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Phase 1 Task 8 - Implement my orders order detail and cancellation",
+          "start_line": 1029,
+          "end_line": 1029,
+          "score": 1.100000023841858
+        },
+        {
+          "rank": 3,
+          "chunk_id": "71b1886d-3bce-4fe0-9b2c-45c284bdd78f",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）",
+          "start_line": 63,
+          "end_line": 72,
+          "score": 0.9000000357627869
+        },
+        {
+          "rank": 4,
+          "chunk_id": "95a58f74-ef5f-4de1-845e-6ff6b86921c1",
+          "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+          "title_path": "Phase A 修复规划 —— 消除订单取消/支付并发竞争 > 1. 背景与目标",
+          "start_line": 8,
+          "end_line": 25,
+          "score": 0.9000000357627869
+        },
+        {
+          "rank": 5,
+          "chunk_id": "c09a83c6-437f-4b50-b865-96794eb2cd9b",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > 2026-05-24 · B6 — Payment page rewrite",
+          "start_line": 1485,
+          "end_line": 1495,
+          "score": 0.9000000357627869
+        },
+        {
+          "rank": 6,
+          "chunk_id": "d8f982ca-0d29-4449-8e89-393c62320240",
+          "rel_path": "docs/history/phase1-frontend-design.md",
+          "title_path": "Phase 1 前端 UI 设计方案（MiniMall 用户前台） > 5. 每个页面的关键交互状态",
+          "start_line": 154,
+          "end_line": 163,
+          "score": 0.9000000357627869
+        },
+        {
+          "rank": 7,
+          "chunk_id": "a003fdf6-162f-4bf7-910e-4b3667ecfa5d",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-1：订单取消与支付成功存在双向并发竞争，且无补偿路径",
+          "start_line": 52,
+          "end_line": 56,
+          "score": 0.800000011920929
+        },
+        {
+          "rank": 8,
+          "chunk_id": "aa86ad84-c699-4338-9ea4-ab6a79339d20",
+          "rel_path": "docs/history/phase1-ui-redesign.md",
+          "title_path": "MiniMall Phase 1 — Customer Frontend UI/UX Redesign Brief > 5. Page-by-page specification > 5.9 Payment",
+          "start_line": 533,
+          "end_line": 557,
+          "score": 0.800000011920929
+        },
+        {
+          "rank": 9,
+          "chunk_id": "baea2a6c-c062-479c-8a27-454af267baa8",
+          "rel_path": "docs/history/phase1-frontend-prereview.md",
+          "title_path": "Phase 1 前端接手前置审查（只读） > 三、风险点（按优先级） > R5（中）跨用户/不存在订单都返回 404，而非 403",
+          "start_line": 86,
+          "end_line": 90,
+          "score": 0.800000011920929
+        },
+        {
+          "rank": 10,
+          "chunk_id": "06ae7557-ec90-439e-bf7b-0ef73300a1ba",
+          "rel_path": "docs/history/phase1-frontend-design.md",
+          "title_path": "Phase 1 前端 UI 设计方案（MiniMall 用户前台） > 4. 组件拆分",
+          "start_line": 124,
+          "end_line": 149,
+          "score": 0.699999988079071
+        }
+      ]
+    },
+    {
+      "id": "q04",
+      "question": "网关会剥掉浏览器传来的哪些请求头？为什么要剥？",
+      "group": "natural-language",
+      "relevant": [
+        {
+          "rel_path": "docs/api-gateway-contract.md",
+          "anchor": "2. Authentication And Trust Boundary"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": null,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "网关",
+        "会",
+        "剥掉",
+        "浏览器",
+        "传来",
+        "的",
+        "哪些",
+        "请求",
+        "头",
+        "为什么",
+        "要",
+        "剥"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "cd46c108-3628-4335-a085-c54227a16908",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 已知限制",
+          "start_line": 183,
+          "end_line": 202,
+          "score": 1.3000000715255737
+        },
+        {
+          "rank": 2,
+          "chunk_id": "d834cebc-5fd5-425b-a08e-0076f9c65795",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > AI 库存助手",
+          "start_line": 155,
+          "end_line": 171,
+          "score": 1.3000000715255737
+        },
+        {
+          "rank": 3,
+          "chunk_id": "ab516134-8aac-4a09-9a41-c7f99df4c6ce",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 1. 总体结论",
+          "start_line": 8,
+          "end_line": 14,
+          "score": 1.2000000476837158
+        },
+        {
+          "rank": 4,
+          "chunk_id": "c2be1843-adb9-46a6-8fba-0c7f4d206d8b",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 8. 管理员后台专项审查",
+          "start_line": 168,
+          "end_line": 175,
+          "score": 1.2000000476837158
+        },
+        {
+          "rank": 5,
+          "chunk_id": "02cbd941-bebb-42a8-9b1f-4a8ed2c7118d",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 1. 总体结论",
+          "start_line": 15,
+          "end_line": 20,
+          "score": 1.100000023841858
+        },
+        {
+          "rank": 6,
+          "chunk_id": "1169b936-854c-4308-b937-6124aef9b98f",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 最终结论 > 10. 面试追问与回答方向",
+          "start_line": 315,
+          "end_line": 323,
+          "score": 1.0
+        },
+        {
+          "rank": 7,
+          "chunk_id": "48c2d455-cac8-4536-8343-cc9796f450dc",
+          "rel_path": "docs/audit/full-repo-audit.md",
+          "title_path": "全仓库审计报告 > P2 问题 > P2-05：admin 审计 IP 仍信任下游收到的 `X-Forwarded-For` 第一段（已修复）",
+          "start_line": 285,
+          "end_line": 303,
+          "score": 1.0
+        },
+        {
+          "rank": 8,
+          "chunk_id": "6ab99b85-7635-42d5-bbae-285a35b0f8fb",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 运行时入口",
+          "start_line": 97,
+          "end_line": 114,
+          "score": 1.0
+        },
+        {
+          "rank": 9,
+          "chunk_id": "6bb4f417-deb2-4b87-8cef-5802b34f1400",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 13. 不建议现在做的事情",
+          "start_line": 247,
+          "end_line": 255,
+          "score": 1.0
+        },
+        {
+          "rank": 10,
+          "chunk_id": "c5807ec8-924c-4739-9cf1-0211b90102c0",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 安全加固说明",
+          "start_line": 173,
+          "end_line": 182,
+          "score": 1.0
+        }
+      ]
+    },
+    {
+      "id": "q05",
+      "question": "哪些接口是公开的、不需要带 JWT？",
+      "group": "natural-language",
+      "relevant": [
+        {
+          "rel_path": "docs/api-gateway-contract.md",
+          "anchor": "2. Authentication And Trust Boundary"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": null,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "哪些",
+        "接口",
+        "是",
+        "公开",
+        "的",
+        "不",
+        "需要",
+        "带",
+        "jwt"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "6bb4f417-deb2-4b87-8cef-5802b34f1400",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 13. 不建议现在做的事情",
+          "start_line": 247,
+          "end_line": 255,
+          "score": 1.899999976158142
+        },
+        {
+          "rank": 2,
+          "chunk_id": "ab516134-8aac-4a09-9a41-c7f99df4c6ce",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 1. 总体结论",
+          "start_line": 8,
+          "end_line": 14,
+          "score": 1.8000000715255737
+        },
+        {
+          "rank": 3,
+          "chunk_id": "7d631707-f1d4-492c-9cee-70b4242184f4",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 9. 数据一致性与事务专项审查",
+          "start_line": 176,
+          "end_line": 185,
+          "score": 1.7000000476837158
+        },
+        {
+          "rank": 4,
+          "chunk_id": "dc7bb71c-80aa-4b1f-a151-86ff73a73cf2",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第二部分：微服务架构审查 > 三个真实的架构问题",
+          "start_line": 122,
+          "end_line": 129,
+          "score": 1.600000023841858
+        },
+        {
+          "rank": 5,
+          "chunk_id": "02cbd941-bebb-42a8-9b1f-4a8ed2c7118d",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 1. 总体结论",
+          "start_line": 15,
+          "end_line": 20,
+          "score": 1.399999976158142
+        },
+        {
+          "rank": 6,
+          "chunk_id": "e496ea73-2454-4dc4-b07f-1a91ca395be5",
+          "rel_path": "docs/history/phase1-frontend-design.md",
+          "title_path": "Phase 1 前端 UI 设计方案（MiniMall 用户前台） > 8. 提升美感但不扩大业务范围的设计细节",
+          "start_line": 224,
+          "end_line": 241,
+          "score": 1.399999976158142
+        },
+        {
+          "rank": 7,
+          "chunk_id": "1169b936-854c-4308-b937-6124aef9b98f",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 最终结论 > 10. 面试追问与回答方向",
+          "start_line": 315,
+          "end_line": 323,
+          "score": 1.3000000715255737
+        },
+        {
+          "rank": 8,
+          "chunk_id": "71b1886d-3bce-4fe0-9b2c-45c284bdd78f",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）",
+          "start_line": 63,
+          "end_line": 72,
+          "score": 1.3000000715255737
+        },
+        {
+          "rank": 9,
+          "chunk_id": "a5e0d099-12fb-432d-902b-32f885c3e458",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 最终判断",
+          "start_line": 333,
+          "end_line": 337,
+          "score": 1.3000000715255737
+        },
+        {
+          "rank": 10,
+          "chunk_id": "cd46c108-3628-4335-a085-c54227a16908",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 已知限制",
+          "start_line": 183,
+          "end_line": 202,
+          "score": 1.3000000715255737
+        }
+      ]
+    },
+    {
+      "id": "q06",
+      "question": "支付成功事件用的 exchange、routing key 和两个消费队列分别是什么？",
+      "group": "identifier/path/number",
+      "relevant": [
+        {
+          "rel_path": "docs/architecture.md",
+          "anchor": "Event Flow"
+        },
+        {
+          "rel_path": "docs/deployment.md",
+          "anchor": "RabbitMQ Operations"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": null,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "支付",
+        "成功",
+        "事件",
+        "用",
+        "的",
+        "exchange",
+        "routing",
+        "key",
+        "和",
+        "两个",
+        "消费",
+        "队列",
+        "分别",
+        "是",
+        "什么"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "cd46c108-3628-4335-a085-c54227a16908",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 已知限制",
+          "start_line": 183,
+          "end_line": 202,
+          "score": 2.4000000953674316
+        },
+        {
+          "rank": 2,
+          "chunk_id": "ab516134-8aac-4a09-9a41-c7f99df4c6ce",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 1. 总体结论",
+          "start_line": 8,
+          "end_line": 14,
+          "score": 2.299999952316284
+        },
+        {
+          "rank": 3,
+          "chunk_id": "7701df19-0c47-4b23-a2ba-e2ac4476dbae",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 模块",
+          "start_line": 25,
+          "end_line": 39,
+          "score": 1.899999976158142
+        },
+        {
+          "rank": 4,
+          "chunk_id": "9577527d-1ccb-44ab-8dac-ca9f7de47ddf",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 5. P2 级问题 > P2-4：重复支付返回 409 而非幂等重放，idempotencyKey 存而不用",
+          "start_line": 107,
+          "end_line": 115,
+          "score": 1.899999976158142
+        },
+        {
+          "rank": 5,
+          "chunk_id": "dc7bb71c-80aa-4b1f-a151-86ff73a73cf2",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第二部分：微服务架构审查 > 三个真实的架构问题",
+          "start_line": 122,
+          "end_line": 129,
+          "score": 1.899999976158142
+        },
+        {
+          "rank": 6,
+          "chunk_id": "95a58f74-ef5f-4de1-845e-6ff6b86921c1",
+          "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+          "title_path": "Phase A 修复规划 —— 消除订单取消/支付并发竞争 > 1. 背景与目标",
+          "start_line": 8,
+          "end_line": 25,
+          "score": 1.8000000715255737
+        },
+        {
+          "rank": 7,
+          "chunk_id": "70c974dc-79ac-4e7f-a192-2a0ca7ef6368",
+          "rel_path": "common-core/src/main/java/com/minimall/common/core/config/PaymentRabbitTopologyAutoConfiguration.java",
+          "title_path": "com.minimall.common.core.config.PaymentRabbitTopologyAutoConfiguration > PaymentRabbitTopologyAutoConfiguration > paymentRabbitTopologyDeclarables",
+          "start_line": 20,
+          "end_line": 48,
+          "score": 1.7000000476837158
+        },
+        {
+          "rank": 8,
+          "chunk_id": "7d631707-f1d4-492c-9cee-70b4242184f4",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 9. 数据一致性与事务专项审查",
+          "start_line": 176,
+          "end_line": 185,
+          "score": 1.7000000476837158
+        },
+        {
+          "rank": 9,
+          "chunk_id": "d8f982ca-0d29-4449-8e89-393c62320240",
+          "rel_path": "docs/history/phase1-frontend-design.md",
+          "title_path": "Phase 1 前端 UI 设计方案（MiniMall 用户前台） > 5. 每个页面的关键交互状态",
+          "start_line": 154,
+          "end_line": 163,
+          "score": 1.7000000476837158
+        },
+        {
+          "rank": 10,
+          "chunk_id": "02cbd941-bebb-42a8-9b1f-4a8ed2c7118d",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 1. 总体结论",
+          "start_line": 15,
+          "end_line": 20,
+          "score": 1.600000023841858
+        }
+      ]
+    },
+    {
+      "id": "q07",
+      "question": "消费支付事件为什么必须按 eventId 去重？",
+      "group": "identifier/path/number",
+      "relevant": [
+        {
+          "rel_path": "docs/architecture.md",
+          "anchor": "Event Flow"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": null,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "消费",
+        "支付",
+        "事件",
+        "为什么",
+        "必须",
+        "按",
+        "eventid",
+        "event",
+        "id",
+        "去",
+        "重"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "7923ac14-0c59-4098-8a39-318d22a7468f",
+          "rel_path": "order-service/src/test/java/com/minimall/order/repository/OrderEventRepositoryTest.java",
+          "title_path": "com.minimall.order.repository.OrderEventRepositoryTest > OrderEventRepositoryTest > persistsEnumValuesAsStrings",
+          "start_line": 51,
+          "end_line": 77,
+          "score": 2.4000000953674316
+        },
+        {
+          "rank": 2,
+          "chunk_id": "3914f68f-742b-4321-b7e6-b472b69aa4b4",
+          "rel_path": "inventory-service/src/main/java/com/minimall/inventory/demo/AiSuggestionDemoDataSeedContributor.java",
+          "title_path": "com.minimall.inventory.demo.AiSuggestionDemoDataSeedContributor > AiSuggestionDemoDataSeedContributor > seedAppliedInventoryRecord",
+          "start_line": 370,
+          "end_line": 430,
+          "score": 2.0
+        },
+        {
+          "rank": 3,
+          "chunk_id": "5719c49f-6b82-4590-b32c-273e1cfbd6db",
+          "rel_path": "common-core/src/main/java/com/minimall/common/core/event/payment/PaymentSuccessEvent.java",
+          "title_path": "com.minimall.common.core.event.payment.PaymentSuccessEvent > PaymentSuccessEvent > PaymentSuccessEvent",
+          "start_line": 25,
+          "end_line": 39,
+          "score": 2.0
+        },
+        {
+          "rank": 4,
+          "chunk_id": "c59b8084-1215-4092-92a4-9e81fee746c0",
+          "rel_path": "inventory-service/src/main/java/com/minimall/inventory/demo/AiSuggestionDemoDataSeedContributor.java",
+          "title_path": "com.minimall.inventory.demo.AiSuggestionDemoDataSeedContributor > AiSuggestionDemoDataSeedContributor > seedInboundOrder",
+          "start_line": 274,
+          "end_line": 324,
+          "score": 2.0
+        },
+        {
+          "rank": 5,
+          "chunk_id": "63184284-47da-476e-abe8-7d81f179ab18",
+          "rel_path": "order-service/src/main/java/com/minimall/order/messaging/PaymentSuccessEventConsumer.java",
+          "title_path": "com.minimall.order.messaging.PaymentSuccessEventConsumer > PaymentSuccessEventConsumer > handle",
+          "start_line": 45,
+          "end_line": 74,
+          "score": 1.899999976158142
+        },
+        {
+          "rank": 6,
+          "chunk_id": "9c29d627-3fb9-471d-9b55-0120ae55329c",
+          "rel_path": "notification-service/src/test/java/com/minimall/notification/web/AdminNotificationControllerTest.java",
+          "title_path": "com.minimall.notification.web.AdminNotificationControllerTest > AdminNotificationControllerTest > adminNotificationListFiltersByEventIdOrderNoAndStatus",
+          "start_line": 94,
+          "end_line": 127,
+          "score": 1.899999976158142
+        },
+        {
+          "rank": 7,
+          "chunk_id": "a0521d31-e109-4977-9c3b-792f7f6bb2dd",
+          "rel_path": "notification-service/src/main/java/com/minimall/notification/messaging/PaymentSuccessEventConsumer.java",
+          "title_path": "com.minimall.notification.messaging.PaymentSuccessEventConsumer > PaymentSuccessEventConsumer > saveNotificationLog",
+          "start_line": 48,
+          "end_line": 68,
+          "score": 1.899999976158142
+        },
+        {
+          "rank": 8,
+          "chunk_id": "f7f660f5-a1a7-48b6-8a68-5883d7dc7588",
+          "rel_path": "notification-service/src/test/java/com/minimall/notification/repository/NotificationLogRepositoryTest.java",
+          "title_path": "com.minimall.notification.repository.NotificationLogRepositoryTest > NotificationLogRepositoryTest > savesNotificationLogAndFindsByEventId",
+          "start_line": 40,
+          "end_line": 63,
+          "score": 1.899999976158142
+        },
+        {
+          "rank": 9,
+          "chunk_id": "26a8784a-cbd8-425c-bf68-fad63514e252",
+          "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+          "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B3（P2-4）：重复支付幂等重放",
+          "start_line": 72,
+          "end_line": 88,
+          "score": 1.8000000715255737
+        },
+        {
+          "rank": 10,
+          "chunk_id": "28e0f9b7-69c1-42a2-ae0f-b2c0a0049ca9",
+          "rel_path": "order-service/src/test/java/com/minimall/order/web/AdminOrderControllerTest.java",
+          "title_path": "com.minimall.order.web.AdminOrderControllerTest > AdminOrderControllerTest > saveEvent",
+          "start_line": 731,
+          "end_line": 744,
+          "score": 1.8000000715255737
+        }
+      ]
+    },
+    {
+      "id": "q08",
+      "question": "对一个已支付成功的订单再次调支付接口，会返回什么？",
+      "group": "natural-language",
+      "relevant": [
+        {
+          "rel_path": "docs/api-gateway-contract.md",
+          "anchor": "3. Response And Pagination Rules"
+        },
+        {
+          "rel_path": "docs/api-gateway-contract.md",
+          "anchor": "4.1 Customer And Public APIs"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": null,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "对",
+        "一个",
+        "已",
+        "支付",
+        "成功",
+        "的",
+        "订单",
+        "再次",
+        "调",
+        "接口",
+        "会",
+        "返回",
+        "什么"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "9577527d-1ccb-44ab-8dac-ca9f7de47ddf",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 5. P2 级问题 > P2-4：重复支付返回 409 而非幂等重放，idempotencyKey 存而不用",
+          "start_line": 107,
+          "end_line": 115,
+          "score": 3.299999952316284
+        },
+        {
+          "rank": 2,
+          "chunk_id": "cd46c108-3628-4335-a085-c54227a16908",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 已知限制",
+          "start_line": 183,
+          "end_line": 202,
+          "score": 2.799999952316284
+        },
+        {
+          "rank": 3,
+          "chunk_id": "c12b3347-671a-4c8f-b6a1-760440a6f703",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Phase 1 Task 8 - Implement my orders order detail and cancellation",
+          "start_line": 1029,
+          "end_line": 1029,
+          "score": 2.6000001430511475
+        },
+        {
+          "rank": 4,
+          "chunk_id": "26a8784a-cbd8-425c-bf68-fad63514e252",
+          "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+          "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B3（P2-4）：重复支付幂等重放",
+          "start_line": 72,
+          "end_line": 88,
+          "score": 2.5
+        },
+        {
+          "rank": 5,
+          "chunk_id": "95a58f74-ef5f-4de1-845e-6ff6b86921c1",
+          "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+          "title_path": "Phase A 修复规划 —— 消除订单取消/支付并发竞争 > 1. 背景与目标",
+          "start_line": 8,
+          "end_line": 25,
+          "score": 2.5
+        },
+        {
+          "rank": 6,
+          "chunk_id": "aa86ad84-c699-4338-9ea4-ab6a79339d20",
+          "rel_path": "docs/history/phase1-ui-redesign.md",
+          "title_path": "MiniMall Phase 1 — Customer Frontend UI/UX Redesign Brief > 5. Page-by-page specification > 5.9 Payment",
+          "start_line": 533,
+          "end_line": 557,
+          "score": 2.200000047683716
+        },
+        {
+          "rank": 7,
+          "chunk_id": "dc7bb71c-80aa-4b1f-a151-86ff73a73cf2",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第二部分：微服务架构审查 > 三个真实的架构问题",
+          "start_line": 122,
+          "end_line": 129,
+          "score": 2.200000047683716
+        },
+        {
+          "rank": 8,
+          "chunk_id": "71b1886d-3bce-4fe0-9b2c-45c284bdd78f",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）",
+          "start_line": 63,
+          "end_line": 72,
+          "score": 2.1000001430511475
+        },
+        {
+          "rank": 9,
+          "chunk_id": "751f6501-459f-46f8-83ff-595c5401efbd",
+          "rel_path": "docs/history/phase1-frontend-design.md",
+          "title_path": "Phase 1 前端 UI 设计方案（MiniMall 用户前台） > 7. 用户购买闭环页面流转",
+          "start_line": 182,
+          "end_line": 222,
+          "score": 2.1000001430511475
+        },
+        {
+          "rank": 10,
+          "chunk_id": "c09a83c6-437f-4b50-b865-96794eb2cd9b",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > 2026-05-24 · B6 — Payment page rewrite",
+          "start_line": 1485,
+          "end_line": 1495,
+          "score": 2.1000001430511475
+        }
+      ]
+    },
+    {
+      "id": "q09",
+      "question": "服务启动的依赖顺序是什么？order-service 要等哪些依赖健康才能起？",
+      "group": "identifier/path/number",
+      "relevant": [
+        {
+          "rel_path": "docs/deployment.md",
+          "anchor": "Startup Order"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": 68,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "服务",
+        "启动",
+        "的",
+        "依赖",
+        "顺序",
+        "是",
+        "什么",
+        "order-service",
+        "order",
+        "service",
+        "要",
+        "等",
+        "哪些",
+        "健康",
+        "才能",
+        "起"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "0d03d89b-c400-4b4f-8c70-30560bcb871e",
+          "rel_path": "docs/phase2-5-ai-inventory-readiness-acceptance.md",
+          "title_path": "Phase 2.5 AI Inventory Readiness Acceptance > Verification Commands",
+          "start_line": 15,
+          "end_line": 20,
+          "score": 6.599999904632568
+        },
+        {
+          "rank": 2,
+          "chunk_id": "75c8a5d9-629f-42e6-a142-f894891f741a",
+          "rel_path": "docs/api-gateway-contract.md",
+          "title_path": "API Gateway Contract > 4. Current Endpoint Index > 4.3 Admin Core APIs",
+          "start_line": 163,
+          "end_line": 199,
+          "score": 5.300000190734863
+        },
+        {
+          "rank": 3,
+          "chunk_id": "a272855f-7f6a-4599-a29d-2593d6120b85",
+          "rel_path": "docker-compose.yml",
+          "title_path": "",
+          "start_line": 248,
+          "end_line": 284,
+          "score": 5.099999904632568
+        },
+        {
+          "rank": 4,
+          "chunk_id": "f2eb59f5-f6c4-4821-a8b0-abbd2695aef2",
+          "rel_path": "docs/api-gateway-contract.md",
+          "title_path": "API Gateway Contract > 1. Gateway Route Ownership",
+          "start_line": 20,
+          "end_line": 52,
+          "score": 4.300000190734863
+        },
+        {
+          "rank": 5,
+          "chunk_id": "fd531ea3-a250-4c54-ac2b-1aff606e8fca",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 8.3 - Document Phase 2 admin regression and readiness closeout",
+          "start_line": 2447,
+          "end_line": 2448,
+          "score": 4.200000286102295
+        },
+        {
+          "rank": 6,
+          "chunk_id": "65c4ddef-d348-4159-ad4e-e22a77dcf4d1",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 1.3 - 补齐服务启动类、基础配置与构建验证",
+          "start_line": 44,
+          "end_line": 48,
+          "score": 4.099999904632568
+        },
+        {
+          "rank": 7,
+          "chunk_id": "57cb1416-283a-4b21-b505-01aee124539b",
+          "rel_path": "infra/prometheus/prometheus.yml",
+          "title_path": "",
+          "start_line": 1,
+          "end_line": 48,
+          "score": 4.0
+        },
+        {
+          "rank": 8,
+          "chunk_id": "87d8741c-aea8-49f2-bbec-77faaa41475d",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 8.2 - Document Phase 1 storefront regression",
+          "start_line": 2436,
+          "end_line": 2440,
+          "score": 3.799999952316284
+        },
+        {
+          "rank": 9,
+          "chunk_id": "ced789a9-2a68-4929-b507-fb211b3854c2",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 9.1 - order-service persistence foundation",
+          "start_line": 296,
+          "end_line": 305,
+          "score": 3.799999952316284
+        },
+        {
+          "rank": 10,
+          "chunk_id": "356ffc36-4376-4185-b409-f745472533ed",
+          "rel_path": "docs/deployment.md",
+          "title_path": "Deployment And Operations > Environment Variable Map",
+          "start_line": 24,
+          "end_line": 39,
+          "score": 3.700000047683716
+        }
+      ]
+    },
+    {
+      "id": "q10",
+      "question": "数据库初始 schema 的迁移文件在哪？怎么应用到本地库？",
+      "group": "identifier/path/number",
+      "relevant": [
+        {
+          "rel_path": "docs/deployment.md",
+          "anchor": "Database Operations"
+        },
+        {
+          "rel_path": "docs/architecture.md",
+          "anchor": "Data Model"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": null,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "数据库",
+        "初始",
+        "schema",
+        "的",
+        "迁移",
+        "文件",
+        "在",
+        "哪",
+        "怎么",
+        "应用",
+        "到",
+        "本地",
+        "库"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "df1b8077-48e2-48fc-8de6-acc23eb358e8",
+          "rel_path": "docs/audit/full-repo-audit.md",
+          "title_path": "全仓库审计报告 > P1 问题 > P1-01：Docker build context 可能包含被 git 忽略的本地敏感文件和 trace（已修复）",
+          "start_line": 54,
+          "end_line": 75,
+          "score": 1.7000000476837158
+        },
+        {
+          "rank": 2,
+          "chunk_id": "ab516134-8aac-4a09-9a41-c7f99df4c6ce",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 1. 总体结论",
+          "start_line": 8,
+          "end_line": 14,
+          "score": 1.5
+        },
+        {
+          "rank": 3,
+          "chunk_id": "71b1886d-3bce-4fe0-9b2c-45c284bdd78f",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）",
+          "start_line": 63,
+          "end_line": 72,
+          "score": 1.399999976158142
+        },
+        {
+          "rank": 4,
+          "chunk_id": "a3c5a6b1-16d2-4f4c-8c3f-b97c17815210",
+          "rel_path": "docs/audit/full-repo-audit.md",
+          "title_path": "全仓库审计报告 > P1 问题 > P1-02：Compose 配置有效，但空库冷启动不是一条命令可复现（已提供 demo bootstrap 路径）",
+          "start_line": 106,
+          "end_line": 124,
+          "score": 1.3000000715255737
+        },
+        {
+          "rank": 5,
+          "chunk_id": "2f3830ed-da01-4a8c-b40f-58f86284d739",
+          "rel_path": "docs/audit/full-repo-audit.md",
+          "title_path": "全仓库审计报告 > P2 问题 > P2-07：根目录 TaskMaster npm scripts 过期，且对已完成 tag 存在误操作风险（已修复）",
+          "start_line": 338,
+          "end_line": 359,
+          "score": 1.2000000476837158
+        },
+        {
+          "rank": 6,
+          "chunk_id": "6bb4f417-deb2-4b87-8cef-5802b34f1400",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 13. 不建议现在做的事情",
+          "start_line": 247,
+          "end_line": 255,
+          "score": 1.2000000476837158
+        },
+        {
+          "rank": 7,
+          "chunk_id": "7d631707-f1d4-492c-9cee-70b4242184f4",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 9. 数据一致性与事务专项审查",
+          "start_line": 176,
+          "end_line": 185,
+          "score": 1.2000000476837158
+        },
+        {
+          "rank": 8,
+          "chunk_id": "cd46c108-3628-4335-a085-c54227a16908",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 已知限制",
+          "start_line": 183,
+          "end_line": 202,
+          "score": 1.2000000476837158
+        },
+        {
+          "rank": 9,
+          "chunk_id": "d834cebc-5fd5-425b-a08e-0076f9c65795",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > AI 库存助手",
+          "start_line": 155,
+          "end_line": 171,
+          "score": 1.2000000476837158
+        },
+        {
+          "rank": 10,
+          "chunk_id": "db4bf461-e8d3-44e7-91c9-33e51665df5e",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 3.2 - Create initial schema migration SQL",
+          "start_line": 89,
+          "end_line": 97,
+          "score": 1.2000000476837158
+        }
+      ]
+    },
+    {
+      "id": "q11",
+      "question": "这个项目一共有哪些核心数据表？",
+      "group": "natural-language",
+      "relevant": [
+        {
+          "rel_path": "docs/architecture.md",
+          "anchor": "Data Model"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": null,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "这个",
+        "项目",
+        "一共",
+        "有",
+        "哪些",
+        "核心",
+        "数据表"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "1169b936-854c-4308-b937-6124aef9b98f",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 最终结论 > 10. 面试追问与回答方向",
+          "start_line": 315,
+          "end_line": 323,
+          "score": 0.5
+        },
+        {
+          "rank": 2,
+          "chunk_id": "1dcde623-3e7d-4474-86f3-c7b1a495c714",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 7. AI 库存助手专项审查",
+          "start_line": 153,
+          "end_line": 159,
+          "score": 0.5
+        },
+        {
+          "rank": 3,
+          "chunk_id": "2bdebf3b-f8d3-4004-9d7e-1fc23d246d07",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第七部分：代码质量与测试",
+          "start_line": 233,
+          "end_line": 241,
+          "score": 0.5
+        },
+        {
+          "rank": 4,
+          "chunk_id": "a5e0d099-12fb-432d-902b-32f885c3e458",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 最终判断",
+          "start_line": 333,
+          "end_line": 337,
+          "score": 0.5
+        },
+        {
+          "rank": 5,
+          "chunk_id": "e33c729b-16c9-4e3b-8426-39e92f2ab19b",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 最终结论 > 1. 总体结论",
+          "start_line": 245,
+          "end_line": 247,
+          "score": 0.5
+        },
+        {
+          "rank": 6,
+          "chunk_id": "042a387d-9d76-414d-9de8-ab5c89433c35",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第三部分：核心业务链路审查 > 不变量保护核对表",
+          "start_line": 144,
+          "end_line": 157,
+          "score": 0.4000000059604645
+        },
+        {
+          "rank": 7,
+          "chunk_id": "1c6c4470-1a60-4b0a-b96d-fad9a257acf6",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第四部分：AI 库存助手中期审查（核心） > 关键问题逐条回答",
+          "start_line": 174,
+          "end_line": 181,
+          "score": 0.4000000059604645
+        },
+        {
+          "rank": 8,
+          "chunk_id": "2f3830ed-da01-4a8c-b40f-58f86284d739",
+          "rel_path": "docs/audit/full-repo-audit.md",
+          "title_path": "全仓库审计报告 > P2 问题 > P2-07：根目录 TaskMaster npm scripts 过期，且对已完成 tag 存在误操作风险（已修复）",
+          "start_line": 338,
+          "end_line": 359,
+          "score": 0.4000000059604645
+        },
+        {
+          "rank": 9,
+          "chunk_id": "35299af6-b3f4-4d6f-802d-f45296296a4b",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 最终结论 > 2. 强项（真实有价值的）",
+          "start_line": 249,
+          "end_line": 256,
+          "score": 0.4000000059604645
+        },
+        {
+          "rank": 10,
+          "chunk_id": "6bb4f417-deb2-4b87-8cef-5802b34f1400",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 13. 不建议现在做的事情",
+          "start_line": 247,
+          "end_line": 255,
+          "score": 0.4000000059604645
+        }
+      ]
+    },
+    {
+      "id": "q12",
+      "question": "取消订单时库存释放会不会被重复执行？已取消的订单再取消一次会怎样？",
+      "group": "natural-language",
+      "relevant": [
+        {
+          "rel_path": "docs/dev-log.md",
+          "anchor": "Task 11.2 - Order cancellation command"
+        },
+        {
+          "rel_path": "docs/dev-log.md",
+          "anchor": "Task 11.4 - Cancellation chain regression tests"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": null,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "取消",
+        "订单",
+        "时",
+        "库存",
+        "释放",
+        "会",
+        "不会",
+        "被",
+        "重复",
+        "执行",
+        "已",
+        "的",
+        "再",
+        "一次",
+        "怎样"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "71b1886d-3bce-4fe0-9b2c-45c284bdd78f",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）",
+          "start_line": 63,
+          "end_line": 72,
+          "score": 3.299999952316284
+        },
+        {
+          "rank": 2,
+          "chunk_id": "95a58f74-ef5f-4de1-845e-6ff6b86921c1",
+          "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+          "title_path": "Phase A 修复规划 —— 消除订单取消/支付并发竞争 > 1. 背景与目标",
+          "start_line": 8,
+          "end_line": 25,
+          "score": 3.299999952316284
+        },
+        {
+          "rank": 3,
+          "chunk_id": "cd46c108-3628-4335-a085-c54227a16908",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 已知限制",
+          "start_line": 183,
+          "end_line": 202,
+          "score": 3.299999952316284
+        },
+        {
+          "rank": 4,
+          "chunk_id": "c12b3347-671a-4c8f-b6a1-760440a6f703",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Phase 1 Task 8 - Implement my orders order detail and cancellation",
+          "start_line": 1029,
+          "end_line": 1029,
+          "score": 2.6000001430511475
+        },
+        {
+          "rank": 5,
+          "chunk_id": "dc7bb71c-80aa-4b1f-a151-86ff73a73cf2",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第二部分：微服务架构审查 > 三个真实的架构问题",
+          "start_line": 122,
+          "end_line": 129,
+          "score": 2.6000001430511475
+        },
+        {
+          "rank": 6,
+          "chunk_id": "9298c3cd-9045-4399-a61f-018853634fe7",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 11. 测试覆盖专项审查",
+          "start_line": 203,
+          "end_line": 213,
+          "score": 2.4000000953674316
+        },
+        {
+          "rank": 7,
+          "chunk_id": "a003fdf6-162f-4bf7-910e-4b3667ecfa5d",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-1：订单取消与支付成功存在双向并发竞争，且无补偿路径",
+          "start_line": 52,
+          "end_line": 56,
+          "score": 2.4000000953674316
+        },
+        {
+          "rank": 8,
+          "chunk_id": "9577527d-1ccb-44ab-8dac-ca9f7de47ddf",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 5. P2 级问题 > P2-4：重复支付返回 409 而非幂等重放，idempotencyKey 存而不用",
+          "start_line": 107,
+          "end_line": 115,
+          "score": 2.299999952316284
+        },
+        {
+          "rank": 9,
+          "chunk_id": "b31f8ac8-a6ff-4544-8d66-e0ba9e329703",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 5. P2 级问题 > P2-2：AI 反幻觉文本校验只覆盖英文，中文库存变更声明可穿透",
+          "start_line": 84,
+          "end_line": 91,
+          "score": 2.299999952316284
+        },
+        {
+          "rank": 10,
+          "chunk_id": "02826be9-ae8c-41e4-8cb7-7d2a534deb1c",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > AI 库存助手",
+          "start_line": 131,
+          "end_line": 153,
+          "score": 2.200000047683716
+        }
+      ]
+    },
+    {
+      "id": "q13",
+      "question": "网关限流是什么算法？按什么维度限流？被限后返回什么？",
+      "group": "natural-language",
+      "relevant": [
+        {
+          "rel_path": "docs/api-gateway-contract.md",
+          "anchor": "6. Browser Support, Rate Limiting, And Logging"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": null,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "网关",
+        "限流",
+        "是",
+        "什么",
+        "算法",
+        "按",
+        "维度",
+        "被",
+        "限",
+        "后",
+        "返回"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "1c6c4470-1a60-4b0a-b96d-fad9a257acf6",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第四部分：AI 库存助手中期审查（核心） > 关键问题逐条回答",
+          "start_line": 174,
+          "end_line": 181,
+          "score": 1.2000000476837158
+        },
+        {
+          "rank": 2,
+          "chunk_id": "a4a23dd1-2438-4d5d-936c-cf7d5b70cfbc",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 最终结论 > 4. AI 助手闭环缺口清单",
+          "start_line": 267,
+          "end_line": 277,
+          "score": 1.100000023841858
+        },
+        {
+          "rank": 3,
+          "chunk_id": "1dcde623-3e7d-4474-86f3-c7b1a495c714",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 7. AI 库存助手专项审查",
+          "start_line": 153,
+          "end_line": 159,
+          "score": 1.0
+        },
+        {
+          "rank": 4,
+          "chunk_id": "95a58f74-ef5f-4de1-845e-6ff6b86921c1",
+          "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+          "title_path": "Phase A 修复规划 —— 消除订单取消/支付并发竞争 > 1. 背景与目标",
+          "start_line": 8,
+          "end_line": 25,
+          "score": 1.0
+        },
+        {
+          "rank": 5,
+          "chunk_id": "ab516134-8aac-4a09-9a41-c7f99df4c6ce",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 1. 总体结论",
+          "start_line": 8,
+          "end_line": 14,
+          "score": 1.0
+        },
+        {
+          "rank": 6,
+          "chunk_id": "c5259f84-be44-4f9d-9410-c54ec38c58b8",
+          "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/MockAiProvider.java",
+          "title_path": "com.minimall.inventory.ai.MockAiProvider > MockAiProvider > answerFromToolResult",
+          "start_line": 158,
+          "end_line": 189,
+          "score": 0.9000000357627869
+        },
+        {
+          "rank": 7,
+          "chunk_id": "71b1886d-3bce-4fe0-9b2c-45c284bdd78f",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）",
+          "start_line": 63,
+          "end_line": 72,
+          "score": 0.800000011920929
+        },
+        {
+          "rank": 8,
+          "chunk_id": "9298c3cd-9045-4399-a61f-018853634fe7",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 11. 测试覆盖专项审查",
+          "start_line": 203,
+          "end_line": 213,
+          "score": 0.800000011920929
+        },
+        {
+          "rank": 9,
+          "chunk_id": "cd46c108-3628-4335-a085-c54227a16908",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 已知限制",
+          "start_line": 183,
+          "end_line": 202,
+          "score": 0.800000011920929
+        },
+        {
+          "rank": 10,
+          "chunk_id": "d8f982ca-0d29-4449-8e89-393c62320240",
+          "rel_path": "docs/history/phase1-frontend-design.md",
+          "title_path": "Phase 1 前端 UI 设计方案（MiniMall 用户前台） > 5. 每个页面的关键交互状态",
+          "start_line": 154,
+          "end_line": 163,
+          "score": 0.800000011920929
+        }
+      ]
+    },
+    {
+      "id": "q14",
+      "question": "Prometheus 是怎么抓到各个 Java 服务的？在 WSL 环境下用 host.docker.internal 有什么坑？",
+      "group": "identifier/path/number",
+      "relevant": [
+        {
+          "rel_path": "docs/observability.md",
+          "anchor": "Docker Desktop And WSL"
+        },
+        {
+          "rel_path": "docs/observability.md",
+          "anchor": "Service Metrics"
+        }
+      ],
+      "hit_rank": 1,
+      "diag_hit_rank_at_100": 1,
+      "reciprocal_rank_at_10": 1.0,
+      "query_tokens": [
+        "prometheus",
+        "是",
+        "怎么",
+        "抓",
+        "到",
+        "各个",
+        "java",
+        "服务",
+        "的",
+        "在",
+        "wsl",
+        "环境",
+        "下",
+        "用",
+        "host.docker.internal",
+        "host",
+        "docker",
+        "internal",
+        "有",
+        "什么",
+        "坑"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "01fb14df-0b19-4e01-ab18-7a02266ccb7b",
+          "rel_path": "docs/observability.md",
+          "title_path": "Observability > Docker Desktop And WSL",
+          "start_line": 104,
+          "end_line": 126,
+          "score": 4.400000095367432
+        },
+        {
+          "rank": 2,
+          "chunk_id": "356ffc36-4376-4185-b409-f745472533ed",
+          "rel_path": "docs/deployment.md",
+          "title_path": "Deployment And Operations > Environment Variable Map",
+          "start_line": 24,
+          "end_line": 39,
+          "score": 3.799999952316284
+        },
+        {
+          "rank": 3,
+          "chunk_id": "d60e83df-f0d1-4181-956b-33bff99a5c7a",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 18.2 follow-up - Docker runtime verification",
+          "start_line": 704,
+          "end_line": 707,
+          "score": 3.299999952316284
+        },
+        {
+          "rank": 4,
+          "chunk_id": "eb905686-c7e6-47ce-88c9-182bfeba69ab",
+          "rel_path": "docs/audit/full-repo-audit.md",
+          "title_path": "全仓库审计报告 > P1 问题 > P1-03：内部信任模型在 internal secret 为空时仍 fail-open（已修复）",
+          "start_line": 125,
+          "end_line": 144,
+          "score": 3.0
+        },
+        {
+          "rank": 5,
+          "chunk_id": "96087b00-1357-4984-bb43-85785e992cff",
+          "rel_path": "docker-compose.yml",
+          "title_path": "",
+          "start_line": 5,
+          "end_line": 23,
+          "score": 2.799999952316284
+        },
+        {
+          "rank": 6,
+          "chunk_id": "df1b8077-48e2-48fc-8de6-acc23eb358e8",
+          "rel_path": "docs/audit/full-repo-audit.md",
+          "title_path": "全仓库审计报告 > P1 问题 > P1-01：Docker build context 可能包含被 git 忽略的本地敏感文件和 trace（已修复）",
+          "start_line": 54,
+          "end_line": 75,
+          "score": 2.5
+        },
+        {
+          "rank": 7,
+          "chunk_id": "45256779-03c4-4f07-b42f-1ff0e1f08f97",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 18.2 follow-up - Docker runtime verification",
+          "start_line": 703,
+          "end_line": 703,
+          "score": 2.299999952316284
+        },
+        {
+          "rank": 8,
+          "chunk_id": "4859e939-849e-45e7-8174-89f232252b0d",
+          "rel_path": "docs/audit/full-repo-audit.md",
+          "title_path": "全仓库审计报告 > P2 问题 > P2-06：admin 授权 helper 在多个服务中重复（已修复）",
+          "start_line": 311,
+          "end_line": 330,
+          "score": 2.200000047683716
+        },
+        {
+          "rank": 9,
+          "chunk_id": "8797b197-0cf7-4ac2-afae-96bee9897685",
+          "rel_path": "docs/audit/full-repo-audit.md",
+          "title_path": "全仓库审计报告 > P2 问题 > P2-01：部分服务配置仍包含本地密码默认值和 localhost 服务 URL（已修复）",
+          "start_line": 186,
+          "end_line": 207,
+          "score": 2.200000047683716
+        },
+        {
+          "rank": 10,
+          "chunk_id": "c5807ec8-924c-4739-9cf1-0211b90102c0",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 安全加固说明",
+          "start_line": 173,
+          "end_line": 182,
+          "score": 2.200000047683716
+        }
+      ]
+    },
+    {
+      "id": "q15",
+      "question": "正式增加库存的唯一入口是哪个接口？管理员手动调整接口谁可以调？",
+      "group": "natural-language",
+      "relevant": [
+        {
+          "rel_path": "docs/api-gateway-contract.md",
+          "anchor": "4.3 Admin Core APIs"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": null,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "正式",
+        "增加",
+        "库存",
+        "的",
+        "唯一",
+        "入口",
+        "是",
+        "哪个",
+        "接口",
+        "管理员",
+        "手动",
+        "调整",
+        "谁",
+        "可以",
+        "调"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "ab516134-8aac-4a09-9a41-c7f99df4c6ce",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 1. 总体结论",
+          "start_line": 8,
+          "end_line": 14,
+          "score": 2.299999952316284
+        },
+        {
+          "rank": 2,
+          "chunk_id": "cd6ea319-b84b-4e54-8e26-3eae359cb11a",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 5. P2 级问题 > P2-3：库存调整幂等检查未按 productId 区分，requestId 复用会静默吞掉合法调整",
+          "start_line": 98,
+          "end_line": 106,
+          "score": 2.1000001430511475
+        },
+        {
+          "rank": 3,
+          "chunk_id": "dc7bb71c-80aa-4b1f-a151-86ff73a73cf2",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第二部分：微服务架构审查 > 三个真实的架构问题",
+          "start_line": 122,
+          "end_line": 129,
+          "score": 2.0
+        },
+        {
+          "rank": 4,
+          "chunk_id": "02826be9-ae8c-41e4-8cb7-7d2a534deb1c",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > AI 库存助手",
+          "start_line": 131,
+          "end_line": 153,
+          "score": 1.899999976158142
+        },
+        {
+          "rank": 5,
+          "chunk_id": "7d631707-f1d4-492c-9cee-70b4242184f4",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 9. 数据一致性与事务专项审查",
+          "start_line": 176,
+          "end_line": 185,
+          "score": 1.899999976158142
+        },
+        {
+          "rank": 6,
+          "chunk_id": "1169b936-854c-4308-b937-6124aef9b98f",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 最终结论 > 10. 面试追问与回答方向",
+          "start_line": 315,
+          "end_line": 323,
+          "score": 1.8000000715255737
+        },
+        {
+          "rank": 7,
+          "chunk_id": "02cbd941-bebb-42a8-9b1f-4a8ed2c7118d",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 1. 总体结论",
+          "start_line": 15,
+          "end_line": 20,
+          "score": 1.7000000476837158
+        },
+        {
+          "rank": 8,
+          "chunk_id": "71b1886d-3bce-4fe0-9b2c-45c284bdd78f",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）",
+          "start_line": 63,
+          "end_line": 72,
+          "score": 1.7000000476837158
+        },
+        {
+          "rank": 9,
+          "chunk_id": "cd46c108-3628-4335-a085-c54227a16908",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 已知限制",
+          "start_line": 183,
+          "end_line": 202,
+          "score": 1.7000000476837158
+        },
+        {
+          "rank": 10,
+          "chunk_id": "1c6c4470-1a60-4b0a-b96d-fad9a257acf6",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第四部分：AI 库存助手中期审查（核心） > 关键问题逐条回答",
+          "start_line": 174,
+          "end_line": 181,
+          "score": 1.600000023841858
+        }
+      ]
+    },
+    {
+      "id": "q21",
+      "question": "订单超时未支付是怎么被自动取消的？库存在什么时机释放？",
+      "group": "natural-language",
+      "relevant": [
+        {
+          "rel_path": "docs/dev-log.md",
+          "anchor": "Task 17.1 - Order timeout cancellation service foundation"
+        },
+        {
+          "rel_path": "docs/dev-log.md",
+          "anchor": "Task 17.2 - Order timeout scheduler wiring"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": null,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "订单",
+        "超时",
+        "未",
+        "支付",
+        "是",
+        "怎么",
+        "被",
+        "自动",
+        "取消",
+        "的",
+        "库存",
+        "在",
+        "什么",
+        "时机",
+        "释放"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "95a58f74-ef5f-4de1-845e-6ff6b86921c1",
+          "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+          "title_path": "Phase A 修复规划 —— 消除订单取消/支付并发竞争 > 1. 背景与目标",
+          "start_line": 8,
+          "end_line": 25,
+          "score": 3.9000000953674316
+        },
+        {
+          "rank": 2,
+          "chunk_id": "cd46c108-3628-4335-a085-c54227a16908",
+          "rel_path": "README.zh-CN.md",
+          "title_path": "MiniMall Order > 已知限制",
+          "start_line": 183,
+          "end_line": 202,
+          "score": 3.4000000953674316
+        },
+        {
+          "rank": 3,
+          "chunk_id": "71b1886d-3bce-4fe0-9b2c-45c284bdd78f",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）",
+          "start_line": 63,
+          "end_line": 72,
+          "score": 3.299999952316284
+        },
+        {
+          "rank": 4,
+          "chunk_id": "dc7bb71c-80aa-4b1f-a151-86ff73a73cf2",
+          "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+          "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第二部分：微服务架构审查 > 三个真实的架构问题",
+          "start_line": 122,
+          "end_line": 129,
+          "score": 3.299999952316284
+        },
+        {
+          "rank": 5,
+          "chunk_id": "ab516134-8aac-4a09-9a41-c7f99df4c6ce",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 1. 总体结论",
+          "start_line": 8,
+          "end_line": 14,
+          "score": 3.200000047683716
+        },
+        {
+          "rank": 6,
+          "chunk_id": "961dc323-946b-4aac-a37b-2a4756cae699",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-1：订单取消与支付成功存在双向并发竞争，且无补偿路径",
+          "start_line": 57,
+          "end_line": 62,
+          "score": 2.700000047683716
+        },
+        {
+          "rank": 7,
+          "chunk_id": "7d631707-f1d4-492c-9cee-70b4242184f4",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 9. 数据一致性与事务专项审查",
+          "start_line": 176,
+          "end_line": 185,
+          "score": 2.5
+        },
+        {
+          "rank": 8,
+          "chunk_id": "a003fdf6-162f-4bf7-910e-4b3667ecfa5d",
+          "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+          "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-1：订单取消与支付成功存在双向并发竞争，且无补偿路径",
+          "start_line": 52,
+          "end_line": 56,
+          "score": 2.5
+        },
+        {
+          "rank": 9,
+          "chunk_id": "c12b3347-671a-4c8f-b6a1-760440a6f703",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Phase 1 Task 8 - Implement my orders order detail and cancellation",
+          "start_line": 1029,
+          "end_line": 1029,
+          "score": 2.5
+        },
+        {
+          "rank": 10,
+          "chunk_id": "d8f982ca-0d29-4449-8e89-393c62320240",
+          "rel_path": "docs/history/phase1-frontend-design.md",
+          "title_path": "Phase 1 前端 UI 设计方案（MiniMall 用户前台） > 5. 每个页面的关键交互状态",
+          "start_line": 154,
+          "end_line": 163,
+          "score": 2.4000000953674316
+        }
+      ]
+    },
+    {
+      "id": "q22",
+      "question": "notification-service 负责什么？浏览器能通过网关直接访问它吗？",
+      "group": "identifier/path/number",
+      "relevant": [
+        {
+          "rel_path": "docs/architecture.md",
+          "anchor": "Runtime Topology"
+        },
+        {
+          "rel_path": "docs/architecture.md",
+          "anchor": "Module Responsibilities"
+        }
+      ],
+      "hit_rank": null,
+      "diag_hit_rank_at_100": 29,
+      "reciprocal_rank_at_10": 0.0,
+      "query_tokens": [
+        "notification-service",
+        "notification",
+        "service",
+        "负责",
+        "什么",
+        "浏览器",
+        "能",
+        "通过",
+        "网关",
+        "直接",
+        "访问",
+        "它",
+        "吗"
+      ],
+      "results": [
+        {
+          "rank": 1,
+          "chunk_id": "0d03d89b-c400-4b4f-8c70-30560bcb871e",
+          "rel_path": "docs/phase2-5-ai-inventory-readiness-acceptance.md",
+          "title_path": "Phase 2.5 AI Inventory Readiness Acceptance > Verification Commands",
+          "start_line": 15,
+          "end_line": 20,
+          "score": 6.0
+        },
+        {
+          "rank": 2,
+          "chunk_id": "75c8a5d9-629f-42e6-a142-f894891f741a",
+          "rel_path": "docs/api-gateway-contract.md",
+          "title_path": "API Gateway Contract > 4. Current Endpoint Index > 4.3 Admin Core APIs",
+          "start_line": 163,
+          "end_line": 199,
+          "score": 4.400000095367432
+        },
+        {
+          "rank": 3,
+          "chunk_id": "fd531ea3-a250-4c54-ac2b-1aff606e8fca",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 8.3 - Document Phase 2 admin regression and readiness closeout",
+          "start_line": 2447,
+          "end_line": 2448,
+          "score": 4.200000286102295
+        },
+        {
+          "rank": 4,
+          "chunk_id": "e6fa085f-1dbf-4960-807f-e31bde971d5e",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Maintenance - Runtime config default hardening",
+          "start_line": 3046,
+          "end_line": 3047,
+          "score": 4.099999904632568
+        },
+        {
+          "rank": 5,
+          "chunk_id": "f2eb59f5-f6c4-4821-a8b0-abbd2695aef2",
+          "rel_path": "docs/api-gateway-contract.md",
+          "title_path": "API Gateway Contract > 1. Gateway Route Ownership",
+          "start_line": 20,
+          "end_line": 52,
+          "score": 3.9000000953674316
+        },
+        {
+          "rank": 6,
+          "chunk_id": "65c4ddef-d348-4159-ad4e-e22a77dcf4d1",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 1.3 - 补齐服务启动类、基础配置与构建验证",
+          "start_line": 44,
+          "end_line": 48,
+          "score": 3.700000047683716
+        },
+        {
+          "rank": 7,
+          "chunk_id": "ffda0697-3cd2-4a03-aa62-c14c37388b63",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 18.1 - Actuator Prometheus endpoint foundation",
+          "start_line": 678,
+          "end_line": 682,
+          "score": 3.5
+        },
+        {
+          "rank": 8,
+          "chunk_id": "80701b9d-3103-4889-8cd3-87997d6fbe19",
+          "rel_path": "docker-compose.yml",
+          "title_path": "",
+          "start_line": 286,
+          "end_line": 334,
+          "score": 3.299999952316284
+        },
+        {
+          "rank": 9,
+          "chunk_id": "87d8741c-aea8-49f2-bbec-77faaa41475d",
+          "rel_path": "docs/dev-log.md",
+          "title_path": "Development Log > Task 8.2 - Document Phase 1 storefront regression",
+          "start_line": 2436,
+          "end_line": 2440,
+          "score": 3.0
+        },
+        {
+          "rank": 10,
+          "chunk_id": "a272855f-7f6a-4599-a29d-2593d6120b85",
+          "rel_path": "docker-compose.yml",
+          "title_path": "",
+          "start_line": 248,
+          "end_line": 284,
+          "score": 2.799999952316284
+        }
+      ]
+    }
+  ]
+}
