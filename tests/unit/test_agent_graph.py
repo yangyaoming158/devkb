@@ -34,7 +34,14 @@ from devkb.agent.graph import (
     run_agent,
 )
 from devkb.agent.nodes import AgentRuntime, make_pg_retriever
-from devkb.agent.state import AgentInput, EvaluateOutput, Evidence, initial_agent_state
+from devkb.agent.state import (
+    AgentInput,
+    EvaluateOutput,
+    Evidence,
+    GenerateOutput,
+    initial_agent_state,
+)
+from devkb.agent.verification import l0_errors
 from devkb.embedding import FakeEmbedder
 from devkb.errors import LLMTimeoutError
 from devkb.llm import FakeLLM
@@ -267,6 +274,63 @@ async def test_stripped_claims_leave_no_untrusted_text_marks_or_citations() -> N
     # E2 合法存在但只被失败 claim 引用：citations 不得包含它
     assert [c["evidence_id"] for c in answer["citations"]] == ["E1"]
     assert any("已移除 1 个" in item for item in answer["limitations"])
+
+
+async def test_rebuilt_answer_strips_unchecked_marks_inside_kept_claim_text() -> None:
+    """复评发现的缺口：保留 claim 的 text 内嵌未经 L0 检查的 [E#]，重建不得注入终稿。"""
+    evidences = [
+        Evidence(
+            evidence_id="E1",
+            chunk_id=uuid.UUID(int=1),
+            rel_path="docs/order.md",
+            title_path="Order",
+            content="库存扣减由事务保护。",
+            start_line=1,
+            end_line=2,
+            score=0.9,
+        ),
+        Evidence(
+            evidence_id="E2",
+            chunk_id=uuid.UUID(int=2),
+            rel_path="docs/cancel.md",
+            title_path="Cancel",
+            content="订单取消走补偿事务。",
+            start_line=1,
+            end_line=2,
+            score=0.8,
+        ),
+    ]
+
+    async def retriever(_project_id: uuid.UUID, _queries: tuple[str, ...]) -> list[Evidence]:
+        return evidences
+
+    # 保留 claim（下标 0）的 text 含越界 [E9] 与合法但未绑定的 [E2]；
+    # 下标 1 的 claim 引文篡改触发重生成，二稿相同 → 删除后按保留 claim 重建
+    mixed = (
+        '{"answer_text":"库存扣减由事务保护 [E1]。编造的补偿说法 [E2]。",'
+        '"claims":['
+        '{"text":"库存扣减由事务保护[E9]，另见[E2]","evidence_ids":["E1"],'
+        '"quotes":["库存扣减由事务保护。"]},'
+        '{"text":"编造的补偿说法","evidence_ids":["E2"],"quotes":["订单取消不需要补偿"]}],'
+        '"not_found":[]}'
+    )
+    runtime = AgentRuntime(llm=FakeLLM([PLAN, EVAL_OK, mixed, mixed]), retriever=retriever)
+    result = await run_agent(runtime, _input())
+
+    assert result["final_mode"] == "partial"
+    # 终稿只含由 evidence_ids 规范生成的 [E1]；text 内嵌的 E9/E2 全部剔除
+    assert result["final_answer"] == "库存扣减由事务保护，另见 [E1]。"
+    assert "[E9]" not in (result["final_answer"] or "")
+    assert "[E2]" not in (result["final_answer"] or "")
+
+    # 最终防线：对重建后的 GenerateOutput 重新执行确定性 L0 必须零错误
+    rebuilt = GenerateOutput(
+        answer_text=result["final_answer"] or "",
+        claims=result["final_claims"],
+        not_found=result["final_not_found"],
+    )
+    errors, failed = l0_errors(rebuilt, evidences)
+    assert errors == [] and failed == set()
 
 
 async def test_second_failure_with_all_claims_removed_refuses() -> None:

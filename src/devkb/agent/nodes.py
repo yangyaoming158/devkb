@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -56,12 +57,20 @@ def _merge_unique(*groups: list[str]) -> list[str]:
     return list(dict.fromkeys(item for group in groups for item in group))
 
 
+_EVIDENCE_MARK = re.compile(r"\[E\d+\]")
+
+
 def _rebuild_answer_from_claims(kept: list[ClaimOutput]) -> str:
-    """二次验证失败后由保留 claim 确定性重建正文，杜绝不可信句子/标记残留。"""
+    """二次验证失败后由保留 claim 确定性重建正文，杜绝不可信句子/标记残留。
+
+    claim.text 内嵌的 [E#] 未经 L0 检查，一律剔除；标记只由已通过 L0 的
+    claim.evidence_ids 规范生成。
+    """
     sentences = []
     for claim in kept:
+        text = " ".join(_EVIDENCE_MARK.sub("", claim.text).split())
         marks = "".join(f"[{evidence_id}]" for evidence_id in claim.evidence_ids)
-        sentences.append(f"{claim.text.rstrip('。.')} {marks}。")
+        sentences.append(f"{text.rstrip('。.')} {marks}。")
     return "".join(sentences)
 
 
@@ -418,7 +427,11 @@ class AgentNodes:
             warnings.append(
                 f"finalize: 已移除 {removed} 个未通过验证的 claim，正文按保留 claim 重建"
             )
-            answer = _rebuild_answer_from_claims(kept)
+            # 重建后再过一次确定性 L0，作为越界标记的最终防线
+            answer, _, rebuild_l0_warnings = apply_l0(
+                _rebuild_answer_from_claims(kept), len(state["evidences"])
+            )
+            warnings.extend(rebuild_l0_warnings)
             mode: FinalMode = "partial" if kept else "refusal"
         else:
             answer, _, l0_warnings = apply_l0(draft.answer_text, len(state["evidences"]))

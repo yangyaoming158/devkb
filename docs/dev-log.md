@@ -520,3 +520,11 @@
 - 中等（T17.4）：二次验证失败只删除了结构化 claim，final_answer 仍复用完整 draft.answer_text——apply_l0 只剔越界 [E#]，不删句子；失败 claim 若引用合法存在的 E2，其标记还会让 build_answer 继续输出 E2 citation。违反规格"移除不通过的 claim"与 partial"只回答可支持部分"。修复：删除发生时不再信任 draft 正文，`_rebuild_answer_from_claims` 按保留 claim 确定性重建（`text [E#]。` 逐句拼接），失败句子/标记/引用一并消失；移除事实经 warnings + build_answer limitations（"已移除 N 个未通过 L0/L1 引用验证的 claim"）双通道呈现。回归测试复刻审查探针：两条合法证据、第二稿混入编造句 [E2]，同时断言 final_answer 逐字、无 [E2]/编造残留、citations 仅 E1、claims 仅保留项、limitations 载明移除。
 - 低等（T17.5）：矩阵注释声称的"数据库异常"实际测试用的是 RuntimeError。改为真实 `SQLAlchemyError` 双路径：检索期异常 → 图内吸收、确定性 refusal、run succeeded 落库（降级策略可查）；持久化前异常 → run 终态 failed、answer JSON 记录 SQLAlchemyError。矩阵映射注释同步更正，原 RuntimeError 用例保留为"检索工具异常"类。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 193 passed（+2）。证据 commit：本提交。
+
+## 2026-07-18 · T17 二轮复评修复 · 重建正文注入未检查 [E#]
+
+二轮审查确认前两项修复合格，但发现重建逻辑引入 1 个中等边界缺口，属实并修复：
+
+- 中等（T17.4）：`_rebuild_answer_from_claims` 原样拼接 claim.text，而 L0 只检查原始 draft.answer_text 与 claim.evidence_ids，不检查 claim.text 内嵌标记。可达路径：保留 claim 通过验证但其 text 含 [E9]（越界）或 [E2]（合法但未绑定），另一 claim 失败触发重建 → 未经 L0 检查的标记注入终稿，违反最终 L0 100% Gate。修复双防线：重建前用正则剔除 claim.text 中全部 [E#]，只追加由已通过 L0 的 claim.evidence_ids 规范生成的标记；重建结果再过一次确定性 `apply_l0`（越界标记的最终防线，warnings 汇入 finalize）。剔除后正文做空白折叠，避免残留双空格。
+- 回归测试复刻审查探针：保留 claim 的 text 内嵌 [E9] 与未绑定 [E2]，断言终稿逐字等于规范重建结果、无 E9/E2 残留，并对重建后的 GenerateOutput 重新执行 `l0_errors` 断言零错误零失败。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 194 passed（+1）。证据 commit：本提交。
