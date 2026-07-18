@@ -33,6 +33,19 @@ GENERATE_PART = (
     '{"answer_text":"仅库存部分有证据 [E1]。","claims":[{"text":"库存扣减由事务保护",'
     '"evidence_ids":["E1"],"quotes":["库存扣减由事务保护。"]}],"not_found":["回滚补偿细节"]}'
 )
+BAD_GEN_L0 = (
+    '{"answer_text":"答案 [E9]。","claims":[{"text":"越界断言",'
+    '"evidence_ids":["E9"],"quotes":[]}],"not_found":[]}'
+)
+BAD_GEN_L1 = (
+    '{"answer_text":"库存扣减由锁保护 [E1]。","claims":[{"text":"篡改断言",'
+    '"evidence_ids":["E1"],"quotes":["库存扣减由锁保护。"]}],"not_found":[]}'
+)
+GEN_MIXED = (
+    '{"answer_text":"部分修正 [E1]。","claims":['
+    '{"text":"正确断言","evidence_ids":["E1"],"quotes":["库存扣减由事务保护。"]},'
+    '{"text":"仍越界","evidence_ids":["E9"],"quotes":[]}],"not_found":[]}'
+)
 
 
 def _evidence(seed: int = 1) -> Evidence:
@@ -138,6 +151,73 @@ async def test_sufficient_without_structured_claims_downgrades_to_partial() -> N
     assert result["final_mode"] == "partial"
     assert result["final_claims"] == []
     assert any("无结构化 claim" in warning for warning in result["warnings"])
+
+
+async def test_l0_failure_feeds_machine_errors_back_and_regenerates_once() -> None:
+    llm = FakeLLM([PLAN, EVAL_OK, BAD_GEN_L0, GENERATE])
+
+    async def retriever(_project_id: uuid.UUID, _queries: tuple[str, ...]) -> list[Evidence]:
+        return [_evidence()]
+
+    result = await run_agent(AgentRuntime(llm=llm, retriever=retriever), _input())
+
+    assert result["node_history"] == [
+        "plan",
+        "retrieve",
+        "evaluate",
+        "generate",
+        "verify",
+        "generate",
+        "verify",
+        "finalize",
+    ]
+    assert result["llm_calls"] == 4 and result["generate_calls"] == 2
+    verification = result["verification"]
+    assert verification is not None and verification.passed
+    assert result["final_mode"] == "full"
+    # 机器可读错误作为 verification_errors 回传给重生成调用
+    assert "verification_errors" in llm.prompts[3]["user"]
+    assert "L0:claim[0]:unknown_evidence:E9" in llm.prompts[3]["user"]
+
+
+async def test_l1_tampered_quote_second_failure_strips_claims_and_downgrades() -> None:
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_OK, BAD_GEN_L1, GEN_MIXED], retrievals), _input())
+
+    # 第一次 L1 篡改触发重生成；第二稿仍有 L0 失败 claim → 删除后确定性 partial
+    assert result["node_history"][-4:] == ["verify", "generate", "verify", "finalize"]
+    assert result["llm_calls"] == 4 and result["generate_calls"] == 2
+    verification = result["verification"]
+    assert verification is not None and not verification.passed
+    assert verification.failed_claims == [1]
+    assert [claim.text for claim in result["final_claims"]] == ["正确断言"]
+    assert result["final_mode"] == "partial"
+    assert any("已移除 1 个" in warning for warning in result["warnings"])
+
+
+async def test_second_failure_with_all_claims_removed_refuses() -> None:
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, EVAL_OK, BAD_GEN_L1, BAD_GEN_L0], retrievals), _input()
+    )
+
+    assert result["generate_calls"] == 2
+    assert result["final_claims"] == [] and result["final_mode"] == "refusal"
+    assert result["final_answer"] == "现有资料不足以回答该问题。"
+
+
+async def test_regeneration_blocked_when_budget_exhausted() -> None:
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime(["{}", PLAN, "{}", EVAL_OK, "{}", BAD_GEN_L1], retrievals), _input()
+    )
+
+    # 重试耗尽预算：verify 失败但 remaining=0，确定性放弃重生成
+    assert result["llm_calls"] == 6 and result["generate_calls"] == 1
+    assert result["node_history"][-3:] == ["generate", "verify", "finalize"]
+    verification = result["verification"]
+    assert verification is not None and not verification.passed
+    assert result["final_mode"] == "refusal" and result["final_claims"] == []
 
 
 async def test_empty_evidence_cannot_be_promoted_to_full_by_evaluate() -> None:

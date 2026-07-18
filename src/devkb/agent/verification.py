@@ -1,4 +1,7 @@
-"""L1 引文原文匹配（规格 §10，T17.3）。
+"""L0/L1 确定性引用验证（规格 §10，T17.3/T17.4）。
+
+L0：answer_text 中所有 [E#] 与 claim.evidence_ids 必须指向本次 evidence 集。
+L1 引文原文匹配：
 
 规范化与阈值按判据在 dev 集冻结（2026-07-18）：
 NFKC 折叠（全角字母/数字/标点 → 半角）+ 中文标点映射 + 去除全部空白后，
@@ -10,11 +13,19 @@ quote 必须是其所绑定的某**单条**证据 content 的精确子串。阈�
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
-from devkb.agent.state import ClaimOutput, Evidence
+from devkb.agent.state import (
+    MAX_CLAIMS,
+    ClaimOutput,
+    Evidence,
+    GenerateOutput,
+    VerificationOutput,
+)
 
 L1_MIN_QUOTE_CHARS = 4
+_EVIDENCE_MARK = re.compile(r"\[E(\d+)\]")
 
 # NFKC 不折叠的常见中文标点 → 半角对应；纯装饰符号移除
 _PUNCT_TABLE = str.maketrans(
@@ -74,3 +85,39 @@ def l1_errors(
                 errors.append(f"L1:claim[{claim_index}]:quote[{quote_index}]:no_verbatim_match")
                 failed.add(claim_index)
     return errors, failed
+
+
+def l0_errors(
+    draft: GenerateOutput,
+    evidences: list[Evidence],
+) -> tuple[list[str], set[int]]:
+    """L0 引用存在性：返回（机器可读错误，失败 claim 下标集合）。
+
+    answer_text 的越界 [E#] 记错误但不指向具体 claim（终稿由 apply_l0 剔除标注）；
+    claim 绑定任一未知 evidence_id 即判该 claim 失败。
+    """
+    known = {evidence.evidence_id for evidence in evidences}
+    errors: list[str] = []
+    failed: set[int] = set()
+    for mark in dict.fromkeys(_EVIDENCE_MARK.findall(draft.answer_text)):
+        if f"E{int(mark)}" not in known:
+            errors.append(f"L0:answer_text:unknown_mark:E{int(mark)}")
+    for claim_index, claim in enumerate(draft.claims):
+        for evidence_id in claim.evidence_ids:
+            if evidence_id not in known:
+                errors.append(f"L0:claim[{claim_index}]:unknown_evidence:{evidence_id}")
+                failed.add(claim_index)
+    return errors, failed
+
+
+def verify_draft(draft: GenerateOutput, evidences: list[Evidence]) -> VerificationOutput:
+    """L0 + L1 组合验证；errors 可直接作为 verification_errors 反馈给 generate。"""
+    l0_errs, l0_failed = l0_errors(draft, evidences)
+    l1_errs, l1_failed = l1_errors(draft.claims, evidences)
+    return VerificationOutput(
+        passed=not l0_errs and not l1_errs,
+        l0_passed=not l0_errs,
+        l1_passed=not l1_errs,
+        errors=(l0_errs + l1_errs)[: 2 * MAX_CLAIMS],
+        failed_claims=sorted(l0_failed | l1_failed),
+    )

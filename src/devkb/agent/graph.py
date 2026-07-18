@@ -20,6 +20,7 @@ from devkb.agent.state import (
 GRAPH_RECURSION_LIMIT = 20
 RouteAfterEvaluate = Literal["refine", "generate", "finalize"]
 RouteAfterRefine = Literal["retrieve", "finalize"]
+RouteAfterVerify = Literal["generate", "finalize"]
 
 
 def remaining_llm_requests(state: AgentState) -> int:
@@ -68,6 +69,20 @@ def route_after_refine(state: AgentState) -> RouteAfterRefine:
     return "retrieve"
 
 
+def route_after_verify(state: AgentState) -> RouteAfterVerify:
+    """仅 L0/L1 失败可触发一次重生成；传输/格式失败与预算耗尽走确定性降级。"""
+    verification = state["verification"]
+    if verification is None or verification.passed:
+        return "finalize"
+    if state["generate_failed"]:
+        return "finalize"
+    if state["generate_calls"] >= MAX_GENERATE_CALLS:
+        return "finalize"
+    if remaining_llm_requests(state) < 1:
+        return "finalize"
+    return "generate"
+
+
 def build_agent_graph(runtime: AgentRuntime) -> Any:
     nodes = AgentNodes(runtime)
     graph = StateGraph(AgentState)
@@ -93,7 +108,11 @@ def build_agent_graph(runtime: AgentRuntime) -> Any:
         {"retrieve": "retrieve", "finalize": "finalize"},
     )
     graph.add_edge("generate", "verify")
-    graph.add_edge("verify", "finalize")
+    graph.add_conditional_edges(
+        "verify",
+        route_after_verify,
+        {"generate": "generate", "finalize": "finalize"},
+    )
     graph.add_edge("finalize", END)
     return graph.compile()
 

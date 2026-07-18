@@ -57,7 +57,9 @@ def _v1_answer() -> dict[str, Any]:
 
 
 def _invoke_ask_with(monkeypatch: Any, answer: dict[str, Any], *extra_args: str) -> Any:
-    async def fake_run_ask(question: str, project: str, top_k: int | None) -> dict[str, Any]:
+    async def fake_run_ask(
+        question: str, project: str, top_k: int | None, pipeline: str = "agentic"
+    ) -> dict[str, Any]:
         return answer
 
     monkeypatch.setattr("devkb.cli._run_ask", fake_run_ask)
@@ -87,3 +89,28 @@ def test_ask_json_output_is_full_answer_v1(monkeypatch: Any) -> None:
     payload = json.loads(result.stdout)
     assert payload["mode"] == "partial"
     assert payload["claims"][0]["quotes"] == ["enum OrderStatus"]
+
+
+def test_ask_rejects_invalid_pipeline_and_out_of_range_top_k(monkeypatch: Any) -> None:
+    assert _invoke_ask_with(monkeypatch, _v1_answer(), "--pipeline", "agent-x").exit_code != 0
+    assert _invoke_ask_with(monkeypatch, _v1_answer(), "--top-k", "0").exit_code != 0
+    assert _invoke_ask_with(monkeypatch, _v1_answer(), "--top-k", "13").exit_code != 0
+    assert _invoke_ask_with(monkeypatch, _v1_answer(), "--top-k", "12").exit_code == 0
+
+
+def test_ask_routes_pipeline_flag_to_service(monkeypatch: Any) -> None:
+    seen: list[str] = []
+
+    async def fake_run_ask(
+        question: str, project: str, top_k: int | None, pipeline: str = "agentic"
+    ) -> dict[str, Any]:
+        seen.append(pipeline)
+        return _v1_answer()
+
+    monkeypatch.setattr("devkb.cli._run_ask", fake_run_ask)
+    assert runner.invoke(app, ["ask", "q", "--project", "demo"]).exit_code == 0
+    assert (
+        runner.invoke(app, ["ask", "q", "--project", "demo", "--pipeline", "fixed-rag"]).exit_code
+        == 0
+    )
+    assert seen == ["agentic", "fixed-rag"]

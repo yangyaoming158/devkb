@@ -495,3 +495,10 @@
 - 跨 chunk 拼接天然失败：拼接文本不构成任何单条证据的子串。错误 evidence（逐字来自 E2 但绑定 E1）失败，测试含改绑 E2 后通过的对照，证明失败原因是绑定错误而非匹配器过严。
 - `l1_errors` 返回 `L1:claim[i]:quote[j]:no_verbatim_match` 机器可读错误 + 失败 claim 下标，供 T17.4 反馈 generate 与二次降级删除。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 178 passed（新增 test_l1.py 7 项）。证据 commit：本提交。
+
+## 2026-07-18 · T17.4 · 验证失败重生成与二次降级 + agentic 落库
+
+- verify 节点由 T16 桩换成 `verify_draft`：L0（answer_text 越界 [E#] + claim 未知 evidence_id）与 L1（T17.3）合并为 VerificationOutput，errors 即机器可读反馈。`route_after_verify` 四道闸：verification 未过、非 generate_failed（传输/格式失败不许借道重生成）、generate_calls<2、预算余量 ≥1，全过才回 generate 一次；重生成的 user payload 带 verification_errors。第二次仍失败由 finalize 删除 failed_claims：余 claim ≥1 → partial，全删 → refusal 模板（不可信内容不包装为答案）。
+- `agent/service.py`：建 run → 跑图 → build_answer → RunRepo.finish。stats.latency_ms 与 P0 同口径取全程墙钟（图内 latency 仅累计 LLM 时延，落库前覆写）；usage 聚合含 llm_calls/llm_retries 使 run 汇总可由明细复算；cost 直接取图内分档累加值，集成测试用价目表复算 3×单次成本逐位相等（0.000540 元）。问题长度在建 run 前校验（新增 InvalidInputError），避免超限问题留下孤儿 run。意外异常与 P0 同款兜底：run 终态 failed + error JSON。
+- CLI：`ask --pipeline agentic|fixed-rag` 默认 agentic（规格 §12.1），fixed-rag 保持 P0 单调用对照路径不动；top_k 校验 1..12（§12.1 硬上限）。MAX_FINAL_TOP_K 在命令体内延迟导入，避免 CLI 启动即加载 jieba/sqlalchemy。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 188 passed（graph 4 项重生成矩阵、集成 4 项落库、CLI 2 项参数路由/校验）。证据 commit：本提交。

@@ -90,11 +90,20 @@ def ask(
     question: str = typer.Argument(..., help="要提问的问题"),
     project: str = typer.Option(..., "--project", help="项目 slug"),
     top_k: int = typer.Option(None, "--top-k", help="检索条数（默认取配置）"),
+    pipeline: str = typer.Option(
+        "agentic", "--pipeline", help="问答链路：agentic（P1 默认）| fixed-rag（P0 对照）"
+    ),
     json_output: bool = typer.Option(False, "--json", help="输出完整 Answer JSON"),
 ) -> None:
     """向项目知识库提问，输出带引用的中文回答。"""
+    from devkb.retrieval import MAX_FINAL_TOP_K
+
+    if pipeline not in ("agentic", "fixed-rag"):
+        raise typer.BadParameter("pipeline 只支持 agentic | fixed-rag", param_hint="--pipeline")
+    if top_k is not None and not 1 <= top_k <= MAX_FINAL_TOP_K:
+        raise typer.BadParameter(f"top_k 须在 1..{MAX_FINAL_TOP_K}", param_hint="--top-k")
     try:
-        answer = asyncio.run(_run_ask(question, project, top_k))
+        answer = asyncio.run(_run_ask(question, project, top_k, pipeline))
     except DevKbError as exc:
         console.print(f"[red]{exc.code}[/red] {exc}")
         raise typer.Exit(1) from exc
@@ -197,7 +206,13 @@ async def _run_backfill_search(project_slug: str) -> tuple[int, int]:
         await engine.dispose()
 
 
-async def _run_ask(question: str, project_slug: str, top_k: int | None) -> dict[str, Any]:
+async def _run_ask(
+    question: str,
+    project_slug: str,
+    top_k: int | None,
+    pipeline: str = "agentic",
+) -> dict[str, Any]:
+    from devkb.agent.service import agentic_answer_question
     from devkb.answer import answer_question
     from devkb.config import get_settings
     from devkb.db import create_engine, create_session_factory
@@ -219,7 +234,16 @@ async def _run_ask(question: str, project_slug: str, top_k: int | None) -> dict[
     try:
         async with create_session_factory(engine)() as session:
             project = await _resolve_project(session, project_slug)
-            return await answer_question(
+            if pipeline == "fixed-rag":
+                return await answer_question(
+                    session,
+                    project.id,
+                    question,
+                    embedder=embedder,
+                    llm=llm,
+                    top_k=top_k or settings.retrieval_top_k,
+                )
+            return await agentic_answer_question(
                 session,
                 project.id,
                 question,

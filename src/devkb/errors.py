@@ -43,3 +43,9 @@ class LLMResponseFormatError(LLMError):
 
 class NotFoundError(DevKbError):
     code = "NOT_FOUND"
+
+
+class InvalidInputError(DevKbError):
+    """输入越限（问题长度/top_k 等，《P1实现规格》§13）。"""
+
+    code = "INVALID_INPUT"

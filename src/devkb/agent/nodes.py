@@ -28,6 +28,7 @@ from devkb.agent.state import (
     StrictModel,
     VerificationOutput,
 )
+from devkb.agent.verification import verify_draft
 from devkb.answer import apply_l0
 from devkb.embedding import Embedder
 from devkb.llm import LLMClient, compute_cost
@@ -325,7 +326,12 @@ class AgentNodes:
             llm=self._runtime.llm,
             call_key=f"generate:{state['generate_calls'] + 1}",
             system=prompts.GENERATE_SYSTEM,
-            user=prompts.build_generate_user(state["question"], state["evidences"], evaluation),
+            user=prompts.build_generate_user(
+                state["question"],
+                state["evidences"],
+                evaluation,
+                verification_errors=state["verification_feedback"] or None,
+            ),
             schema=GenerateOutput,
             default=default,
         )
@@ -339,15 +345,27 @@ class AgentNodes:
         }
 
     async def verify(self, state: AgentState) -> dict[str, Any]:
-        """T16 只保留拓扑接点；L0/L1 与重生成路由由 T17 实现。"""
-        passed = state["answer_draft"] is not None
-        verification = VerificationOutput(
-            passed=passed,
-            l0_passed=passed,
-            l1_passed=passed,
-            errors=[] if passed else ["缺少 answer_draft"],
-        )
-        return {"verification": verification, "node_history": ["verify"]}
+        """确定性 L0/L1 验证（T17.4）；不通过时 errors 作为重生成反馈。"""
+        draft = state["answer_draft"]
+        if draft is None or state["generate_failed"]:
+            verification = VerificationOutput(
+                passed=False,
+                l0_passed=False,
+                l1_passed=False,
+                errors=["verify:no_valid_draft"],
+            )
+            return {
+                "verification": verification,
+                "verification_feedback": [],
+                "node_history": ["verify"],
+            }
+        verification = verify_draft(draft, state["evidences"])
+        return {
+            "verification": verification,
+            "verification_feedback": [] if verification.passed else list(verification.errors),
+            "node_history": ["verify"],
+            "warnings": [] if verification.passed else ["verify:l0_l1_failed"],
+        }
 
     async def finalize(self, state: AgentState) -> dict[str, Any]:
         """三态确定性收尾（规格 §10）：只读结构化状态，不发起任何 LLM 调用。"""
