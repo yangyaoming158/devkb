@@ -544,3 +544,12 @@
 - 真实多调用 run（mini-mall，"订单取消后库存是如何回滚的？"，run 414bcd57）：6 调用 = plan + evaluate×2 + refine + generate×2，2 轮检索、L0/L1 触发 1 次重生成、partial 终态——同时覆盖补检与重生成的真实轨迹。人工复算：6 条明细逐条按 ADR-0004 价目表（hit 0.02/miss 1/out 2 元/Mtok）验算与落库 cost 相等（如 generate:2 = (4608×0.02+81+3849×2)/1e6 = 0.007871），求和 0.028672 与 run.cost 逐位相等；tokens_in 17516 / tokens_out 8086 与明细逐档求和一致。DeepSeek 缓存分档真实生效（generate:2 命中 4608）验证了"不能用合计 prompt_tokens 单价折算"的设计。
 - 首次真实 run 踩到 T15 遗留 bug：`vector_search` 读 GUC 用单参 current_setting，而 hnsw.ef_search 是 pgvector 扩展 GUC——连接内 vector 库未加载（首个查询即走 hnsw，agentic 在线路径必然如此）时抛 UndefinedObject 且事务中止，后续轨迹/run 落库全部失败。T15.3 评测未暴露：eval 先跑 exact 模式，`<=>` 已触发库加载。修复：current_setting(name, missing_ok=true)，无调用前值的 GUC 不恢复（set_config is_local 最迟事务结束失效；未注册时占位符在索引扫描加载库后生效，占位值与 pgvector 默认同为 40）。检索期 DB 异常打断事务导致降级 run 也无法落库的一致性问题留给 T18.4 处理。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 205 passed（+2 复算集成）。证据 commit：本提交。
+
+## 2026-07-19 · T18.3 · runs show/replay
+
+- 轨迹装配收口到 service 层 `get_run_trace(session, project_id, run_id)`：run + steps（含 llm_requests 明细）+ tools + Answer 一次只读装配，Repository 按 project_id 实例化使跨项目 run_id 天然不可见（统一 NotFound，不泄漏存在性）。选择放 service 而非 CLI：T19 `GET /runs/{run_id}` 规格要求返回同一组数据，共用装配避免复制。
+- CLI：`runs show` 在原 Answer JSON 载荷上增加 steps 摘要（seq/node/attempt/status/latency/error）；新增 `runs replay <run_id> --project <slug>` Rich 表格，判定列按节点还原决策（evaluate→sufficiency+缺失方面、verify→L0/L1 错误、finalize→mode），降级原因列显示 step.error。非法 run_id 与跨项目均 NotFound 退出码 1。
+- 回放零重执行的测试证法：FakeLLM 脚本在 run 结束时已耗尽，若回放触发任何节点会立即抛"脚本已耗尽"，断言 llm.prompts 数不变。
+- 踩坑：Rich 表格在 CliRunner 默认 80 列下把"insufficient"折断成两行导致断言失败——tokens/cost/latency 合并为一列减少挤压，测试显式 COLUMNS=200。
+- 真实 run 414bcd57 回放人工验证：11 步完整可读——evaluate#1 partial+4 项缺失→refine 补检（证据 8→11 条）→evaluate#2 sufficient→generate#1 6 claims→verify#1 L1 单 quote 未过→generate#2→verify#2 仍有 claim[0] 未过→finalize 删除重建降级 partial。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 209 passed（+1 集成回放/隔离、+3 CLI）。证据 commit：本提交。

@@ -98,6 +98,139 @@ def test_ask_rejects_invalid_pipeline_and_out_of_range_top_k(monkeypatch: Any) -
     assert _invoke_ask_with(monkeypatch, _v1_answer(), "--top-k", "12").exit_code == 0
 
 
+def _trace_payload() -> dict[str, Any]:
+    """含补检+重生成+降级的回放载荷（结构与 get_run_trace 一致）。"""
+    return {
+        "run": {
+            "run_id": "00000000-0000-0000-0000-0000000000aa",
+            "question": "订单取消后库存是如何回滚的？",
+            "status": "succeeded",
+            "model": "deepseek-v4-flash",
+            "tokens_in": 400,
+            "tokens_out": 200,
+            "usage": {"llm_calls": 4},
+            "cost": "0.000720",
+            "latency_ms": 1234,
+            "created_at": "2026-07-19T10:00:00",
+            "answer": {"mode": "partial"},
+        },
+        "steps": [
+            {
+                "seq": 1,
+                "node": "plan",
+                "attempt": 1,
+                "status": "ok",
+                "latency_ms": 10,
+                "error": None,
+                "input_summary": {"question_chars": 13},
+                "output_summary": {
+                    "queries": ["库存回滚"],
+                    "llm_requests": [
+                        {
+                            "call_key": "plan",
+                            "status": "ok",
+                            "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+                            "cost": "0.000180",
+                        }
+                    ],
+                },
+                "tools": [],
+            },
+            {
+                "seq": 2,
+                "node": "retrieve",
+                "attempt": 1,
+                "status": "degraded",
+                "latency_ms": 20,
+                "error": "retrieve:SQLAlchemyError",
+                "input_summary": {"queries": ["库存回滚"], "round": 0},
+                "output_summary": {"retrieval_round": 1, "evidence_count": 0, "rel_paths": []},
+                "tools": [{"tool_name": "retrieve", "status": "failed"}],
+            },
+            {
+                "seq": 3,
+                "node": "evaluate",
+                "attempt": 1,
+                "status": "ok",
+                "latency_ms": 30,
+                "error": None,
+                "input_summary": {"evidence_count": 0, "round": 1},
+                "output_summary": {
+                    "sufficiency": "insufficient",
+                    "supported_count": 0,
+                    "missing_aspects": ["回滚补偿"],
+                },
+                "tools": [],
+            },
+            {
+                "seq": 4,
+                "node": "finalize",
+                "attempt": 1,
+                "status": "ok",
+                "latency_ms": 1,
+                "error": None,
+                "input_summary": {},
+                "output_summary": {"final_mode": "refusal", "claim_count": 0},
+                "tools": [],
+            },
+        ],
+    }
+
+
+def test_runs_replay_renders_verdicts_tools_and_degrade_reason(monkeypatch: Any) -> None:
+    async def fake_load(run_id: str, project: str) -> dict[str, Any]:
+        return _trace_payload()
+
+    monkeypatch.setattr("devkb.cli._runs_replay", fake_load)
+    result = runner.invoke(
+        app,
+        ["runs", "replay", "00000000-0000-0000-0000-0000000000aa", "--project", "demo"],
+        env={"COLUMNS": "200"},
+    )
+    assert result.exit_code == 0
+    out = result.stdout
+    # 回放能看出为什么补检/拒答：insufficient + 缺失方面 + refusal 终态
+    assert "insufficient" in out and "回滚补偿" in out
+    assert "mode=refusal" in out
+    # 降级原因与失败工具可见
+    assert "SQLAlchemyError" in out and "retrieve:failed" in out
+    assert "plan#1" in out and "degraded" in out
+
+
+def test_runs_replay_not_found_exits_with_error(monkeypatch: Any) -> None:
+    from devkb.errors import NotFoundError
+
+    async def fake_load(run_id: str, project: str) -> dict[str, Any]:
+        raise NotFoundError(f"run {run_id} 不存在于项目 '{project}'")
+
+    monkeypatch.setattr("devkb.cli._runs_replay", fake_load)
+    result = runner.invoke(
+        app, ["runs", "replay", "00000000-0000-0000-0000-0000000000bb", "--project", "demo"]
+    )
+    assert result.exit_code == 1
+    assert "不存在" in result.stdout
+
+
+def test_runs_show_includes_step_summaries(monkeypatch: Any) -> None:
+    async def fake_load(run_id: str, project: str) -> dict[str, Any]:
+        return _trace_payload()
+
+    monkeypatch.setattr("devkb.cli._load_run_trace", fake_load)
+    result = runner.invoke(
+        app, ["runs", "show", "00000000-0000-0000-0000-0000000000aa", "--project", "demo"]
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert [step["node"] for step in payload["steps"]] == [
+        "plan",
+        "retrieve",
+        "evaluate",
+        "finalize",
+    ]
+    assert payload["steps"][1]["status"] == "degraded"
+    assert payload["answer"] == {"mode": "partial"}
+
+
 def test_ask_routes_pipeline_flag_to_service(monkeypatch: Any) -> None:
     seen: list[str] = []
 

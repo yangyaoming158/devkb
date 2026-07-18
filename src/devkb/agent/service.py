@@ -20,7 +20,7 @@ from devkb.agent.nodes import AgentRuntime, make_pg_retriever
 from devkb.agent.state import MAX_QUESTION_CHARS, AgentInput
 from devkb.agent.trace import StepRecord, TraceRecorder
 from devkb.embedding import Embedder
-from devkb.errors import InvalidInputError
+from devkb.errors import InvalidInputError, NotFoundError
 from devkb.llm import LLMClient
 from devkb.repositories import AgentStepRepo, RunRepo, ToolInvocationRepo
 
@@ -78,6 +78,64 @@ async def _persist_trace(
                 latency_ms=tool.latency_ms,
                 error=tool.error,
             )
+
+
+async def get_run_trace(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    run_id: uuid.UUID,
+) -> dict[str, Any]:
+    """T18.3 只读轨迹装配：run + steps + tools + Answer，一次都不执行节点。
+
+    CLI `runs show/replay` 与 T19 `GET /runs/{run_id}` 共用。Repository 以
+    project_id 实例化（D7）：其他项目的 run_id 在此天然不可见，统一 NotFound。
+    """
+    run = await RunRepo(session, project_id).get(run_id)
+    if run is None:
+        raise NotFoundError(f"run {run_id} 不存在于该项目")
+    steps = await AgentStepRepo(session, project_id).list_for_run(run_id)
+    tools = await ToolInvocationRepo(session, project_id).list_for_run(run_id)
+    tools_by_step: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    for tool in tools:
+        tools_by_step.setdefault(tool.step_id, []).append(
+            {
+                "tool_name": tool.tool_name,
+                "status": tool.status,
+                "arguments": tool.arguments,
+                "result_summary": tool.result_summary,
+                "latency_ms": tool.latency_ms,
+                "error": tool.error,
+            }
+        )
+    return {
+        "run": {
+            "run_id": str(run.id),
+            "question": run.question,
+            "status": run.status,
+            "model": run.model,
+            "tokens_in": run.tokens_in,
+            "tokens_out": run.tokens_out,
+            "usage": run.usage,
+            "cost": str(run.cost) if run.cost is not None else None,
+            "latency_ms": run.latency_ms,
+            "created_at": run.created_at.isoformat(),
+            "answer": run.answer,
+        },
+        "steps": [
+            {
+                "seq": step.seq,
+                "node": step.node,
+                "attempt": step.attempt,
+                "status": step.status,
+                "latency_ms": step.latency_ms,
+                "error": step.error,
+                "input_summary": step.input_summary,
+                "output_summary": step.output_summary,
+                "tools": tools_by_step.get(step.id, []),
+            }
+            for step in steps
+        ],
+    }
 
 
 async def agentic_answer_question(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -171,13 +172,97 @@ def runs_show(
     run_id: str = typer.Argument(..., help="run UUID"),
     project: str = typer.Option(..., "--project", help="项目 slug"),
 ) -> None:
-    """查看单个 run 的完整 Answer JSON 与元数据。"""
+    """查看单个 run 的完整 Answer JSON、元数据与步骤摘要。"""
     try:
         payload = asyncio.run(_runs_show(run_id, project))
     except DevKbError as exc:
         console.print(f"[red]{exc.code}[/red] {exc}")
         raise typer.Exit(1) from exc
     console.print_json(json.dumps(payload, ensure_ascii=False, default=str))
+
+
+@runs_app.command("replay")
+def runs_replay(
+    run_id: str = typer.Argument(..., help="run UUID"),
+    project: str = typer.Option(..., "--project", help="项目 slug"),
+) -> None:
+    """只读回放 run 轨迹：只查数据库，不重新执行任何节点/工具/LLM 调用。"""
+    try:
+        payload = asyncio.run(_runs_replay(run_id, project))
+    except DevKbError as exc:
+        console.print(f"[red]{exc.code}[/red] {exc}")
+        raise typer.Exit(1) from exc
+    _render_replay(payload)
+
+
+def _step_verdict(node: str, summary: dict[str, Any]) -> str:
+    """从 step 输出摘要还原节点判定：为什么补检/拒答/重生成在此可读。"""
+    if node == "plan":
+        return f"queries={summary.get('queries')}"
+    if node == "retrieve":
+        return f"round={summary.get('retrieval_round')}"
+    if node == "evaluate":
+        missing = summary.get("missing_aspects") or []
+        verdict = str(summary.get("sufficiency"))
+        return f"{verdict} 缺失:{'；'.join(missing)}" if missing else verdict
+    if node == "refine":
+        return f"补检 queries={summary.get('queries')}"
+    if node == "generate":
+        if summary.get("generate_failed"):
+            return "生成失败(降级)"
+        return f"claims={summary.get('claim_count')}"
+    if node == "verify":
+        if summary.get("passed"):
+            return "L0/L1 通过"
+        errors = summary.get("errors") or []
+        return f"L0/L1 未过:{'；'.join(errors[:2])}"
+    if node == "finalize":
+        return f"mode={summary.get('final_mode')}"
+    return ""
+
+
+def _render_replay(payload: dict[str, Any]) -> None:
+    run = payload["run"]
+    status_color = {"succeeded": "green", "failed": "red"}.get(run["status"], "yellow")
+    answer = run.get("answer") or {}
+    mode = answer.get("mode")
+    header = f"run {run['run_id']} [{status_color}]{run['status']}[/{status_color}]"
+    console.print(header + (f" mode={mode}" if mode else ""))
+    question = run["question"]
+    console.print(f"[dim]Q: {question[:80]}{'…' if len(question) > 80 else ''}[/dim]")
+
+    table = Table(title="replay（只读回放，不重新执行）")
+    for col in ("seq", "节点", "状态", "判定", "工具", "证据数", "tokens/cost/latency", "原因"):
+        table.add_column(col, overflow="fold")
+    for step in payload["steps"]:
+        summary = step.get("output_summary") or {}
+        requests = summary.get("llm_requests") or []
+        tokens = sum(
+            int(r["usage"].get("prompt_tokens", 0)) + int(r["usage"].get("completion_tokens", 0))
+            for r in requests
+        )
+        costs = [Decimal(r["cost"]) for r in requests if r.get("cost") is not None]
+        evidence_count = summary.get("evidence_count")
+        status_style = {"ok": "green", "degraded": "yellow", "failed": "red"}.get(
+            step["status"], "white"
+        )
+        metrics = [str(tokens) if requests else "-", f"{sum(costs):.6f}" if costs else "-"]
+        metrics.append(f"{step['latency_ms']}ms" if step["latency_ms"] is not None else "-")
+        table.add_row(
+            str(step["seq"]),
+            f"{step['node']}#{step['attempt']}",
+            f"[{status_style}]{step['status']}[/{status_style}]",
+            _step_verdict(step["node"], summary),
+            "; ".join(f"{t['tool_name']}:{t['status']}" for t in step["tools"]),
+            "" if evidence_count is None else str(evidence_count),
+            "/".join(metrics),
+            step.get("error") or "",
+        )
+    console.print(table)
+    console.print(
+        f"[dim]总计 tokens={run['tokens_in']}+{run['tokens_out']} "
+        f"cost={run['cost']} latency={run['latency_ms']}ms[/dim]"
+    )
 
 
 async def _resolve_project(session: Any, slug: str) -> Any:
@@ -281,12 +366,13 @@ async def _runs_list(project_slug: str, limit: int) -> list[tuple[str, ...]]:
         await engine.dispose()
 
 
-async def _runs_show(run_id: str, project_slug: str) -> dict[str, Any]:
+async def _load_run_trace(run_id: str, project_slug: str) -> dict[str, Any]:
+    """runs show/replay 共用：按项目隔离装配只读轨迹（非法/跨项目 run_id → NotFound）。"""
     import uuid as uuid_mod
 
+    from devkb.agent.service import get_run_trace
     from devkb.config import get_settings
     from devkb.db import create_engine, create_session_factory
-    from devkb.repositories import RunRepo
 
     settings = get_settings()
     try:
@@ -297,24 +383,26 @@ async def _runs_show(run_id: str, project_slug: str) -> dict[str, Any]:
     try:
         async with create_session_factory(engine)() as session:
             project = await _resolve_project(session, project_slug)
-            run = await RunRepo(session, project.id).get(run_uuid)
-            if run is None:
-                raise NotFoundError(f"run {run_id} 不存在于项目 '{project_slug}'")
-            return {
-                "run_id": str(run.id),
-                "question": run.question,
-                "status": run.status,
-                "model": run.model,
-                "tokens_in": run.tokens_in,
-                "tokens_out": run.tokens_out,
-                "usage": run.usage,
-                "cost": run.cost,
-                "latency_ms": run.latency_ms,
-                "created_at": run.created_at,
-                "answer": run.answer,
-            }
+            try:
+                return await get_run_trace(session, project.id, run_uuid)
+            except NotFoundError as exc:
+                raise NotFoundError(f"run {run_id} 不存在于项目 '{project_slug}'") from exc
     finally:
         await engine.dispose()
+
+
+async def _runs_show(run_id: str, project_slug: str) -> dict[str, Any]:
+    trace = await _load_run_trace(run_id, project_slug)
+    payload = dict(trace["run"])
+    payload["steps"] = [
+        {key: step[key] for key in ("seq", "node", "attempt", "status", "latency_ms", "error")}
+        for step in trace["steps"]
+    ]
+    return payload
+
+
+async def _runs_replay(run_id: str, project_slug: str) -> dict[str, Any]:
+    return await _load_run_trace(run_id, project_slug)
 
 
 async def _run_ingest(directory: Path, project_slug: str) -> IngestReport:

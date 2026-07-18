@@ -11,9 +11,9 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from devkb.agent.service import agentic_answer_question
+from devkb.agent.service import agentic_answer_question, get_run_trace
 from devkb.embedding import FakeEmbedder
-from devkb.errors import InvalidInputError
+from devkb.errors import InvalidInputError, NotFoundError
 from devkb.ingest.markdown import approx_token_counter
 from devkb.ingest.pipeline import ingest_directory
 from devkb.llm import FakeLLM, compute_cost
@@ -223,6 +223,52 @@ async def test_unknown_model_never_fabricates_cost_in_run_or_details(
     requests = await _persisted_llm_requests(session, project_id, run_id)
     assert len(requests) == 3
     assert all(r["cost"] is None for r in requests)
+
+
+async def test_get_run_trace_replays_without_reexecution_and_isolates_projects(
+    session: AsyncSession,
+) -> None:
+    """T18.3：回放只读数据库（FakeLLM 脚本已耗尽仍可回放）；跨项目 run_id → NotFound。"""
+    project_id = await _seeded_project(session)
+    llm = FakeLLM([PLAN, EVAL_OK, GEN_BAD_QUOTE, GEN], model="deepseek-v4-flash")
+    answer = await agentic_answer_question(
+        session, project_id, "库存怎么保证并发安全？", embedder=FakeEmbedder(), llm=llm, top_k=4
+    )
+    run_id = uuid.UUID(answer["run_id"])
+    prompts_before = len(llm.prompts)
+
+    trace = await get_run_trace(session, project_id, run_id)
+
+    # 回放未触发任何节点/LLM 执行
+    assert len(llm.prompts) == prompts_before == 4
+    assert trace["run"]["run_id"] == answer["run_id"]
+    assert trace["run"]["answer"] is not None and trace["run"]["answer"]["mode"] == "full"
+    nodes = [step["node"] for step in trace["steps"]]
+    # 能看出为什么重生成：verify#1 未过 → generate#2 → verify#2 通过
+    assert nodes == [
+        "plan",
+        "retrieve",
+        "evaluate",
+        "generate",
+        "verify",
+        "generate",
+        "verify",
+        "finalize",
+    ]
+    verifies = [step for step in trace["steps"] if step["node"] == "verify"]
+    assert verifies[0]["output_summary"]["passed"] is False
+    assert any("no_verbatim_match" in e for e in verifies[0]["output_summary"]["errors"])
+    assert verifies[1]["output_summary"]["passed"] is True
+    retrieve_step = next(step for step in trace["steps"] if step["node"] == "retrieve")
+    assert retrieve_step["tools"] and retrieve_step["tools"][0]["tool_name"] == "retrieve"
+
+    # 其他项目的 run_id：统一 NotFound，不泄漏存在性
+    other = await ProjectRepo(session).create(slug=f"other-{uuid.uuid4().hex[:8]}", name="other")
+    await session.commit()
+    with pytest.raises(NotFoundError):
+        await get_run_trace(session, other.id, run_id)
+    with pytest.raises(NotFoundError):
+        await get_run_trace(session, project_id, uuid.uuid4())
 
 
 async def test_database_error_during_retrieval_degrades_to_persisted_refusal(
