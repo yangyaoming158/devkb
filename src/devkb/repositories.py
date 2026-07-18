@@ -201,6 +201,12 @@ class ChunkRepo:
         修复：不能写死恢复 'on'，结果不得依赖同事务内的调用顺序）。查询抛错时
         事务必然中止，set_config(is_local) 随回滚一并撤销，无需 try/finally。
 
+        current_setting 必须带 missing_ok（T18.2 真实 run 实测）：hnsw.ef_search
+        是 pgvector 扩展 GUC，连接内 vector 库尚未加载（首个查询即 hnsw）时读取
+        直接抛 UndefinedObject 并中止事务；missing_ok 返回 NULL，此时 set_config
+        先建占位符，索引扫描加载库后生效（占位值与 pgvector 默认同为 40），
+        无调用前值的 GUC 不恢复（is_local 使其最迟事务结束即失效）。
+
         仅检索 status='active' 文档的 chunks：active 文档更新失败时事务回滚会保留
         上一版 chunks（文档已标 failed），不过滤会引用与当前文件行号不符的陈旧内容。
         """
@@ -216,9 +222,13 @@ class ChunkRepo:
 
         names = list(overrides)
         previous_row = (
-            await self._session.execute(select(*[func.current_setting(n) for n in names]))
+            await self._session.execute(select(*[func.current_setting(n, True) for n in names]))
         ).one()
-        previous = dict(zip(names, previous_row, strict=True))
+        previous = {
+            name: value
+            for name, value in zip(names, previous_row, strict=True)
+            if value is not None
+        }
         for name, value in overrides.items():
             await self._session.execute(select(func.set_config(name, value, True)))
 

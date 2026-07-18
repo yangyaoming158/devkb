@@ -164,6 +164,67 @@ async def test_unexpected_node_failure_persists_failed_run_and_failed_last_step(
     assert steps[-1].error is not None and "RuntimeError" in steps[-1].error
 
 
+async def _persisted_llm_requests(
+    session: AsyncSession, project_id: uuid.UUID, run_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    steps = await AgentStepRepo(session, project_id).list_for_run(run_id)
+    return [
+        request
+        for step in steps
+        if step.output_summary
+        for request in step.output_summary.get("llm_requests", [])
+    ]
+
+
+async def test_run_usage_and_cost_recomputable_from_persisted_request_details(
+    session: AsyncSession,
+) -> None:
+    """T18.2：含重问的多调用 run，汇总 tokens/cost 可由落库逐请求明细复算。"""
+    project_id = await _seeded_project(session)
+    # 首个 plan 输出非法 JSON 触发 1 次重问：共 4 次实际请求（重试也消耗并记录）
+    llm = FakeLLM(["不是JSON", PLAN, EVAL_OK, GEN], model="deepseek-v4-flash")
+
+    answer = await agentic_answer_question(
+        session, project_id, "库存怎么保证并发安全？", embedder=FakeEmbedder(), llm=llm, top_k=4
+    )
+
+    run_id = uuid.UUID(answer["run_id"])
+    run = await RunRepo(session, project_id).get(run_id)
+    assert run is not None and run.usage is not None
+    requests = await _persisted_llm_requests(session, project_id, run_id)
+    assert len(requests) == 4 == run.usage["llm_calls"]
+    assert [r["status"] for r in requests] == ["invalid_output", "ok", "ok", "ok"]
+    # tokens 汇总 = 明细求和（解析失败的请求同样计入）
+    assert sum(r["usage"]["prompt_tokens"] for r in requests) == run.tokens_in == 400
+    assert sum(r["usage"]["completion_tokens"] for r in requests) == run.tokens_out == 200
+    # cost 汇总 = 明细分档单价求和；每条明细可独立按价目表复算
+    assert all(r["cost"] is not None for r in requests)
+    assert sum(Decimal(r["cost"]) for r in requests) == run.cost == Decimal("0.000720")
+    for request in requests:
+        assert Decimal(request["cost"]) == compute_cost("deepseek-v4-flash", request["usage"])
+        assert "prompt_cache_hit_tokens" in request["usage"]
+
+
+async def test_unknown_model_never_fabricates_cost_in_run_or_details(
+    session: AsyncSession,
+) -> None:
+    """T18.2：价目表外模型 cost 一律为 None（不编造），tokens 照常聚合。"""
+    project_id = await _seeded_project(session)
+    llm = FakeLLM([PLAN, EVAL_OK, GEN])  # 默认 model="fake-llm"，不在价目表
+
+    answer = await agentic_answer_question(
+        session, project_id, "库存怎么保证并发安全？", embedder=FakeEmbedder(), llm=llm, top_k=4
+    )
+
+    run_id = uuid.UUID(answer["run_id"])
+    run = await RunRepo(session, project_id).get(run_id)
+    assert run is not None and run.cost is None
+    assert run.tokens_in == 300 and run.tokens_out == 150
+    requests = await _persisted_llm_requests(session, project_id, run_id)
+    assert len(requests) == 3
+    assert all(r["cost"] is None for r in requests)
+
+
 async def test_database_error_during_retrieval_degrades_to_persisted_refusal(
     session: AsyncSession, monkeypatch: Any
 ) -> None:

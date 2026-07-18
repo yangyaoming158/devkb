@@ -537,3 +537,10 @@
 - 失败路径轨迹持久化包 try/except：轨迹写入自身失败时 rollback 保住 session，run 终态 failed 优先于轨迹完整性。
 - 踩坑：langgraph `add_node` 的 StateNode 形参要求具名 state 参数，Callable 别名在类型系统里 positional-only，包装器返回类型放宽为 Any（与 build_agent_graph 同口径）并在 docstring 记录原因。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 203 passed（+7 单测四路径矩阵与脱敏、+2 集成落库/跨项目不可见/失败终态）。证据 commit：本提交。
+
+## 2026-07-19 · T18.2 · 多调用 usage/cost 聚合与真实复算
+
+- 逐请求明细在 T18.1 已随 `_structured_call` 落库（step.output_summary.llm_requests：call_key/attempt/status/分档 usage/单次 cost/时延）；本项补复算测试与真实验证。Fake 集成：首个 plan 输出非法 JSON 触发重问的 4 调用 run，tokens 汇总(400/200)=明细求和、cost 汇总 0.000720=明细求和、每条明细独立用 compute_cost 复算相等；未知模型（fake-llm）run.cost 与全部明细 cost 均为 None，不编造。
+- 真实多调用 run（mini-mall，"订单取消后库存是如何回滚的？"，run 414bcd57）：6 调用 = plan + evaluate×2 + refine + generate×2，2 轮检索、L0/L1 触发 1 次重生成、partial 终态——同时覆盖补检与重生成的真实轨迹。人工复算：6 条明细逐条按 ADR-0004 价目表（hit 0.02/miss 1/out 2 元/Mtok）验算与落库 cost 相等（如 generate:2 = (4608×0.02+81+3849×2)/1e6 = 0.007871），求和 0.028672 与 run.cost 逐位相等；tokens_in 17516 / tokens_out 8086 与明细逐档求和一致。DeepSeek 缓存分档真实生效（generate:2 命中 4608）验证了"不能用合计 prompt_tokens 单价折算"的设计。
+- 首次真实 run 踩到 T15 遗留 bug：`vector_search` 读 GUC 用单参 current_setting，而 hnsw.ef_search 是 pgvector 扩展 GUC——连接内 vector 库未加载（首个查询即走 hnsw，agentic 在线路径必然如此）时抛 UndefinedObject 且事务中止，后续轨迹/run 落库全部失败。T15.3 评测未暴露：eval 先跑 exact 模式，`<=>` 已触发库加载。修复：current_setting(name, missing_ok=true)，无调用前值的 GUC 不恢复（set_config is_local 最迟事务结束失效；未注册时占位符在索引扫描加载库后生效，占位值与 pgvector 默认同为 40）。检索期 DB 异常打断事务导致降级 run 也无法落库的一致性问题留给 T18.4 处理。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 205 passed（+2 复算集成）。证据 commit：本提交。
