@@ -19,6 +19,7 @@ from devkb.agent.state import (
     MAX_REASKS_PER_CALL,
     MAX_RETRIEVAL_ROUNDS,
     AgentState,
+    ClaimOutput,
     EvaluateOutput,
     Evidence,
     FinalMode,
@@ -53,6 +54,15 @@ def _refusal_text(missing: list[str]) -> str:
 
 def _merge_unique(*groups: list[str]) -> list[str]:
     return list(dict.fromkeys(item for group in groups for item in group))
+
+
+def _rebuild_answer_from_claims(kept: list[ClaimOutput]) -> str:
+    """二次验证失败后由保留 claim 确定性重建正文，杜绝不可信句子/标记残留。"""
+    sentences = []
+    for claim in kept:
+        marks = "".join(f"[{evidence_id}]" for evidence_id in claim.evidence_ids)
+        sentences.append(f"{claim.text.rstrip('。.')} {marks}。")
+    return "".join(sentences)
 
 
 @dataclass(frozen=True)
@@ -400,28 +410,31 @@ class AgentNodes:
         failed = set(verification.failed_claims) if verification else set()
         kept = [claim for index, claim in enumerate(draft.claims) if index not in failed]
         removed = len(draft.claims) - len(kept)
-        if removed:
-            warnings.append(f"finalize: 已移除 {removed} 个未通过验证的 claim")
-
-        answer, _, l0_warnings = apply_l0(draft.answer_text, len(state["evidences"]))
-        warnings.extend(l0_warnings)
 
         not_found = _merge_unique(draft.not_found, missing)
         verification_ok = verification is None or verification.passed
         if removed:
-            mode = "partial" if kept else "refusal"
-        elif (
-            evaluation is not None
-            and evaluation.sufficiency == "sufficient"
-            and kept
-            and not draft.not_found
-            and verification_ok
-        ):
-            mode = "full"
+            # 不可信 claim 的正文与其 [E#] 标记不得残留：正文按保留 claim 确定性重建
+            warnings.append(
+                f"finalize: 已移除 {removed} 个未通过验证的 claim，正文按保留 claim 重建"
+            )
+            answer = _rebuild_answer_from_claims(kept)
+            mode: FinalMode = "partial" if kept else "refusal"
         else:
-            mode = "partial"
-            if evaluation is not None and evaluation.sufficiency == "sufficient" and not kept:
-                warnings.append("finalize: 充分判定但无结构化 claim，降级 partial")
+            answer, _, l0_warnings = apply_l0(draft.answer_text, len(state["evidences"]))
+            warnings.extend(l0_warnings)
+            if (
+                evaluation is not None
+                and evaluation.sufficiency == "sufficient"
+                and kept
+                and not draft.not_found
+                and verification_ok
+            ):
+                mode = "full"
+            else:
+                mode = "partial"
+                if evaluation is not None and evaluation.sufficiency == "sufficient" and not kept:
+                    warnings.append("finalize: 充分判定但无结构化 claim，降级 partial")
         if mode == "refusal":
             answer = _refusal_text(not_found)
             kept = []

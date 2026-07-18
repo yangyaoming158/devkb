@@ -12,7 +12,8 @@ Evaluation-v1 §5.3 十二类路径在本仓库的覆盖映射：
                               + test_refine_parse_failure_keeps_query_and_does_not_retrieve_again
  9 检索工具异常/LLM 超时     → test_retriever_exception_records_error_and_refuses
                               + test_llm_timeout_retries_then_succeeds / double-timeout 降级
-   数据库异常                → tests/integration/test_agent_service.py（run 终态 failed）
+   数据库异常                → tests/integration/test_agent_service.py（SQLAlchemyError：
+                              检索期降级 refusal + 持久化前失败 run 终态 failed）
 10 跨项目越权不可见          → tests/integration/test_isolation.py（runs/chunks/steps/tools）
 11 API 并发边界/事件循环     → 依赖 T19 FastAPI，见清单偏差记录（待裁决）
 12 轮次/调用/重试硬上限      → 各用例逐项断言 + test_global_budget_can_reach_but_never_exceed_six
@@ -25,6 +26,7 @@ from typing import Any, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from devkb.agent.answer import build_answer
 from devkb.agent.graph import (
     GRAPH_RECURSION_LIMIT,
     can_refine,
@@ -211,7 +213,60 @@ async def test_l1_tampered_quote_second_failure_strips_claims_and_downgrades() -
     assert verification.failed_claims == [1]
     assert [claim.text for claim in result["final_claims"]] == ["正确断言"]
     assert result["final_mode"] == "partial"
+    # 正文按保留 claim 重建，失败 claim 的句子与标记不残留
+    assert result["final_answer"] == "正确断言 [E1]。"
     assert any("已移除 1 个" in warning for warning in result["warnings"])
+
+
+async def test_stripped_claims_leave_no_untrusted_text_marks_or_citations() -> None:
+    """复评发现 1 的回归：二次失败删除 claim 后，正文/引用不得残留不可信内容。"""
+    evidences = [
+        Evidence(
+            evidence_id="E1",
+            chunk_id=uuid.UUID(int=1),
+            rel_path="docs/order.md",
+            title_path="Order",
+            content="库存扣减由事务保护。",
+            start_line=1,
+            end_line=2,
+            score=0.9,
+        ),
+        Evidence(
+            evidence_id="E2",
+            chunk_id=uuid.UUID(int=2),
+            rel_path="docs/cancel.md",
+            title_path="Cancel",
+            content="订单取消走补偿事务。",
+            start_line=1,
+            end_line=2,
+            score=0.8,
+        ),
+    ]
+
+    async def retriever(_project_id: uuid.UUID, _queries: tuple[str, ...]) -> list[Evidence]:
+        return evidences
+
+    mixed = (
+        '{"answer_text":"库存扣减由事务保护 [E1]。编造的补偿说法 [E2]。",'
+        '"claims":['
+        '{"text":"库存扣减由事务保护","evidence_ids":["E1"],"quotes":["库存扣减由事务保护。"]},'
+        '{"text":"编造的补偿说法","evidence_ids":["E2"],"quotes":["订单取消不需要补偿"]}],'
+        '"not_found":[]}'
+    )
+    runtime = AgentRuntime(llm=FakeLLM([PLAN, EVAL_OK, mixed, mixed]), retriever=retriever)
+    result = await run_agent(runtime, _input())
+
+    assert result["final_mode"] == "partial"
+    assert result["final_answer"] == "库存扣减由事务保护 [E1]。"
+    assert "编造" not in (result["final_answer"] or "")
+    assert "[E2]" not in (result["final_answer"] or "")
+    assert [claim.text for claim in result["final_claims"]] == ["库存扣减由事务保护"]
+    assert result["final_not_found"] == []
+
+    answer = build_answer(result)
+    # E2 合法存在但只被失败 claim 引用：citations 不得包含它
+    assert [c["evidence_id"] for c in answer["citations"]] == ["E1"]
+    assert any("已移除 1 个" in item for item in answer["limitations"])
 
 
 async def test_second_failure_with_all_claims_removed_refuses() -> None:

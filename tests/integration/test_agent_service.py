@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from devkb.agent.service import agentic_answer_question
@@ -96,20 +97,44 @@ async def test_invalid_question_rejected_before_run_creation(session: AsyncSessi
     assert await RunRepo(session, project_id).list_recent(5) == []
 
 
-async def test_unexpected_graph_failure_marks_run_failed(
+async def test_database_error_during_retrieval_degrades_to_persisted_refusal(
+    session: AsyncSession, monkeypatch: Any
+) -> None:
+    """§5.3 第 9 类（数据库异常）：检索期 SQLAlchemyError 走确定性降级并落库。"""
+    project_id = await _seeded_project(session)
+
+    async def broken_retrieve(*args: Any, **kwargs: Any) -> Any:
+        raise SQLAlchemyError("connection lost")
+
+    monkeypatch.setattr("devkb.agent.nodes.retrieve", broken_retrieve)
+    llm = FakeLLM([PLAN, EVAL_OK, '{"queries":["补偿查询"]}', EVAL_OK], model="deepseek-v4-flash")
+
+    answer = await agentic_answer_question(
+        session, project_id, "库存怎么保证并发安全？", embedder=FakeEmbedder(), llm=llm, top_k=4
+    )
+
+    assert answer["mode"] == "refusal"
+    assert answer["citations"] == [] and answer["claims"] == []
+    run = await RunRepo(session, project_id).get(uuid.UUID(answer["run_id"]))
+    assert run is not None and run.status == "succeeded"
+    assert run.answer is not None and run.answer["mode"] == "refusal"
+    assert run.usage is not None and run.usage["llm_calls"] == 4
+
+
+async def test_database_error_before_persistence_marks_run_failed(
     session: AsyncSession, monkeypatch: Any
 ) -> None:
     project_id = await _seeded_project(session)
 
     async def broken_run_agent(*args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("graph exploded")
+        raise SQLAlchemyError("db write aborted")
 
     monkeypatch.setattr("devkb.agent.service.run_agent", broken_run_agent)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(SQLAlchemyError):
         await agentic_answer_question(
             session, project_id, "问题", embedder=FakeEmbedder(), llm=FakeLLM([]), top_k=4
         )
 
     runs = await RunRepo(session, project_id).list_recent(5)
     assert runs and runs[0].status == "failed"
-    assert runs[0].answer is not None and "error" in runs[0].answer
+    assert runs[0].answer is not None and "SQLAlchemyError" in runs[0].answer["error"]

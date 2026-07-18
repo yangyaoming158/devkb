@@ -512,3 +512,11 @@
 ## 2026-07-18 · T17.5 裁决落地
 
 用户裁决采纳推荐项：T17.5 以 §5.3 的 1–10、12 类覆盖为完成口径勾选；第 11 类（API 并发边界/事件循环）显式移交 T19.4（判据行已加承接标记），T21 验收按 12 类整体复核。偏差记录已填裁决列。T17 全部子任务完成。
+
+## 2026-07-18 · T17 复评修复 · 不可信正文残留与数据库异常覆盖
+
+审查发现 1 中等 + 1 低等，均属实并修复：
+
+- 中等（T17.4）：二次验证失败只删除了结构化 claim，final_answer 仍复用完整 draft.answer_text——apply_l0 只剔越界 [E#]，不删句子；失败 claim 若引用合法存在的 E2，其标记还会让 build_answer 继续输出 E2 citation。违反规格"移除不通过的 claim"与 partial"只回答可支持部分"。修复：删除发生时不再信任 draft 正文，`_rebuild_answer_from_claims` 按保留 claim 确定性重建（`text [E#]。` 逐句拼接），失败句子/标记/引用一并消失；移除事实经 warnings + build_answer limitations（"已移除 N 个未通过 L0/L1 引用验证的 claim"）双通道呈现。回归测试复刻审查探针：两条合法证据、第二稿混入编造句 [E2]，同时断言 final_answer 逐字、无 [E2]/编造残留、citations 仅 E1、claims 仅保留项、limitations 载明移除。
+- 低等（T17.5）：矩阵注释声称的"数据库异常"实际测试用的是 RuntimeError。改为真实 `SQLAlchemyError` 双路径：检索期异常 → 图内吸收、确定性 refusal、run succeeded 落库（降级策略可查）；持久化前异常 → run 终态 failed、answer JSON 记录 SQLAlchemyError。矩阵映射注释同步更正，原 RuntimeError 用例保留为"检索工具异常"类。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 193 passed（+2）。证据 commit：本提交。
