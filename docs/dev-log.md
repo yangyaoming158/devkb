@@ -415,3 +415,13 @@
 - 裁决落地：`hybrid_retrieve` 默认 `vector_mode` 从 exact 切到 hnsw（T15.2 预留的裁决点），ef_search=None 沿用会话默认 40 作为冻结值；docstring 引用报告。评测基线路径仍可显式切 exact。
 - 纪律：报告从干净提交 19f0097 生成（生成器先行提交），`devkb_worktree_dirty=false`——T14.4 复评教训直接内化为流程。
 - 质量门：ruff/pyright 零错误，pytest 145 passed（hnsw 默认下既有 Hybrid 集成测试不变绿）。
+
+## 2026-07-18 · T15.4 · Hybrid dev Gate 未过——负结果、根因与偏差上报
+
+做了什么：`benchmarks/p1_hybrid_dev_gate.py` 从干净提交 fb68793 在同一快照（445 文档/4788 chunks）上运行 vector-exact / lexical / hybrid-rrf 三模式官方对照，Gate 未过，报告如实落盘 `evalsets/reports/p1-dev-hybrid-gate-20260718T122552+0800.{json,md}`；随后 `benchmarks/p1_hybrid_grid_diag.py` 做规格内全网格诊断并归档 `benchmarks/results/hybrid_grid_diag.txt`；按勾选纪律不勾选 T15.4，写偏差记录等用户裁决（证据：本提交）。
+
+- 官方结果：vector-exact R@10=0.588/MRR=0.386；hybrid-rrf（k=60、每路 50、hnsw@40）R@10=0.529/MRR=0.128。G1 未过、G2 惨败（MRR −0.258，上限 −0.02）、G3 通过（q22：vector 未命中 → hybrid rank 5，两路深位共识的真实 hybrid 收益）。
+- 根因（逐题证据）：q01/q06/q09/q10 的相关块 vector rank=1（1/61≈0.0164），但"双路平庸块"（如 v=28/l=16 → 0.0245）稳压单路第一。lexical 对 11/17 中文自然语言题是系统性噪声（T14.4 已量化 R@10=0.059），RRF 的共识假设在一路系统性失真时变成反信号；k=60 平坦尾部下 v1 与 v3 分差仅 0.0005，任何 lexical 贡献都足以翻盘。T14.4 报告预警的"RRF 融合不得让该 channel 的弱题拖垮 vector 强题"精确应验。
+- 网格诊断（每题抓两路 top-50 一次，离线截断前缀走**官方 rrf_fuse**，无诊断专用口径）：28 组 (n_vec∈{5,10,20,50} × n_lex∈{1,2,3,5,10,20,50}) 全部失败——G2 最好 −0.084（n_lex=1，junk 与相关块并列 1/61 靠 chunk_id 掷币）；G3 只在 n_lex≥20 出现，与 G2 结构性互斥。附录 k∈{10,20,120} 亦全不过（k 是规格外自由度，仅作裁决证据）。
+- 处置：这是"冻结机制满足不了预冻结 Gate"的规格冲突（规格 §8 允许记录负结果 vs Eval v1 §5.1/§7 硬 Gate），不属于我可自行裁量的范围——偏差记录已列建议（推荐按 §8 记录负结果并修订 Eval v1 的 hybrid Gate/默认检索口径；不推荐 weighted RRF 双参数在 17 题上调优）。dev 迭代全程未触碰 holdout。
+- 质量门：ruff/pyright 零错误，pytest 145 passed（诊断脚本经 D7 静态扫描，查询全部走 ChunkRepo）。
