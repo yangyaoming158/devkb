@@ -7,7 +7,6 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from decimal import Decimal
 from typing import Any
 
 from pydantic import ValidationError
@@ -30,6 +29,7 @@ from devkb.agent.state import (
     StrictModel,
     VerificationOutput,
 )
+from devkb.agent.trace import TraceRecorder, clip_list
 from devkb.agent.verification import verify_draft
 from devkb.answer import apply_l0
 from devkb.embedding import Embedder
@@ -93,17 +93,6 @@ class _CallResult[StructuredT: StrictModel]:
     warnings: list[str]
 
 
-def _cost_after_result(
-    current: Decimal | None,
-    model: str,
-    usage: dict[str, Any],
-) -> Decimal | None:
-    call_cost = compute_cost(model, usage)
-    if current is None or call_cost is None:
-        return None
-    return current + call_cost
-
-
 async def _structured_call[StructuredT: StrictModel](
     state: AgentState,
     *,
@@ -113,8 +102,13 @@ async def _structured_call[StructuredT: StrictModel](
     user: str,
     schema: type[StructuredT],
     default: StructuredT,
+    recorder: TraceRecorder | None = None,
 ) -> _CallResult[StructuredT]:
-    """单逻辑调用最多重问一次；每次请求先占用全局预算再调用供应商。"""
+    """单逻辑调用最多重问一次；每次请求先占用全局预算再调用供应商。
+
+    每次实际发出的请求（含重问）逐条记入轨迹：分档 usage、单次 cost、时延与
+    终态，run 汇总值可由这些明细复算（T18.2）。预算耗尽未发出的请求不记录。
+    """
     calls = state["llm_calls"]
     retries = state["llm_retries"]
     retry_counts = dict(state["retry_counts"])
@@ -138,19 +132,54 @@ async def _structured_call[StructuredT: StrictModel](
         try:
             result = await llm.complete(system=system, user=user)
         except Exception as exc:
-            latency_ms += int((time.perf_counter() - started) * 1000)
+            call_latency_ms = int((time.perf_counter() - started) * 1000)
+            latency_ms += call_latency_ms
             warnings.append(f"{call_key}:request_failed:{type(exc).__name__}")
+            if recorder is not None:
+                recorder.record_llm_request(
+                    call_key=call_key,
+                    attempt=attempt + 1,
+                    status="request_failed",
+                    model=None,
+                    usage={},
+                    cost=None,
+                    latency_ms=call_latency_ms,
+                    error=f"{type(exc).__name__}: {exc}",
+                )
             continue
-        latency_ms += int((time.perf_counter() - started) * 1000)
+        call_latency_ms = int((time.perf_counter() - started) * 1000)
+        latency_ms += call_latency_ms
         tokens_in += int(result.usage.get("prompt_tokens", 0))
         tokens_out += int(result.usage.get("completion_tokens", 0))
-        cost = _cost_after_result(cost, result.model, result.usage)
+        call_cost = compute_cost(result.model, result.usage)
+        cost = None if cost is None or call_cost is None else cost + call_cost
         model = result.model
         try:
             value = schema.model_validate_json(result.text)
         except ValidationError:
             warnings.append(f"{call_key}:invalid_structured_output")
+            if recorder is not None:
+                recorder.record_llm_request(
+                    call_key=call_key,
+                    attempt=attempt + 1,
+                    status="invalid_output",
+                    model=result.model,
+                    usage=dict(result.usage),
+                    cost=call_cost,
+                    latency_ms=call_latency_ms,
+                    error="invalid_structured_output",
+                )
             continue
+        if recorder is not None:
+            recorder.record_llm_request(
+                call_key=call_key,
+                attempt=attempt + 1,
+                status="ok",
+                model=result.model,
+                usage=dict(result.usage),
+                cost=call_cost,
+                latency_ms=call_latency_ms,
+            )
         return _CallResult(
             value=value,
             used_default=False,
@@ -229,8 +258,9 @@ def make_pg_retriever(
 
 
 class AgentNodes:
-    def __init__(self, runtime: AgentRuntime) -> None:
+    def __init__(self, runtime: AgentRuntime, recorder: TraceRecorder | None = None) -> None:
         self._runtime = runtime
+        self._recorder = recorder
 
     async def plan(self, state: AgentState) -> dict[str, Any]:
         default = PlanOutput(intent="knowledge_qa", queries=[state["question"]])
@@ -242,6 +272,7 @@ class AgentNodes:
             user=prompts.build_plan_user(state["question"]),
             schema=PlanOutput,
             default=default,
+            recorder=self._recorder,
         )
         return {
             **call.updates,
@@ -257,15 +288,34 @@ class AgentNodes:
                 "node_history": ["retrieve"],
                 "warnings": ["retrieve:round_limit_reached"],
             }
+        tool_arguments = {"queries": clip_list(state["queries"])}
+        started = time.perf_counter()
         try:
             fresh = await self._runtime.retriever(state["project_id"], tuple(state["queries"]))
         except Exception as exc:
+            if self._recorder is not None:
+                self._recorder.record_tool(
+                    tool_name="retrieve",
+                    status="failed",
+                    arguments=tool_arguments,
+                    result_summary=None,
+                    latency_ms=int((time.perf_counter() - started) * 1000),
+                    error=f"{type(exc).__name__}: {exc}",
+                )
             return {
                 "retrieval_round": state["retrieval_round"] + 1,
                 "evidences": state["evidences"],
                 "node_history": ["retrieve"],
                 "errors": [f"retrieve:{type(exc).__name__}"],
             }
+        if self._recorder is not None:
+            self._recorder.record_tool(
+                tool_name="retrieve",
+                status="ok",
+                arguments=tool_arguments,
+                result_summary={"result_count": len(fresh)},
+                latency_ms=int((time.perf_counter() - started) * 1000),
+            )
 
         # 补检结果优先，旧证据只用于填充剩余槽位；否则首轮 top-k 已满时
         # 第二轮新证据会被截断为零，形成“走了 refine 但证据没变”的假补检。
@@ -298,6 +348,7 @@ class AgentNodes:
             user=prompts.build_evaluate_user(state["question"], state["evidences"]),
             schema=EvaluateOutput,
             default=default,
+            recorder=self._recorder,
         )
         return {
             **call.updates,
@@ -319,6 +370,7 @@ class AgentNodes:
             user=prompts.build_refine_user(state["question"], state["queries"], evaluation),
             schema=RefineOutput,
             default=default,
+            recorder=self._recorder,
         )
         return {
             **call.updates,
@@ -353,6 +405,7 @@ class AgentNodes:
             ),
             schema=GenerateOutput,
             default=default,
+            recorder=self._recorder,
         )
         return {
             **call.updates,

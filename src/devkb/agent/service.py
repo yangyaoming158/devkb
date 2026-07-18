@@ -1,7 +1,8 @@
-"""Agentic 问答服务（T17.4）：跑有界图 + Answer v1 组装 + agent_runs 落库。
+"""Agentic 问答服务（T17.4/T18）：跑有界图 + Answer v1 组装 + run 与轨迹落库。
 
 CLI `ask --pipeline agentic` 使用；T19 API 复用同一入口。
-节点/工具轨迹（agent_steps/tool_invocations）落库属 T18，不在此实现。
+轨迹在图执行期由 TraceRecorder 内存收集，run 结束（含失败）统一写入
+agent_steps / tool_invocations，与 run 终态同一事务提交。
 """
 
 from __future__ import annotations
@@ -17,12 +18,66 @@ from devkb.agent.answer import build_answer
 from devkb.agent.graph import run_agent
 from devkb.agent.nodes import AgentRuntime, make_pg_retriever
 from devkb.agent.state import MAX_QUESTION_CHARS, AgentInput
+from devkb.agent.trace import StepRecord, TraceRecorder
 from devkb.embedding import Embedder
 from devkb.errors import InvalidInputError
 from devkb.llm import LLMClient
-from devkb.repositories import RunRepo
+from devkb.repositories import AgentStepRepo, RunRepo, ToolInvocationRepo
 
 logger = structlog.get_logger(__name__)
+
+
+def _step_output_summary(record: StepRecord) -> dict[str, Any] | None:
+    """step 落库摘要：节点输出摘要 + 逐次 LLM 请求明细（cost 序列化为字符串）。"""
+    summary = dict(record.output_summary) if record.output_summary is not None else {}
+    if record.llm_requests:
+        summary["llm_requests"] = [
+            {
+                "call_key": request.call_key,
+                "attempt": request.attempt,
+                "status": request.status,
+                "model": request.model,
+                "usage": request.usage,
+                "cost": str(request.cost) if request.cost is not None else None,
+                "latency_ms": request.latency_ms,
+                "error": request.error,
+            }
+            for request in record.llm_requests
+        ]
+    return summary or None
+
+
+async def _persist_trace(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    run_id: uuid.UUID,
+    recorder: TraceRecorder,
+) -> None:
+    step_repo = AgentStepRepo(session, project_id)
+    tool_repo = ToolInvocationRepo(session, project_id)
+    for record in recorder.steps:
+        step = await step_repo.add(
+            run_id,
+            seq=record.seq,
+            node=record.node,
+            status=record.status,
+            attempt=record.attempt,
+            input_summary=record.input_summary or None,
+            output_summary=_step_output_summary(record),
+            latency_ms=record.latency_ms,
+            error=record.error,
+        )
+        for tool in record.tools:
+            await tool_repo.add(
+                run_id,
+                step.id,
+                tool_name=tool.tool_name,
+                status=tool.status,
+                arguments=tool.arguments or None,
+                result_summary=tool.result_summary,
+                latency_ms=tool.latency_ms,
+                error=tool.error,
+            )
 
 
 async def agentic_answer_question(
@@ -45,12 +100,20 @@ async def agentic_answer_question(
     run = await run_repo.create(question)
     await session.commit()
     agent_input = AgentInput(run_id=run.id, project_id=project_id, question=question)
+    recorder = TraceRecorder()
 
     started = time.perf_counter()
     try:
-        state = await run_agent(runtime, agent_input)
+        state = await run_agent(runtime, agent_input, recorder)
     except Exception as exc:
         latency_ms = int((time.perf_counter() - started) * 1000)
+        # 失败路径尽力保留轨迹（最后一个 step 为 failed）；轨迹写入自身失败时
+        # 回滚以保住 session，run 终态 failed 优先于轨迹完整性
+        try:
+            await _persist_trace(session, project_id, run.id, recorder)
+        except Exception:
+            await session.rollback()
+            logger.warning("trace_persist_failed", run_id=str(run.id))
         await run_repo.finish(
             run.id,
             answer={"error": f"{type(exc).__name__}: {exc}"},
@@ -75,6 +138,7 @@ async def agentic_answer_question(
         "llm_calls": state["llm_calls"],
         "llm_retries": state["llm_retries"],
     }
+    await _persist_trace(session, project_id, run.id, recorder)
     await run_repo.finish(
         run.id,
         answer=answer,

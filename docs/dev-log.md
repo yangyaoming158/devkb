@@ -528,3 +528,12 @@
 - 中等（T17.4）：`_rebuild_answer_from_claims` 原样拼接 claim.text，而 L0 只检查原始 draft.answer_text 与 claim.evidence_ids，不检查 claim.text 内嵌标记。可达路径：保留 claim 通过验证但其 text 含 [E9]（越界）或 [E2]（合法但未绑定），另一 claim 失败触发重建 → 未经 L0 检查的标记注入终稿，违反最终 L0 100% Gate。修复双防线：重建前用正则剔除 claim.text 中全部 [E#]，只追加由已通过 L0 的 claim.evidence_ids 规范生成的标记；重建结果再过一次确定性 `apply_l0`（越界标记的最终防线，warnings 汇入 finalize）。剔除后正文做空白折叠，避免残留双空格。
 - 回归测试复刻审查探针：保留 claim 的 text 内嵌 [E9] 与未绑定 [E2]，断言终稿逐字等于规范重建结果、无 E9/E2 残留，并对重建后的 GenerateOutput 重新执行 `l0_errors` 断言零错误零失败。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 194 passed（+1）。证据 commit：本提交。
+
+## 2026-07-19 · T18.1 · 节点/工具轨迹写入
+
+- 新增 `agent/trace.py`：TraceRecorder 在图执行期内存收集（图为顺序执行，节点内 LLM/工具记录挂当前 step），run 结束由 service 统一写 agent_steps/tool_invocations，与 run 终态同事务提交。选择内存收集而非节点内直写：节点保持与 DB 解耦（FakeLLM 单测无需数据库即可断言轨迹），失败路径也能把"最后 step=failed"完整落库。
+- step 终态确定性判定：节点返回 errors（吸收的工具/DB 异常）→ degraded 并记错误类型；warning 含 default_applied/budget_exhausted/limit_reached → degraded；未捕获异常由 graph 包装器直接判 failed 后原样上抛。verify:l0_l1_failed 是业务信号（触发重生成）不算节点降级。
+- 摘要有界纪律：clip_text/clip_list（200 字符/8 项）；正文只以 answer_chars 出现，问题只记 question_chars；`_structured_call` 每次实际发出的请求（含重问、含解析失败）逐条记 call_key/attempt/分档 usage/单次 cost/时延/终态，预算耗尽未发出的请求不记录——run 汇总可由明细复算（T18.2 判据的落库基础）。
+- 失败路径轨迹持久化包 try/except：轨迹写入自身失败时 rollback 保住 session，run 终态 failed 优先于轨迹完整性。
+- 踩坑：langgraph `add_node` 的 StateNode 形参要求具名 state 参数，Callable 别名在类型系统里 positional-only，包装器返回类型放宽为 Any（与 build_agent_graph 同口径）并在 docstring 记录原因。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 203 passed（+7 单测四路径矩阵与脱敏、+2 集成落库/跨项目不可见/失败终态）。证据 commit：本提交。

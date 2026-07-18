@@ -17,7 +17,7 @@ from devkb.errors import InvalidInputError
 from devkb.ingest.markdown import approx_token_counter
 from devkb.ingest.pipeline import ingest_directory
 from devkb.llm import FakeLLM, compute_cost
-from devkb.repositories import ProjectRepo, RunRepo
+from devkb.repositories import AgentStepRepo, ProjectRepo, RunRepo, ToolInvocationRepo
 
 CORPUS_MD = Path(__file__).parents[1] / "fixtures" / "corpus_md"
 
@@ -95,6 +95,73 @@ async def test_invalid_question_rejected_before_run_creation(session: AsyncSessi
             session, project_id, "x" * 4001, embedder=FakeEmbedder(), llm=FakeLLM([]), top_k=4
         )
     assert await RunRepo(session, project_id).list_recent(5) == []
+
+
+async def test_trace_steps_and_tools_persisted_for_successful_run(session: AsyncSession) -> None:
+    """T18.1：成功 run 的节点/工具轨迹落库，seq 连续、摘要有界且无正文。"""
+    project_id = await _seeded_project(session)
+    llm = FakeLLM([PLAN, EVAL_OK, GEN], model="deepseek-v4-flash")
+
+    answer = await agentic_answer_question(
+        session, project_id, "库存怎么保证并发安全？", embedder=FakeEmbedder(), llm=llm, top_k=4
+    )
+
+    run_id = uuid.UUID(answer["run_id"])
+    steps = await AgentStepRepo(session, project_id).list_for_run(run_id)
+    assert [step.seq for step in steps] == list(range(1, len(steps) + 1))
+    assert [step.node for step in steps] == [
+        "plan",
+        "retrieve",
+        "evaluate",
+        "generate",
+        "verify",
+        "finalize",
+    ]
+    assert all(step.status == "ok" for step in steps)
+    assert all(step.latency_ms is not None and step.latency_ms >= 0 for step in steps)
+    by_node = {step.node: step for step in steps}
+    plan_summary = by_node["plan"].output_summary
+    assert plan_summary is not None and len(plan_summary["llm_requests"]) == 1
+    assert plan_summary["llm_requests"][0]["status"] == "ok"
+    finalize_summary = by_node["finalize"].output_summary
+    assert finalize_summary is not None and finalize_summary["final_mode"] == "full"
+    # 轨迹不含回答正文（只有 answer_chars）
+    assert answer["answer_text"] not in str(finalize_summary)
+
+    tools = await ToolInvocationRepo(session, project_id).list_for_run(run_id)
+    assert [tool.tool_name for tool in tools] == ["retrieve"]
+    assert tools[0].step_id == by_node["retrieve"].id and tools[0].status == "ok"
+    assert tools[0].result_summary == {"result_count": 4}
+
+    # 跨项目不可见：另一个项目的 Repo 查同一 run_id 得到空
+    other = await ProjectRepo(session).create(slug=f"other-{uuid.uuid4().hex[:8]}", name="other")
+    await session.commit()
+    assert await AgentStepRepo(session, other.id).list_for_run(run_id) == []
+    assert await ToolInvocationRepo(session, other.id).list_for_run(run_id) == []
+
+
+async def test_unexpected_node_failure_persists_failed_run_and_failed_last_step(
+    session: AsyncSession, monkeypatch: Any
+) -> None:
+    """T18.1/T18.4：节点内未捕获异常 → run 终态 failed，轨迹保留且最后 step 为 failed。"""
+    project_id = await _seeded_project(session)
+
+    def broken_verify(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("verifier crashed")
+
+    monkeypatch.setattr("devkb.agent.nodes.verify_draft", broken_verify)
+    llm = FakeLLM([PLAN, EVAL_OK, GEN], model="deepseek-v4-flash")
+    with pytest.raises(RuntimeError, match="verifier crashed"):
+        await agentic_answer_question(
+            session, project_id, "库存怎么保证并发安全？", embedder=FakeEmbedder(), llm=llm, top_k=4
+        )
+
+    runs = await RunRepo(session, project_id).list_recent(5)
+    assert runs and runs[0].status == "failed"
+    steps = await AgentStepRepo(session, project_id).list_for_run(runs[0].id)
+    assert [step.seq for step in steps] == list(range(1, len(steps) + 1))
+    assert steps[-1].node == "verify" and steps[-1].status == "failed"
+    assert steps[-1].error is not None and "RuntimeError" in steps[-1].error
 
 
 async def test_database_error_during_retrieval_degrades_to_persisted_refusal(

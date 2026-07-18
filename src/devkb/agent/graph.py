@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any, Literal, cast
 
 from langgraph.graph import END, START, StateGraph
@@ -16,6 +17,15 @@ from devkb.agent.state import (
     AgentState,
     initial_agent_state,
 )
+from devkb.agent.trace import (
+    StepTimer,
+    TraceRecorder,
+    derive_step_status,
+    summarize_input,
+    summarize_output,
+)
+
+NodeFn = Callable[[AgentState], Awaitable[dict[str, Any]]]
 
 GRAPH_RECURSION_LIMIT = 20
 RouteAfterEvaluate = Literal["refine", "generate", "finalize"]
@@ -83,16 +93,54 @@ def route_after_verify(state: AgentState) -> RouteAfterVerify:
     return "generate"
 
 
-def build_agent_graph(runtime: AgentRuntime) -> Any:
-    nodes = AgentNodes(runtime)
+def _traced(node: str, fn: NodeFn, recorder: TraceRecorder | None) -> Any:
+    """T18.1 节点轨迹包装：成功/降级/异常路径各写一个 step，异常原样上抛。
+
+    返回 Any：langgraph add_node 的 StateNode 形参要求具名 state 参数，
+    Callable 别名在类型系统里是 positional-only，与 build_agent_graph 同样放宽。
+    """
+    if recorder is None:
+        return fn
+
+    async def wrapped(state: AgentState) -> dict[str, Any]:
+        timer = StepTimer()
+        input_summary = summarize_input(node, cast(dict[str, Any], state))
+        try:
+            updates = await fn(state)
+        except Exception as exc:
+            recorder.finish_step(
+                node=node,
+                status="failed",
+                input_summary=input_summary,
+                output_summary=None,
+                latency_ms=timer.elapsed_ms(),
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            raise
+        status, error = derive_step_status(updates)
+        recorder.finish_step(
+            node=node,
+            status=status,
+            input_summary=input_summary,
+            output_summary=summarize_output(node, updates),
+            latency_ms=timer.elapsed_ms(),
+            error=error,
+        )
+        return updates
+
+    return wrapped
+
+
+def build_agent_graph(runtime: AgentRuntime, recorder: TraceRecorder | None = None) -> Any:
+    nodes = AgentNodes(runtime, recorder)
     graph = StateGraph(AgentState)
-    graph.add_node("plan", nodes.plan)
-    graph.add_node("retrieve", nodes.retrieve)
-    graph.add_node("evaluate", nodes.evaluate)
-    graph.add_node("refine", nodes.refine)
-    graph.add_node("generate", nodes.generate)
-    graph.add_node("verify", nodes.verify)
-    graph.add_node("finalize", nodes.finalize)
+    graph.add_node("plan", _traced("plan", nodes.plan, recorder))
+    graph.add_node("retrieve", _traced("retrieve", nodes.retrieve, recorder))
+    graph.add_node("evaluate", _traced("evaluate", nodes.evaluate, recorder))
+    graph.add_node("refine", _traced("refine", nodes.refine, recorder))
+    graph.add_node("generate", _traced("generate", nodes.generate, recorder))
+    graph.add_node("verify", _traced("verify", nodes.verify, recorder))
+    graph.add_node("finalize", _traced("finalize", nodes.finalize, recorder))
 
     graph.add_edge(START, "plan")
     graph.add_edge("plan", "retrieve")
@@ -117,8 +165,12 @@ def build_agent_graph(runtime: AgentRuntime) -> Any:
     return graph.compile()
 
 
-async def run_agent(runtime: AgentRuntime, agent_input: AgentInput) -> AgentState:
-    graph = build_agent_graph(runtime)
+async def run_agent(
+    runtime: AgentRuntime,
+    agent_input: AgentInput,
+    recorder: TraceRecorder | None = None,
+) -> AgentState:
+    graph = build_agent_graph(runtime, recorder)
     result = await graph.ainvoke(
         initial_agent_state(agent_input),
         config={"recursion_limit": GRAPH_RECURSION_LIMIT},
