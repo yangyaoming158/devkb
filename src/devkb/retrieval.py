@@ -1,12 +1,13 @@
-"""向量与 lexical 检索（规格 §8）：project 范围内检索 top-k，带解释性字段。
+"""向量 / lexical 检索与 RRF 融合（规格 §8）：project 范围内检索 top-k，带解释性字段。
 
-无融合、无重排、无阈值门（P1 T15 加）。查询构造在 repositories.py（D7），
-FTS token 化在 fts.py，本模块只做嵌入调用与结果组装。
+查询构造在 repositories.py（D7），FTS token 化在 fts.py，
+本模块只做嵌入调用、纯函数融合与结果组装。
 """
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from devkb.embedding import Embedder
 from devkb.fts import tokenize_query
 from devkb.repositories import ChunkRepo
+
+RRF_K_DEFAULT = 60
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,79 @@ async def lexical_retrieve(
             query_tokens=query_tokens,
         )
         for rank, (chunk, rel_path, score) in enumerate(rows, start=1)
+    ]
+
+
+# ---------------------------------------------------------------------------
+# RRF 融合（§8 第 3–5 条）：纯函数，不触库、不触模型
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ChannelRanking:
+    """单次 (query, channel) 检索的有序候选，名次由位置隐含（首位 = rank 1）。
+
+    输入按设计只携带 chunk_id 序、不携带任何原始分数——余弦相似度与
+    ts_rank_cd 量纲不同，在类型层面即不可能被混加（§8"RRF 不混加原始 score"）。
+    """
+
+    query: str
+    channel: str  # "vector" | "lexical"（融合本身 channel 无关，编排层约定取值）
+    chunk_ids: tuple[uuid.UUID, ...]
+
+
+@dataclass(frozen=True)
+class FusedChunk:
+    """融合结果项：fused_score 降序，并列按 chunk_id 升序保证输出确定。"""
+
+    chunk_id: uuid.UUID
+    fused_score: float
+    # (channel, 该 channel 跨 query 的最优名次)，按 channel 名排序
+    channel_ranks: tuple[tuple[str, int], ...]
+    hit_queries: tuple[str, ...]  # 命中该 chunk 的 query，按输入首见顺序
+
+    def rank_for(self, channel: str) -> int | None:
+        for name, rank in self.channel_ranks:
+            if name == channel:
+                return rank
+        return None
+
+
+def rrf_fuse(rankings: Sequence[ChannelRanking], *, k: int = RRF_K_DEFAULT) -> list[FusedChunk]:
+    """Reciprocal Rank Fusion：fused_score(d) = Σ 1/(k + rank)，对 d 出现的每个
+    (query, channel) ranking 求和。
+
+    - 同一 ranking 内重复 chunk_id 只计首个（最优）名次；
+    - 跨 ranking 按 chunk_id 去重合并贡献，各 channel 保留跨 query 最优名次；
+    - 返回完整融合列表（不截断），final top-k 由编排层裁剪。
+    """
+    if k < 1:
+        raise ValueError(f"RRF k 必须 >= 1：{k}")
+    scores: dict[uuid.UUID, float] = {}
+    best_ranks: dict[uuid.UUID, dict[str, int]] = {}
+    hit_queries: dict[uuid.UUID, list[str]] = {}
+    for ranking in rankings:
+        seen: set[uuid.UUID] = set()
+        for rank, chunk_id in enumerate(ranking.chunk_ids, start=1):
+            if chunk_id in seen:
+                continue
+            seen.add(chunk_id)
+            scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (k + rank)
+            ranks = best_ranks.setdefault(chunk_id, {})
+            if ranking.channel not in ranks or rank < ranks[ranking.channel]:
+                ranks[ranking.channel] = rank
+            queries = hit_queries.setdefault(chunk_id, [])
+            if ranking.query not in queries:
+                queries.append(ranking.query)
+    ordered = sorted(scores, key=lambda chunk_id: (-scores[chunk_id], chunk_id))
+    return [
+        FusedChunk(
+            chunk_id=chunk_id,
+            fused_score=scores[chunk_id],
+            channel_ranks=tuple(sorted(best_ranks[chunk_id].items())),
+            hit_queries=tuple(hit_queries[chunk_id]),
+        )
+        for chunk_id in ordered
     ]
 
 

@@ -386,3 +386,12 @@
 - 防复发：test_layering 的 D7 静态扫描范围从 src/devkb 扩至 benchmarks/（tests/ 的少量诊断性 SQL 维持现状，docstring 说明）。
 - 归档重生成：新名次与正式报告的 diag_hit_rank_at_100 完全对齐（q09=68、q22=29、q14=1），6 变体 R@10 仍全部 0.059——"低召回非排序调参问题"结论在正确口径下依然成立，报告正文无需改动。
 - 质量门：ruff/pyright 零错误，pytest 136 passed。
+
+## 2026-07-18 · T15.1 · RRF 纯函数与 golden 冻结
+
+做了什么：`retrieval.py` 新增 `rrf_fuse` 纯函数与 `ChannelRanking`/`FusedChunk` 模型（规格 §8 第 3–5 条），golden 快照 `tests/fixtures/golden_rrf/fuse_cases.json` 冻结 6 场景完整输出（证据：本提交）。
+
+- 设计要点："不混加不同量纲原始 score"不是靠纪律而是靠类型——`ChannelRanking` 只携带 chunk_id 有序序列，没有任何 score 字段，融合分只可能来自 1/(k+rank) 求和。名次由列表位置隐含（首位=1），杜绝"传错 rank 起点"一类错误。
+- 语义决策：同一 ranking 内重复 chunk_id 只计首个（最优）名次；跨 ranking 合并时各 channel 保留跨 query 最优 rank、hit_queries 按输入首见序；并列 fused_score 按 chunk_id 升序决定性排序。函数返回完整融合列表不截断——final top-k 是 T15.2 编排层的职责，纯函数不预设消费方。
+- golden 覆盖判据列举的全部场景：双 channel 重叠去重、并列决序、缺失 channel（空 ranking 零贡献）、ranking 内重复、空输入、多 query 同 channel 贡献相加。快照数值人工核对（1/62+1/61≈0.03252 等）后冻结；另有默认 k=60、公式、稳定性与 k<1 拒绝的独立断言。
+- 质量门：ruff/pyright 零错误，pytest 141 passed。
