@@ -443,3 +443,12 @@
 - 中等 ②（配置冻结不严）：`p1_hybrid_dev_gate.py` 报告记录 ef_search=40 但调用未显式传入，实际依赖 PG 会话默认（值恰为 40，复评独立复跑确认结果无失真——问题在可复现性而非结论）。修复：新增 `retrieval.HNSW_EF_SEARCH = 40` 统一常量（docstring 指向 T15.3 冻结报告），`hybrid_retrieve` 默认参数、gate 脚本与 grid 诊断脚本全部显式下发；配置口径从"恰好等于会话默认"变为"代码内冻结"。
 - 低等 ③（归档不完整）：grid 归档缺 commit/语料 hash/模型元数据，且 28 组代表性网格支撑不了"机制无法过 Gate"的全称表述。修复：脚本补齐完整元数据头，并在候选截断语义下穷举规格内全空间 n_vec×n_lex=1..50×1..50 共 2500 组——0 组全过、**G2 单项通过组合数为 0**（最好 ΔMRR=−0.0838 @ n_vec=7/n_lex=1），逐组合指标归档 `benchmarks/results/hybrid_grid_diag.json`；从干净提交 5309315 重生成，代表性表格与旧归档逐项一致，与复评独立穷举（2500 组 0 过）互证，裁决技术依据成立且加固。
 - 质量门：ruff/pyright 零错误，pytest 145 passed；旧 P0 期 benchmark 脚本的历史 lint 噪声不属本次范围，未动。
+
+## 2026-07-18 · T15 二次复评修复 · T21.3 Holdout 判据同步与穷举证据引用
+
+做了什么：二次复评 1 中等 + 1 低等，均属实（证据：本提交）。
+
+- 中等（T21.3 判据滞后）：任务清单 T21.3 仍写裁决前的 `hybrid-rrf Recall@10 >= vector-exact` 硬 Gate，与 Eval v1 §7 修订矛盾，会直接误导 holdout 验收。修复：判据改为 `在线默认模式 vector-hnsw Recall@10 >= 同快照 vector-exact`，注明裁决日期与出处，并保留"hybrid 对照完整报告、不设硬阈值"的记录义务。
+- 低等（修订说明证据滞后）：Eval v1 §5.1 修订注记仍只引 28 组网格。修复：改为"28 组代表性网格加穷举 2500 组均 0 过、G2 单项通过数为 0"，并同时指向 txt 与 json 归档。
+- 巡检：`hybrid-rrf Recall@10` 的其余出现均为"原文保留+日期化注记"模式的原句或历史 dev-log 叙事，符合不改写历史的惯例，不动。
+- 质量门：ruff/pyright 零错误，pytest 145 passed。

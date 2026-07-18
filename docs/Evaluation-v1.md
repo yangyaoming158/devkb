@@ -94,8 +94,9 @@ CLI 的统一评测枚举为 `vector-exact|vector-hnsw|lexical|hybrid-rrf|agenti
 
 > **2026-07-18 修订（T15.4 偏差裁决，见《P1任务清单》偏差记录）**：第 1–3 条在冻结机制
 > （RRF k=60、每路 top-N ≤50、冻结 token 化与标注）下经证明不可满足——官方同快照对照
-> `evalsets/reports/p1-dev-hybrid-gate-20260718T122552+0800` Gate 未过，规格内 28 组
-> (n_vector, n_lexical) 网格 0 组通过（`benchmarks/results/hybrid_grid_diag.txt`），
+> `evalsets/reports/p1-dev-hybrid-gate-20260718T122552+0800` Gate 未过；28 组代表性网格
+> 加穷举 n_vector×n_lexical=1..50×1..50 共 2500 组规格内组合均 0 组通过、其中 MRR 条
+> （G2）单项通过数为 0（`benchmarks/results/hybrid_grid_diag.{txt,json}`），
 > 根因是 lexical channel 对中文自然语言题系统性噪声使 RRF 共识假设失效。
 > 依《P1实现规格》§8"无稳定评测收益时允许记录负结果"（文档优先级 2 > 3），用户裁决：
 > - 第 1–3 条由硬 Gate 改为**同快照对照记录义务**：三模式（vector-exact/lexical/hybrid-rrf）
