@@ -1,0 +1,564 @@
+{
+  "schema_version": "p1-dev-hnsw-overlap-v1",
+  "run": {
+    "started_at": "2026-07-18T12:21:03+08:00",
+    "devkb_commit": "19f0097aeadbd722194d08ef04816c7a82cf960e",
+    "devkb_worktree_dirty": false,
+    "command": "env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY HF_HUB_OFFLINE=1 uv run python benchmarks/p1_hnsw_overlap.py",
+    "holdout_accessed": false
+  },
+  "corpus": {
+    "scope": "p1-445-full",
+    "project": "mini-mall",
+    "document_count": 445,
+    "chunk_count": 4788,
+    "sha256": "0b8af698f960489ae335633a488a7a8cde0cb76b44d1c78e0878c2b760194670"
+  },
+  "dataset": {
+    "path": "evalsets/v0/retrieval_dev.jsonl",
+    "question_count": 17
+  },
+  "config": {
+    "top_k": 10,
+    "overlap_gate": 0.95,
+    "ef_search_ladder": [
+      40,
+      80,
+      160
+    ],
+    "hnsw_index_params": {
+      "m": 16,
+      "ef_construction": 64,
+      "ops": "vector_cosine_ops"
+    },
+    "distance": "cosine",
+    "embedding_model_id": "Qwen/Qwen3-Embedding-0.6B",
+    "embedding_device": "cuda",
+    "embedding_max_seq_length": 1024,
+    "query_prompt_name": "query"
+  },
+  "attempts": [
+    {
+      "ef_search": 40,
+      "avg_overlap": 1.0,
+      "passed": true,
+      "questions": [
+        {
+          "id": "q01",
+          "question": "创建订单接口是怎么防止用户重复提交的？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "eddd993d-f0d6-42b6-ab4a-12f986ccc09a",
+            "042a387d-9d76-414d-9de8-ab5c89433c35",
+            "99d505d4-7fa0-4e7d-832f-5ce0276b9eaf",
+            "e203c3eb-d092-4412-a2c4-47fd0a73f0d9",
+            "7ddd7685-8bb0-48d2-a933-6d58d8ff250e",
+            "77412f5c-4be9-4c0a-8e29-66aec5c1bd5a",
+            "b3d19b07-1b1b-47f3-968a-b2e031627e24",
+            "20bd8a67-6cd7-47b4-9378-c83205752ad4",
+            "b0b5c3e3-9a57-40e9-a945-0bceab37b2ec",
+            "40f5f226-7e5c-4041-a99e-a4b229ecd6f1"
+          ],
+          "hnsw_top10": [
+            "eddd993d-f0d6-42b6-ab4a-12f986ccc09a",
+            "042a387d-9d76-414d-9de8-ab5c89433c35",
+            "99d505d4-7fa0-4e7d-832f-5ce0276b9eaf",
+            "e203c3eb-d092-4412-a2c4-47fd0a73f0d9",
+            "7ddd7685-8bb0-48d2-a933-6d58d8ff250e",
+            "77412f5c-4be9-4c0a-8e29-66aec5c1bd5a",
+            "b3d19b07-1b1b-47f3-968a-b2e031627e24",
+            "20bd8a67-6cd7-47b4-9378-c83205752ad4",
+            "b0b5c3e3-9a57-40e9-a945-0bceab37b2ec",
+            "40f5f226-7e5c-4041-a99e-a4b229ecd6f1"
+          ]
+        },
+        {
+          "id": "q02",
+          "question": "库存扣减的幂等键是什么？同一订单重复扣减会发生什么？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "042a387d-9d76-414d-9de8-ab5c89433c35",
+            "7d631707-f1d4-492c-9cee-70b4242184f4",
+            "71b1886d-3bce-4fe0-9b2c-45c284bdd78f",
+            "5bf3a362-4b0d-4962-b353-b53798d40c97",
+            "9298c3cd-9045-4399-a61f-018853634fe7",
+            "cd6ea319-b84b-4e54-8e26-3eae359cb11a",
+            "20bd8a67-6cd7-47b4-9378-c83205752ad4",
+            "99d505d4-7fa0-4e7d-832f-5ce0276b9eaf",
+            "ffe87796-b795-4185-813e-a06469647cf4",
+            "dcdc6c22-ce54-44e7-ae52-1aa4bbc3e7d8"
+          ],
+          "hnsw_top10": [
+            "042a387d-9d76-414d-9de8-ab5c89433c35",
+            "7d631707-f1d4-492c-9cee-70b4242184f4",
+            "71b1886d-3bce-4fe0-9b2c-45c284bdd78f",
+            "5bf3a362-4b0d-4962-b353-b53798d40c97",
+            "9298c3cd-9045-4399-a61f-018853634fe7",
+            "cd6ea319-b84b-4e54-8e26-3eae359cb11a",
+            "20bd8a67-6cd7-47b4-9378-c83205752ad4",
+            "99d505d4-7fa0-4e7d-832f-5ce0276b9eaf",
+            "ffe87796-b795-4185-813e-a06469647cf4",
+            "dcdc6c22-ce54-44e7-ae52-1aa4bbc3e7d8"
+          ]
+        },
+        {
+          "id": "q03",
+          "question": "订单状态机允许哪些状态流转？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "386f6d6c-b440-4051-85cd-598c1efa61c7",
+            "6ff3b500-3aa1-4166-8821-7732b05510ee",
+            "b94ba32c-922a-42f3-b689-8269b29b8bf2",
+            "1bccdc3e-ff0b-4c57-aa50-8e025e0389d8",
+            "015fefe3-685d-4266-9996-ac8d2bec95ed",
+            "dbd6efcf-1323-4cad-a2da-7d6a97513054",
+            "2f3d8459-2eca-4666-a8c8-68257dfdfdb9",
+            "6a157aa1-7aa0-4261-9d47-fa675a408377",
+            "5f1bd923-092f-4444-a854-1ed3781915fd",
+            "4fd12ff2-056c-49a5-87dd-2323325d346e"
+          ],
+          "hnsw_top10": [
+            "386f6d6c-b440-4051-85cd-598c1efa61c7",
+            "6ff3b500-3aa1-4166-8821-7732b05510ee",
+            "b94ba32c-922a-42f3-b689-8269b29b8bf2",
+            "1bccdc3e-ff0b-4c57-aa50-8e025e0389d8",
+            "015fefe3-685d-4266-9996-ac8d2bec95ed",
+            "dbd6efcf-1323-4cad-a2da-7d6a97513054",
+            "2f3d8459-2eca-4666-a8c8-68257dfdfdb9",
+            "5f1bd923-092f-4444-a854-1ed3781915fd",
+            "6a157aa1-7aa0-4261-9d47-fa675a408377",
+            "4fd12ff2-056c-49a5-87dd-2323325d346e"
+          ]
+        },
+        {
+          "id": "q04",
+          "question": "网关会剥掉浏览器传来的哪些请求头？为什么要剥？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "b67d70e5-2536-4729-969e-093d91baa45d",
+            "301e00c8-2321-4327-8ecb-13f6781c91c7",
+            "bbdce9e2-dde6-444e-940c-ccd74cfa91f7",
+            "b6d6bf71-1b27-45ca-9793-18f7ad89637a",
+            "0707c3b4-41f0-4a24-9216-fe872808a315",
+            "fc8d441d-c024-4924-9c68-48bccc1cea9e",
+            "df58f77d-236d-4344-9b11-744130ec3e2b",
+            "fde1d7b9-5b51-4b36-9e7d-e3026e28ef9e",
+            "23a7afb0-5ddb-4844-b7f1-8ca7e6253a75",
+            "b57c060d-70cc-471f-9e36-4c290259c692"
+          ],
+          "hnsw_top10": [
+            "b67d70e5-2536-4729-969e-093d91baa45d",
+            "301e00c8-2321-4327-8ecb-13f6781c91c7",
+            "bbdce9e2-dde6-444e-940c-ccd74cfa91f7",
+            "b6d6bf71-1b27-45ca-9793-18f7ad89637a",
+            "0707c3b4-41f0-4a24-9216-fe872808a315",
+            "fc8d441d-c024-4924-9c68-48bccc1cea9e",
+            "df58f77d-236d-4344-9b11-744130ec3e2b",
+            "fde1d7b9-5b51-4b36-9e7d-e3026e28ef9e",
+            "23a7afb0-5ddb-4844-b7f1-8ca7e6253a75",
+            "b57c060d-70cc-471f-9e36-4c290259c692"
+          ]
+        },
+        {
+          "id": "q05",
+          "question": "哪些接口是公开的、不需要带 JWT？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "a7642c54-5396-4e3d-86a7-4e4fcc18926f",
+            "6f213264-f875-466d-993e-3a8f1b8916a6",
+            "506d1770-979c-4b3d-9ffc-59142c291cca",
+            "0887d25e-0a72-4b55-b1b6-3957ad2728d4",
+            "46f430fc-399a-4aed-8876-62a390c2a55b",
+            "e3b9feb9-b8b9-44a7-8798-fb0629997615",
+            "b9b6f8cf-5506-4045-8faa-17a3d3ab9cc8",
+            "3bbde583-5922-4657-b46f-3012f831c59d",
+            "c120d9c1-8065-4cb9-98d7-6c42ae305580",
+            "80d7a299-ea8f-4213-a1d9-c44695f7e9af"
+          ],
+          "hnsw_top10": [
+            "a7642c54-5396-4e3d-86a7-4e4fcc18926f",
+            "6f213264-f875-466d-993e-3a8f1b8916a6",
+            "506d1770-979c-4b3d-9ffc-59142c291cca",
+            "0887d25e-0a72-4b55-b1b6-3957ad2728d4",
+            "46f430fc-399a-4aed-8876-62a390c2a55b",
+            "e3b9feb9-b8b9-44a7-8798-fb0629997615",
+            "b9b6f8cf-5506-4045-8faa-17a3d3ab9cc8",
+            "3bbde583-5922-4657-b46f-3012f831c59d",
+            "c120d9c1-8065-4cb9-98d7-6c42ae305580",
+            "80d7a299-ea8f-4213-a1d9-c44695f7e9af"
+          ]
+        },
+        {
+          "id": "q06",
+          "question": "支付成功事件用的 exchange、routing key 和两个消费队列分别是什么？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "a0624d3d-4f52-462f-981c-eaede785c8cc",
+            "b6e774db-f8bf-42fd-b0ad-065e97d3a866",
+            "c088b98b-be65-403d-97d4-83e4a2f91152",
+            "38d4dee6-61e5-4fb7-a4c7-4187bb95196e",
+            "460e1f54-ef58-4ef8-b8c0-85383202a2b4",
+            "1145b0f8-706b-4260-8a91-ce4536125d9e",
+            "7232ca16-b1e6-42fe-9107-cf8703d16c50",
+            "779fcd29-b69c-4398-b4df-c869fe9eff4a",
+            "545d0ac9-51a1-459c-a91e-f2102cf6972b",
+            "f945368b-510c-414e-b9d5-dfc2e6350dc4"
+          ],
+          "hnsw_top10": [
+            "a0624d3d-4f52-462f-981c-eaede785c8cc",
+            "b6e774db-f8bf-42fd-b0ad-065e97d3a866",
+            "c088b98b-be65-403d-97d4-83e4a2f91152",
+            "38d4dee6-61e5-4fb7-a4c7-4187bb95196e",
+            "460e1f54-ef58-4ef8-b8c0-85383202a2b4",
+            "1145b0f8-706b-4260-8a91-ce4536125d9e",
+            "7232ca16-b1e6-42fe-9107-cf8703d16c50",
+            "779fcd29-b69c-4398-b4df-c869fe9eff4a",
+            "545d0ac9-51a1-459c-a91e-f2102cf6972b",
+            "f945368b-510c-414e-b9d5-dfc2e6350dc4"
+          ]
+        },
+        {
+          "id": "q07",
+          "question": "消费支付事件为什么必须按 eventId 去重？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "f7040203-c061-47ee-9355-a473c4c26fbe",
+            "c1551b74-686a-4f07-9102-32028ab917c9",
+            "010416ae-f351-42ce-a4f5-c4b96196d8a5",
+            "ffccb3bc-50f3-480f-9f21-e94952e13720",
+            "75b4ae3a-35c4-4004-bd39-1a3df69befdc",
+            "5062c5d0-92c5-44e5-93bb-0290db9664ca",
+            "05a83aee-630d-4c02-94fb-d5278f23013a",
+            "460e1f54-ef58-4ef8-b8c0-85383202a2b4",
+            "f13519d4-6c5c-46d8-b652-580878913b3e",
+            "63b01eb8-cd8e-4d6f-861f-9c55b80879cd"
+          ],
+          "hnsw_top10": [
+            "f7040203-c061-47ee-9355-a473c4c26fbe",
+            "c1551b74-686a-4f07-9102-32028ab917c9",
+            "010416ae-f351-42ce-a4f5-c4b96196d8a5",
+            "ffccb3bc-50f3-480f-9f21-e94952e13720",
+            "75b4ae3a-35c4-4004-bd39-1a3df69befdc",
+            "5062c5d0-92c5-44e5-93bb-0290db9664ca",
+            "05a83aee-630d-4c02-94fb-d5278f23013a",
+            "460e1f54-ef58-4ef8-b8c0-85383202a2b4",
+            "f13519d4-6c5c-46d8-b652-580878913b3e",
+            "63b01eb8-cd8e-4d6f-861f-9c55b80879cd"
+          ]
+        },
+        {
+          "id": "q08",
+          "question": "对一个已支付成功的订单再次调支付接口，会返回什么？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "6f185db1-3cf1-4d14-b66c-6a71511fa070",
+            "26a8784a-cbd8-425c-bf68-fad63514e252",
+            "98fe6ace-1fda-438a-a5d1-000ccec7b98a",
+            "7bbd996d-31e0-4abc-9932-3cedc77f16c4",
+            "91ac15ec-9575-45cb-844a-567bf4761a74",
+            "9577527d-1ccb-44ab-8dac-ca9f7de47ddf",
+            "5d8fdf2f-6144-4a3c-a1ce-1372ed3cd0d1",
+            "a2debd05-477a-4d38-be85-260c7a7fa830",
+            "89bed083-3abd-48bf-9882-91c689e7d9e5",
+            "c09a83c6-437f-4b50-b865-96794eb2cd9b"
+          ],
+          "hnsw_top10": [
+            "6f185db1-3cf1-4d14-b66c-6a71511fa070",
+            "26a8784a-cbd8-425c-bf68-fad63514e252",
+            "98fe6ace-1fda-438a-a5d1-000ccec7b98a",
+            "7bbd996d-31e0-4abc-9932-3cedc77f16c4",
+            "91ac15ec-9575-45cb-844a-567bf4761a74",
+            "9577527d-1ccb-44ab-8dac-ca9f7de47ddf",
+            "5d8fdf2f-6144-4a3c-a1ce-1372ed3cd0d1",
+            "a2debd05-477a-4d38-be85-260c7a7fa830",
+            "89bed083-3abd-48bf-9882-91c689e7d9e5",
+            "c09a83c6-437f-4b50-b865-96794eb2cd9b"
+          ]
+        },
+        {
+          "id": "q09",
+          "question": "服务启动的依赖顺序是什么？order-service 要等哪些依赖健康才能起？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "fb92982a-cd16-4306-bd37-8ad29ff4472a",
+            "ecafdb05-9965-4a0d-ab02-f681a40ca125",
+            "a272855f-7f6a-4599-a29d-2593d6120b85",
+            "54078344-61b6-4b0e-9ddb-b9f9bb109016",
+            "0c06ead9-40cb-47ac-9b75-e06abfeaebf1",
+            "dbe94496-fd7c-41c9-a1b5-e3b4f951881d",
+            "901a065b-2995-4f05-b6a0-df1f720ee819",
+            "bcac7798-e788-4403-b29e-f4c693562037",
+            "3dfcc127-329f-4f61-81e9-f5b8058d5f29",
+            "fa9a0c41-379d-4be3-ba24-93e32ad34366"
+          ],
+          "hnsw_top10": [
+            "fb92982a-cd16-4306-bd37-8ad29ff4472a",
+            "ecafdb05-9965-4a0d-ab02-f681a40ca125",
+            "a272855f-7f6a-4599-a29d-2593d6120b85",
+            "54078344-61b6-4b0e-9ddb-b9f9bb109016",
+            "0c06ead9-40cb-47ac-9b75-e06abfeaebf1",
+            "dbe94496-fd7c-41c9-a1b5-e3b4f951881d",
+            "901a065b-2995-4f05-b6a0-df1f720ee819",
+            "bcac7798-e788-4403-b29e-f4c693562037",
+            "3dfcc127-329f-4f61-81e9-f5b8058d5f29",
+            "fa9a0c41-379d-4be3-ba24-93e32ad34366"
+          ]
+        },
+        {
+          "id": "q10",
+          "question": "数据库初始 schema 的迁移文件在哪？怎么应用到本地库？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "a31ecda6-a545-413f-a509-93743f1188bf",
+            "3078fc31-9178-4b9a-bb5c-92a5d12cd3a6",
+            "aee3e836-57d9-4527-89e5-46521c4a8e1f",
+            "9da2405d-7515-4dce-b9a1-20dae6b8b2b1",
+            "764693ce-bfd0-4319-8f7e-32f9ca792b51",
+            "ff4c5492-2086-462a-899b-d1c2926d9ed1",
+            "5b892d59-d342-446a-b15e-0af4a9d51c02",
+            "a3c5a6b1-16d2-4f4c-8c3f-b97c17815210",
+            "db4bf461-e8d3-44e7-91c9-33e51665df5e",
+            "6736ccef-48f6-400b-b859-21ed230c41d6"
+          ],
+          "hnsw_top10": [
+            "a31ecda6-a545-413f-a509-93743f1188bf",
+            "3078fc31-9178-4b9a-bb5c-92a5d12cd3a6",
+            "aee3e836-57d9-4527-89e5-46521c4a8e1f",
+            "9da2405d-7515-4dce-b9a1-20dae6b8b2b1",
+            "764693ce-bfd0-4319-8f7e-32f9ca792b51",
+            "ff4c5492-2086-462a-899b-d1c2926d9ed1",
+            "5b892d59-d342-446a-b15e-0af4a9d51c02",
+            "a3c5a6b1-16d2-4f4c-8c3f-b97c17815210",
+            "db4bf461-e8d3-44e7-91c9-33e51665df5e",
+            "6736ccef-48f6-400b-b859-21ed230c41d6"
+          ]
+        },
+        {
+          "id": "q11",
+          "question": "这个项目一共有哪些核心数据表？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "bd4d1d24-d254-4882-9627-5f06318e22c0",
+            "9da2405d-7515-4dce-b9a1-20dae6b8b2b1",
+            "fbc1fb35-6575-4cb8-ae46-422a88d5474b",
+            "0cb0a0a3-bc8d-4612-8eed-4e14ca94af1d",
+            "2368e822-99df-40a1-a7c6-1fc8fae60aac",
+            "5b892d59-d342-446a-b15e-0af4a9d51c02",
+            "09919d3e-1731-40c8-9a0e-794a59ed62ac",
+            "024632d6-5f7b-483e-b1dc-82b05d62046c",
+            "9b2ba395-726b-4a5f-a1a6-edd3b588893f",
+            "57a193ad-714b-4b6b-ba31-834cf2c43649"
+          ],
+          "hnsw_top10": [
+            "bd4d1d24-d254-4882-9627-5f06318e22c0",
+            "9da2405d-7515-4dce-b9a1-20dae6b8b2b1",
+            "fbc1fb35-6575-4cb8-ae46-422a88d5474b",
+            "0cb0a0a3-bc8d-4612-8eed-4e14ca94af1d",
+            "2368e822-99df-40a1-a7c6-1fc8fae60aac",
+            "5b892d59-d342-446a-b15e-0af4a9d51c02",
+            "09919d3e-1731-40c8-9a0e-794a59ed62ac",
+            "024632d6-5f7b-483e-b1dc-82b05d62046c",
+            "9b2ba395-726b-4a5f-a1a6-edd3b588893f",
+            "57a193ad-714b-4b6b-ba31-834cf2c43649"
+          ]
+        },
+        {
+          "id": "q12",
+          "question": "取消订单时库存释放会不会被重复执行？已取消的订单再取消一次会怎样？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "ee72da80-4b86-4f14-a12e-4c1b3fe9975d",
+            "8f971c6d-e5a4-4794-9d28-f937fd0e4b43",
+            "6f185db1-3cf1-4d14-b66c-6a71511fa070",
+            "08268e1b-02c6-4e76-9da2-2194c23e1f8d",
+            "44c774e1-8aac-4710-a765-4e0fb73dd33b",
+            "a0534710-ae9f-4d06-8091-c68d8979d697",
+            "a0cd76e6-acc2-4b63-9d02-8fb3eccee4bd",
+            "042a387d-9d76-414d-9de8-ab5c89433c35",
+            "55dc214e-22f6-44cf-8578-7b2c46c543f5",
+            "967a300b-d23c-4cd9-b230-ba97e6a46b0b"
+          ],
+          "hnsw_top10": [
+            "ee72da80-4b86-4f14-a12e-4c1b3fe9975d",
+            "8f971c6d-e5a4-4794-9d28-f937fd0e4b43",
+            "6f185db1-3cf1-4d14-b66c-6a71511fa070",
+            "08268e1b-02c6-4e76-9da2-2194c23e1f8d",
+            "44c774e1-8aac-4710-a765-4e0fb73dd33b",
+            "a0534710-ae9f-4d06-8091-c68d8979d697",
+            "a0cd76e6-acc2-4b63-9d02-8fb3eccee4bd",
+            "042a387d-9d76-414d-9de8-ab5c89433c35",
+            "55dc214e-22f6-44cf-8578-7b2c46c543f5",
+            "967a300b-d23c-4cd9-b230-ba97e6a46b0b"
+          ]
+        },
+        {
+          "id": "q13",
+          "question": "网关限流是什么算法？按什么维度限流？被限后返回什么？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "fbde8765-38ac-4c29-ac34-a248240e05f4",
+            "6f213264-f875-466d-993e-3a8f1b8916a6",
+            "99ae052b-c78f-406e-a5ae-251c7279845b",
+            "51c16128-79b6-40e9-951c-ba4f9680afcd",
+            "3ca64702-afc2-4e94-ae1a-7d0f6c5585fd",
+            "3be345a1-b7e1-4502-b53b-1c6b13ef5ab6",
+            "a887ebd1-e804-4337-9089-644ac155abd8",
+            "5dd1ffb9-e255-4ac8-a9b9-46d339535f4a",
+            "df1d5052-ac37-4a8b-af29-b770f5922cc1",
+            "5e7a4c4f-5862-4fb4-bab0-5be16c061d47"
+          ],
+          "hnsw_top10": [
+            "fbde8765-38ac-4c29-ac34-a248240e05f4",
+            "6f213264-f875-466d-993e-3a8f1b8916a6",
+            "99ae052b-c78f-406e-a5ae-251c7279845b",
+            "51c16128-79b6-40e9-951c-ba4f9680afcd",
+            "3ca64702-afc2-4e94-ae1a-7d0f6c5585fd",
+            "3be345a1-b7e1-4502-b53b-1c6b13ef5ab6",
+            "a887ebd1-e804-4337-9089-644ac155abd8",
+            "5dd1ffb9-e255-4ac8-a9b9-46d339535f4a",
+            "df1d5052-ac37-4a8b-af29-b770f5922cc1",
+            "5e7a4c4f-5862-4fb4-bab0-5be16c061d47"
+          ]
+        },
+        {
+          "id": "q14",
+          "question": "Prometheus 是怎么抓到各个 Java 服务的？在 WSL 环境下用 host.docker.internal 有什么坑？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "01fb14df-0b19-4e01-ab18-7a02266ccb7b",
+            "d60e83df-f0d1-4181-956b-33bff99a5c7a",
+            "339783b2-f524-4896-9a23-04552cd93e7c",
+            "9dd2135d-7885-4ef3-a10d-9bd90c796e98",
+            "45256779-03c4-4f07-b42f-1ff0e1f08f97",
+            "433b1e45-e27a-4f4c-8bdb-cfd22942f210",
+            "ee0fb85d-3135-4e76-83f1-9658fe4179ba",
+            "7ca2cb94-eb5b-4daf-bc0c-74405da89007",
+            "c93ca3e1-4134-44d9-ad1b-062bc9f1e73c",
+            "10f318e0-d9a2-4935-b6fb-2e37bacc1a38"
+          ],
+          "hnsw_top10": [
+            "01fb14df-0b19-4e01-ab18-7a02266ccb7b",
+            "d60e83df-f0d1-4181-956b-33bff99a5c7a",
+            "339783b2-f524-4896-9a23-04552cd93e7c",
+            "9dd2135d-7885-4ef3-a10d-9bd90c796e98",
+            "45256779-03c4-4f07-b42f-1ff0e1f08f97",
+            "433b1e45-e27a-4f4c-8bdb-cfd22942f210",
+            "ee0fb85d-3135-4e76-83f1-9658fe4179ba",
+            "7ca2cb94-eb5b-4daf-bc0c-74405da89007",
+            "c93ca3e1-4134-44d9-ad1b-062bc9f1e73c",
+            "10f318e0-d9a2-4935-b6fb-2e37bacc1a38"
+          ]
+        },
+        {
+          "id": "q15",
+          "question": "正式增加库存的唯一入口是哪个接口？管理员手动调整接口谁可以调？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "a6a79c5d-021a-4a09-9928-4d415a8f701d",
+            "f5c4ebe0-3ed2-4efc-8720-925c6db09f9c",
+            "aa1c00cf-b14d-4de8-a658-6b98c17a59c2",
+            "7b12f518-83e1-4fc7-a8e2-2afd769f612f",
+            "a8b2bb7b-74d0-4113-842f-ff01d203f1f2",
+            "538e7035-4f75-439b-a0af-d38ac57e650a",
+            "07ad8c1f-17cf-4fbc-a597-ef6e2c606ae2",
+            "b8ad85fb-9090-4014-84e4-ef60270376e7",
+            "fe72cfe9-8d6e-4862-b6e9-967e35a29049",
+            "02826be9-ae8c-41e4-8cb7-7d2a534deb1c"
+          ],
+          "hnsw_top10": [
+            "a6a79c5d-021a-4a09-9928-4d415a8f701d",
+            "f5c4ebe0-3ed2-4efc-8720-925c6db09f9c",
+            "aa1c00cf-b14d-4de8-a658-6b98c17a59c2",
+            "7b12f518-83e1-4fc7-a8e2-2afd769f612f",
+            "a8b2bb7b-74d0-4113-842f-ff01d203f1f2",
+            "538e7035-4f75-439b-a0af-d38ac57e650a",
+            "07ad8c1f-17cf-4fbc-a597-ef6e2c606ae2",
+            "b8ad85fb-9090-4014-84e4-ef60270376e7",
+            "fe72cfe9-8d6e-4862-b6e9-967e35a29049",
+            "02826be9-ae8c-41e4-8cb7-7d2a534deb1c"
+          ]
+        },
+        {
+          "id": "q21",
+          "question": "订单超时未支付是怎么被自动取消的？库存在什么时机释放？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "d76382c3-1a87-482d-8e9a-51326b71faaa",
+            "4211531d-e1b7-4014-bdab-ea3109695d0f",
+            "7e507a7a-aacf-4ab0-a5fa-5f11eea73e7d",
+            "25f807f3-0f0c-45b5-8a8d-062988489db5",
+            "6bfd855e-50aa-4584-b1ba-8475c94836c6",
+            "961dc323-946b-4aac-a37b-2a4756cae699",
+            "9415526e-65bc-4c3c-a5a3-68d01e54979d",
+            "55dc214e-22f6-44cf-8578-7b2c46c543f5",
+            "3813b906-1bb7-45c6-b767-a2d6e46b2da8",
+            "a003fdf6-162f-4bf7-910e-4b3667ecfa5d"
+          ],
+          "hnsw_top10": [
+            "d76382c3-1a87-482d-8e9a-51326b71faaa",
+            "4211531d-e1b7-4014-bdab-ea3109695d0f",
+            "7e507a7a-aacf-4ab0-a5fa-5f11eea73e7d",
+            "25f807f3-0f0c-45b5-8a8d-062988489db5",
+            "6bfd855e-50aa-4584-b1ba-8475c94836c6",
+            "961dc323-946b-4aac-a37b-2a4756cae699",
+            "9415526e-65bc-4c3c-a5a3-68d01e54979d",
+            "55dc214e-22f6-44cf-8578-7b2c46c543f5",
+            "3813b906-1bb7-45c6-b767-a2d6e46b2da8",
+            "a003fdf6-162f-4bf7-910e-4b3667ecfa5d"
+          ]
+        },
+        {
+          "id": "q22",
+          "question": "notification-service 负责什么？浏览器能通过网关直接访问它吗？",
+          "overlap": 1.0,
+          "exact_only_count": 0,
+          "exact_top10": [
+            "987d66b7-6c89-4cca-8429-2bf22292ddd2",
+            "dc084468-2280-4910-b50b-06f2acb73ef4",
+            "f2eb59f5-f6c4-4821-a8b0-abbd2695aef2",
+            "f9540dae-8ac4-4f97-adbe-4c4c075c6fce",
+            "df26f827-edef-47cb-8183-a3eb3e8b5ac2",
+            "18edafe6-bf22-40d9-9034-4ba11ab3b566",
+            "08bfc197-87b0-4894-9bfc-dc1d01c279a2",
+            "a0e802de-232a-49d2-89ba-bef78f2760c3",
+            "330f7a15-31b1-4383-92f4-349296147bb8",
+            "80701b9d-3103-4889-8cd3-87997d6fbe19"
+          ],
+          "hnsw_top10": [
+            "987d66b7-6c89-4cca-8429-2bf22292ddd2",
+            "dc084468-2280-4910-b50b-06f2acb73ef4",
+            "f2eb59f5-f6c4-4821-a8b0-abbd2695aef2",
+            "f9540dae-8ac4-4f97-adbe-4c4c075c6fce",
+            "df26f827-edef-47cb-8183-a3eb3e8b5ac2",
+            "18edafe6-bf22-40d9-9034-4ba11ab3b566",
+            "08bfc197-87b0-4894-9bfc-dc1d01c279a2",
+            "a0e802de-232a-49d2-89ba-bef78f2760c3",
+            "330f7a15-31b1-4383-92f4-349296147bb8",
+            "80701b9d-3103-4889-8cd3-87997d6fbe19"
+          ]
+        }
+      ]
+    }
+  ],
+  "decision": {
+    "gate_passed": true,
+    "frozen_vector_mode": "hnsw",
+    "frozen_ef_search": 40
+  }
+}

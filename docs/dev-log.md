@@ -405,3 +405,13 @@
 - 不可见性不在编排层重复过滤，由两条 channel 的仓储查询共同保证（D7）；集成测试用最严苛构造验证——failed 文档陈旧块与其他项目的块拿着与查询向量余弦=1 且词面精确命中的内容，依然不可见。
 - 集成测试 4 项（真实 PG + FakeEmbedder 确定性向量）：受控种子上双 channel 皆第 1 的块融合后居首且 fused_score 精确等于 2/61；多 query 命中合并 hit_queries、重复子查询结果与单查询逐字段相等；6 种越界参数全部拒绝；不可见性如上。
 - 质量门：ruff/pyright 零错误，pytest 145 passed。
+
+## 2026-07-18 · T15.3 · HNSW/exact top-10 overlap 对照
+
+做了什么：`benchmarks/p1_hnsw_overlap.py` 在 P1 全量快照（445 文档/4788 chunks）上用真实 Qwen 对 17 个 retrieval dev 问题跑 HNSW vs exact 对照，报告落盘 `evalsets/reports/p1-dev-hnsw-overlap-20260718T122103+0800.{json,md}`（证据：本提交）。
+
+- 方法：每题只嵌入一次查询向量，同一向量分别走 `vector_search(mode="exact")` 与 `mode="hnsw"` 的 top-10，按 chunk_id 集合算 overlap；计划形状由 GUC 强制（T12.4 已验证真实走 HNSW 索引），报告不重复 EXPLAIN。ef_search 阶梯 [40, 80, 160] 在跑之前预声明，达标即冻结不继续爬——避免"看结果再决定试多少档"的事后调参空间。
+- 结果：首档 ef_search=40（pgvector 会话默认）即 17/17 题 overlap=1.0，平均 1.0 ≥ 0.95 Gate 通过。4788 chunks 规模下 HNSW（m=16/ef_construction=64）近似损失为零，符合小语料预期；该结论不外推到更大语料。
+- 裁决落地：`hybrid_retrieve` 默认 `vector_mode` 从 exact 切到 hnsw（T15.2 预留的裁决点），ef_search=None 沿用会话默认 40 作为冻结值；docstring 引用报告。评测基线路径仍可显式切 exact。
+- 纪律：报告从干净提交 19f0097 生成（生成器先行提交），`devkb_worktree_dirty=false`——T14.4 复评教训直接内化为流程。
+- 质量门：ruff/pyright 零错误，pytest 145 passed（hnsw 默认下既有 Hybrid 集成测试不变绿）。

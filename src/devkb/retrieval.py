@@ -209,7 +209,7 @@ async def hybrid_retrieve(
     top_k: int = 8,
     per_channel_n: int = MAX_CHANNEL_CANDIDATES,
     rrf_k: int = RRF_K_DEFAULT,
-    vector_mode: VectorSearchMode = "exact",
+    vector_mode: VectorSearchMode = "hnsw",
     ef_search: int | None = None,
 ) -> list[HybridHit]:
     """每个子查询跑 Vector + FTS 各 top-N，全部 (query, channel) ranking 交给
@@ -217,8 +217,9 @@ async def hybrid_retrieve(
 
     - 子查询按首见序去重后不得超过 MAX_SUBQUERIES；per_channel_n / top_k
       超出硬上限直接 ValueError——上限不是默认值，调用方不能绕过；
-    - vector_mode 默认 exact；HNSW 是否成为默认口径由 T15.3 对照
-      （Evaluation v1 §5.1 第 4 条）裁定后再切换；
+    - vector_mode 默认 hnsw：T15.3 对照通过（17 dev 平均 top-10 overlap=1.0
+      @ ef_search=40，报告 evalsets/reports/p1-dev-hnsw-overlap-20260718T122103+0800）；
+      ef_search=None 沿用 pgvector 会话默认 40（冻结值），评测基线可切 exact；
     - failed 文档与其他 project 的不可见性由两条 channel 的仓储查询
       共同保证（D7），本层不重复过滤。
     """
