@@ -92,6 +92,18 @@ CLI 的统一评测枚举为 `vector-exact|vector-hnsw|lexical|hybrid-rrf|agenti
 
 本 Gate 要求证明“Hybrid 至少不退化且解决一个预声明弱点”，不要求为了漂亮数字引入 reranker。
 
+> **2026-07-18 修订（T15.4 偏差裁决，见《P1任务清单》偏差记录）**：第 1–3 条在冻结机制
+> （RRF k=60、每路 top-N ≤50、冻结 token 化与标注）下经证明不可满足——官方同快照对照
+> `evalsets/reports/p1-dev-hybrid-gate-20260718T122552+0800` Gate 未过，规格内 28 组
+> (n_vector, n_lexical) 网格 0 组通过（`benchmarks/results/hybrid_grid_diag.txt`），
+> 根因是 lexical channel 对中文自然语言题系统性噪声使 RRF 共识假设失效。
+> 依《P1实现规格》§8"无稳定评测收益时允许记录负结果"（文档优先级 2 > 3），用户裁决：
+> - 第 1–3 条由硬 Gate 改为**同快照对照记录义务**：三模式（vector-exact/lexical/hybrid-rrf）
+>   指标与逐题名次如实落盘，负结果允许，不在 17 题 dev 上继续调参；
+> - **P1 在线默认检索 = vector channel（HNSW，ef_search=40，T15.3 冻结）**；
+>   hybrid-rrf 保留为可工作实现、评测模式与显式配置路径，不作在线默认；
+> - 第 4、5 条维持硬性不变（第 4 条已由 T15.3 通过，overlap=1.0）。
+
 ### 5.2 Dev 回答 Gate（真实 DeepSeek，本地运行）
 
 在 17 个可答 + 4 个不可答/边界问题上：
@@ -166,6 +178,10 @@ devkb eval run --split holdout --mode all --confirm-holdout
 Holdout 硬 Gate：
 
 - P1 同一语料/chunk 快照上 `hybrid-rrf Recall@10 >= vector-exact Recall@10`；
+  > **2026-07-18 修订（T15.4 偏差裁决）**：随 §5.1 修订同步调整——本条改为
+  > **在线默认检索模式（vector-hnsw）的 Recall@10 不低于同快照 vector-exact**
+  > （近似损失约束，与 T15.3 overlap Gate 同向）；hybrid-rrf 与 vector-exact 的
+  > 相对对照仍必须完整报告，作为记录义务不设硬阈值。
 - 最终 L0/L1 均为 100%；
 - 0 个 run 超出硬预算或无终态。
 
