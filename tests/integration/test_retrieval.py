@@ -9,13 +9,14 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from devkb.embedding import FakeEmbedder
 from devkb.ingest.markdown import approx_token_counter
 from devkb.ingest.pipeline import ingest_directory
 from devkb.repositories import ChunkDraft, ChunkRepo, DocumentRepo, ProjectRepo
-from devkb.retrieval import lexical_retrieve, retrieve
+from devkb.retrieval import hybrid_retrieve, lexical_retrieve, retrieve
 
 CORPUS_MD = Path(__file__).parents[1] / "fixtures" / "corpus_md"
 
@@ -130,3 +131,130 @@ async def test_lexical_known_identifier_ranks_first_on_java_fixture(session: Asy
     assert top.rel_path == "order_service.java"
     assert top.title_path.endswith("shouldRetry"), "唯一包含该标识符原词的方法块必须排第 1"
     assert top.start_line <= 69 <= top.end_line, "行号指向 shouldRetry 方法真实区间"
+
+
+# ---------------------------------------------------------------------------
+# T15.2 Hybrid 编排：双 channel 融合、多 query、硬上限、不可见性
+# ---------------------------------------------------------------------------
+
+
+def _fake_embedding(text: str) -> list[float]:
+    """与 FakeEmbedder 完全一致的确定性向量：以 chunk 原文为查询时余弦=1。"""
+    return FakeEmbedder().embed_query(text)
+
+
+async def _seed_hybrid_project(session: AsyncSession) -> uuid.UUID:
+    """受控种子：A 同时是 vector（查询=原文）与 lexical（多 token）最强命中，
+    C 仅共享标识符 token（lexical 第 2），B 仅可能经 vector 出现。"""
+    project = await ProjectRepo(session).create(slug=f"t15-{uuid.uuid4().hex[:8]}", name="t15")
+    doc = await DocumentRepo(session, project.id).upsert(
+        rel_path="docs/timeout.md", title="Timeout", doc_type="markdown", content_hash="h"
+    )
+    contents = [
+        ("任务 > 扫描", "OrderTimeoutJob 扫描 pending 订单并触发取消"),
+        ("支付 > 幂等", "支付回调重复投递的幂等处理"),
+        ("任务 > 配置", "OrderTimeoutJob 的调度周期配置"),
+    ]
+    await ChunkRepo(session, project.id).replace_for_document(
+        doc.id,
+        [
+            ChunkDraft(i, title, text, f"c{i}", 8, 2 * i + 1, 2 * i + 2, _fake_embedding(text))
+            for i, (title, text) in enumerate(contents)
+        ],
+    )
+    await session.commit()
+    return project.id
+
+
+async def test_hybrid_fuses_both_channels_with_full_metadata(session: AsyncSession) -> None:
+    project_id = await _seed_hybrid_project(session)
+    query = "OrderTimeoutJob 扫描 pending 订单并触发取消"  # = A 的逐字原文
+
+    hits = await hybrid_retrieve(session, project_id, [query], embedder=FakeEmbedder(), top_k=8)
+
+    top = hits[0]
+    assert top.title_path == "任务 > 扫描", "双 channel 都排第 1 的块必须融合后居首"
+    assert top.vector_rank == 1 and top.lexical_rank == 1
+    assert top.fused_score == pytest.approx(2 / 61), "fused_score 只能是 1/(k+rank) 求和"
+    assert top.hit_queries == (query,)
+
+    by_title = {h.title_path: h for h in hits}
+    assert by_title["任务 > 配置"].lexical_rank == 2, "共享标识符 token 的块经 lexical 进入"
+    assert by_title["支付 > 幂等"].lexical_rank is None, "词面无重叠的块只能来自 vector channel"
+    assert by_title["支付 > 幂等"].vector_rank is not None
+    for h in hits:
+        assert h.rel_path == "docs/timeout.md" and h.title_path and h.content
+        assert 1 <= h.start_line <= h.end_line
+        assert isinstance(h.chunk_id, uuid.UUID) and h.fused_score > 0
+    scores = [h.fused_score for h in hits]
+    assert scores == sorted(scores, reverse=True)
+
+
+async def test_hybrid_multi_query_merges_and_dedupes(session: AsyncSession) -> None:
+    project_id = await _seed_hybrid_project(session)
+    q1, q2 = "OrderTimeoutJob 扫描", "OrderTimeoutJob 调度周期"
+
+    hits = await hybrid_retrieve(session, project_id, [q1, q2], embedder=FakeEmbedder(), top_k=8)
+    top = hits[0]
+    assert top.hit_queries == (q1, q2), "两个子查询都命中的块须回带全部命中 query"
+    assert {h.title_path for h in hits[:2]} == {"任务 > 扫描", "任务 > 配置"}
+
+    single = await hybrid_retrieve(session, project_id, [q1], embedder=FakeEmbedder(), top_k=8)
+    duplicated = await hybrid_retrieve(
+        session, project_id, [q1, q1], embedder=FakeEmbedder(), top_k=8
+    )
+    assert duplicated == single, "重复子查询去重后不得重复计分"
+
+
+async def test_hybrid_hard_caps_cannot_be_bypassed(session: AsyncSession) -> None:
+    project_id = await _seed_hybrid_project(session)
+    embedder = FakeEmbedder()
+
+    with pytest.raises(ValueError, match="子查询"):
+        await hybrid_retrieve(session, project_id, ["a", "b", "c", "d"], embedder=embedder)
+    with pytest.raises(ValueError, match="query"):
+        await hybrid_retrieve(session, project_id, [], embedder=embedder)
+    for bad_n in (0, 51):
+        with pytest.raises(ValueError, match="per_channel_n"):
+            await hybrid_retrieve(
+                session, project_id, ["q"], embedder=embedder, per_channel_n=bad_n
+            )
+    for bad_k in (0, 13):
+        with pytest.raises(ValueError, match="top_k"):
+            await hybrid_retrieve(session, project_id, ["q"], embedder=embedder, top_k=bad_k)
+
+
+async def test_hybrid_failed_docs_and_foreign_projects_invisible(session: AsyncSession) -> None:
+    projects = ProjectRepo(session)
+    pa = await projects.create(slug=f"t15a-{uuid.uuid4().hex[:8]}", name="a")
+    pb = await projects.create(slug=f"t15b-{uuid.uuid4().hex[:8]}", name="b")
+    query = "hybridprobe 探针"
+
+    doc_repo_a = DocumentRepo(session, pa.id)
+    good = await doc_repo_a.upsert(
+        rel_path="good.md", title="G", doc_type="markdown", content_hash="hg"
+    )
+    bad = await doc_repo_a.upsert(
+        rel_path="bad.md", title="B", doc_type="markdown", content_hash="hb"
+    )
+    await ChunkRepo(session, pa.id).replace_for_document(
+        good.id, [ChunkDraft(0, "", "hybridprobe alpha", "c0", 4, 1, 1, _fake_embedding(query))]
+    )
+    # 最严苛场景：failed 文档陈旧块与其他项目的块都与查询向量完全相同（余弦=1）
+    # 且词面精确命中——依然绝不可见
+    await ChunkRepo(session, pa.id).replace_for_document(
+        bad.id, [ChunkDraft(0, "", "hybridprobe beta", "c1", 4, 1, 1, _fake_embedding(query))]
+    )
+    await doc_repo_a.mark_failed("bad.md", "ParseError: 模拟更新失败")
+    doc_b = await DocumentRepo(session, pb.id).upsert(
+        rel_path="foreign.md", title="F", doc_type="markdown", content_hash="hf"
+    )
+    await ChunkRepo(session, pb.id).replace_for_document(
+        doc_b.id, [ChunkDraft(0, "", "hybridprobe gamma", "c2", 4, 1, 1, _fake_embedding(query))]
+    )
+    await session.commit()
+
+    hits = await hybrid_retrieve(session, pa.id, [query], embedder=FakeEmbedder(), top_k=8)
+    assert [h.content for h in hits] == ["hybridprobe alpha"], (
+        "failed 文档陈旧块与其他 project 的完美匹配块都不得出现"
+    )

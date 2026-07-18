@@ -14,9 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from devkb.embedding import Embedder
 from devkb.fts import tokenize_query
-from devkb.repositories import ChunkRepo
+from devkb.models import Chunk
+from devkb.repositories import ChunkRepo, VectorSearchMode
 
 RRF_K_DEFAULT = 60
+
+# Hybrid 编排硬上限（§8"全部经配置约束并设硬上限，用户不能绕过"）
+MAX_SUBQUERIES = 3
+MAX_CHANNEL_CANDIDATES = 50
+MAX_FINAL_TOP_K = 12
 
 
 @dataclass(frozen=True)
@@ -171,3 +177,89 @@ async def retrieve(
         )
         for chunk, rel_path, score in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Hybrid 编排（§8）：Vector + FTS 各 top-N → RRF → final top-k
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class HybridHit:
+    """Hybrid 命中项：完整引用元数据 + §8 第 6 条解释字段（轨迹与评测用）。"""
+
+    chunk_id: uuid.UUID
+    rel_path: str
+    title_path: str
+    content: str
+    start_line: int
+    end_line: int
+    fused_score: float
+    vector_rank: int | None  # 该 channel 跨 query 最优名次；未进候选为 None
+    lexical_rank: int | None
+    hit_queries: tuple[str, ...]
+
+
+async def hybrid_retrieve(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    queries: Sequence[str],
+    *,
+    embedder: Embedder,
+    top_k: int = 8,
+    per_channel_n: int = MAX_CHANNEL_CANDIDATES,
+    rrf_k: int = RRF_K_DEFAULT,
+    vector_mode: VectorSearchMode = "exact",
+    ef_search: int | None = None,
+) -> list[HybridHit]:
+    """每个子查询跑 Vector + FTS 各 top-N，全部 (query, channel) ranking 交给
+    rrf_fuse 融合，裁剪 final top-k 后组装完整引用元数据。
+
+    - 子查询按首见序去重后不得超过 MAX_SUBQUERIES；per_channel_n / top_k
+      超出硬上限直接 ValueError——上限不是默认值，调用方不能绕过；
+    - vector_mode 默认 exact；HNSW 是否成为默认口径由 T15.3 对照
+      （Evaluation v1 §5.1 第 4 条）裁定后再切换；
+    - failed 文档与其他 project 的不可见性由两条 channel 的仓储查询
+      共同保证（D7），本层不重复过滤。
+    """
+    deduped = list(dict.fromkeys(queries))
+    if not deduped:
+        raise ValueError("hybrid 检索至少需要 1 个非空 query")
+    if len(deduped) > MAX_SUBQUERIES:
+        raise ValueError(f"子查询数（去重后）不得超过 {MAX_SUBQUERIES}：{len(deduped)}")
+    if not 1 <= per_channel_n <= MAX_CHANNEL_CANDIDATES:
+        raise ValueError(f"per_channel_n 必须在 1..{MAX_CHANNEL_CANDIDATES}：{per_channel_n}")
+    if not 1 <= top_k <= MAX_FINAL_TOP_K:
+        raise ValueError(f"top_k 必须在 1..{MAX_FINAL_TOP_K}：{top_k}")
+
+    repo = ChunkRepo(session, project_id)
+    rankings: list[ChannelRanking] = []
+    catalog: dict[uuid.UUID, tuple[Chunk, str]] = {}
+    for query in deduped:
+        vector_rows = await repo.vector_search(
+            embedder.embed_query(query), per_channel_n, mode=vector_mode, ef_search=ef_search
+        )
+        lexical_rows = await repo.lexical_search(query, per_channel_n)
+        for channel, rows in (("vector", vector_rows), ("lexical", lexical_rows)):
+            rankings.append(ChannelRanking(query, channel, tuple(chunk.id for chunk, _, _ in rows)))
+            for chunk, rel_path, _ in rows:
+                catalog.setdefault(chunk.id, (chunk, rel_path))
+
+    hits: list[HybridHit] = []
+    for fused in rrf_fuse(rankings, k=rrf_k)[:top_k]:
+        chunk, rel_path = catalog[fused.chunk_id]
+        hits.append(
+            HybridHit(
+                chunk_id=fused.chunk_id,
+                rel_path=rel_path,
+                title_path=chunk.title_path,
+                content=chunk.content,
+                start_line=chunk.start_line,
+                end_line=chunk.end_line,
+                fused_score=fused.fused_score,
+                vector_rank=fused.rank_for("vector"),
+                lexical_rank=fused.rank_for("lexical"),
+                hit_queries=fused.hit_queries,
+            )
+        )
+    return hits

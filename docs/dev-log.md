@@ -395,3 +395,13 @@
 - 语义决策：同一 ranking 内重复 chunk_id 只计首个（最优）名次；跨 ranking 合并时各 channel 保留跨 query 最优 rank、hit_queries 按输入首见序；并列 fused_score 按 chunk_id 升序决定性排序。函数返回完整融合列表不截断——final top-k 是 T15.2 编排层的职责，纯函数不预设消费方。
 - golden 覆盖判据列举的全部场景：双 channel 重叠去重、并列决序、缺失 channel（空 ranking 零贡献）、ranking 内重复、空输入、多 query 同 channel 贡献相加。快照数值人工核对（1/62+1/61≈0.03252 等）后冻结；另有默认 k=60、公式、稳定性与 k<1 拒绝的独立断言。
 - 质量门：ruff/pyright 零错误，pytest 141 passed。
+
+## 2026-07-18 · T15.2 · Hybrid retrieval 编排
+
+做了什么：`retrieval.py` 新增 `hybrid_retrieve` 编排与 `HybridHit` 结果模型：每个子查询跑 Vector + FTS 各 top-N，全部 (query, channel) ranking 交给 `rrf_fuse`，裁剪 final top-k 后组装完整引用元数据与解释字段（证据：本提交）。
+
+- 硬上限按 §8 落地：子查询 ≤3（按首见序去重后计数——重复子查询若不去重会双倍计分，语义上等价于 §8 第 5 条"多子查询按证据 ID 去重"）、每路候选 ≤50、final top_k ≤12；越界一律 ValueError，上限不是默认值，调用方无法绕过。
+- vector_mode 默认 exact 并在 docstring 注明：HNSW 是否成为默认口径由 T15.3 对照（Gate §5.1 第 4 条）裁定后再切换，不预支未验证的默认。
+- 不可见性不在编排层重复过滤，由两条 channel 的仓储查询共同保证（D7）；集成测试用最严苛构造验证——failed 文档陈旧块与其他项目的块拿着与查询向量余弦=1 且词面精确命中的内容，依然不可见。
+- 集成测试 4 项（真实 PG + FakeEmbedder 确定性向量）：受控种子上双 channel 皆第 1 的块融合后居首且 fused_score 精确等于 2/61；多 query 命中合并 hit_queries、重复子查询结果与单查询逐字段相等；6 种越界参数全部拒绝；不可见性如上。
+- 质量门：ruff/pyright 零错误，pytest 145 passed。
