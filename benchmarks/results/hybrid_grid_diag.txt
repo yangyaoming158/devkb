@@ -1,6 +1,11 @@
 T15.4 hybrid (n_vector, n_lexical) 网格诊断（官方 rrf_fuse 截断，k=60）
-语料 chunks=4788，问题数=17，vector-exact 基线：R@10=0.588 MRR@10=0.386
+运行：2026-07-18T13:02:59+08:00 ｜ devkb commit：53093155a65d86fa01692adb1b12995401e21532（dirty=False）
+语料：445 文档 / 4788 chunks ｜ corpus sha256：0b8af698f960489ae335633a488a7a8cde0cb76b44d1c78e0878c2b760194670
+模型：Qwen/Qwen3-Embedding-0.6B ｜ 数据集：evalsets/v0/retrieval_dev.jsonl（17 题）｜ 候选捕获：{"per_channel_n": 50, "vector_mode": "hnsw", "ef_search": 40, "rrf_k": 60, "top_k": 10}
+复现：env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY HF_HUB_OFFLINE=1 uv run python benchmarks/p1_hybrid_grid_diag.py
+vector-exact 基线：R@10=0.588 MRR@10=0.386
 
+代表性网格（人读；穷举结论见下）
 n_vec | n_lex | R@5   | R@10  | MRR@10 | ΔMRR    | G1 G2 G3 | 过 | token 改善题
 ------|-------|-------|-------|--------|---------|----------|----|-------------
     5 |     1 | 0.471 | 0.471 | 0.2863 | -0.0996 | ✗  ✗  ✗  | — | -
@@ -32,7 +37,11 @@ n_vec | n_lex | R@5   | R@10  | MRR@10 | ΔMRR    | G1 G2 G3 | 过 | token 改�
    50 |    20 | 0.294 | 0.471 | 0.1379 | -0.2479 | ✗  ✗  ✗  | — | -
    50 |    50 | 0.118 | 0.471 | 0.1136 | -0.2722 | ✗  ✗  ✓  | — | q22
 
-全 Gate 通过组合数：0
+穷举网格（n_vector=1..50 × n_lexical=1..50，k=60，共 2500 组）：
+- 全 Gate（G1∧G2∧G3）通过组合数：0
+- G2（ΔMRR ≥ -0.02）最好成绩：ΔMRR=-0.0838 @ (n_vec=7, n_lex=1)
+- 各单项通过组合数：G1=132，G2=0，G3=520
+（逐组合完整指标见同目录 hybrid_grid_diag.json）
 
 附录（规格外自由度，仅供偏差裁决参考，不据此改默认）：k 变体 @ 代表性 n 组合
 k= 10 n_vec=50 n_lex=50: R@10=0.471 MRR=0.1683 ΔMRR=-0.2176 过=否
