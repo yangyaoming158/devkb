@@ -41,6 +41,10 @@ def route_after_evaluate(state: AgentState) -> RouteAfterEvaluate:
     evaluation = state["evaluation"]
     if evaluation is None:
         return "finalize"
+    # 证据数量是确定性硬信号：即使 LLM 违背 Prompt 把空证据判为 sufficient，
+    # 也必须按 insufficient 路径补检或拒答，不能生成零证据 full 回答。
+    if not state["evidences"]:
+        return "refine" if can_refine(state) else "finalize"
     if evaluation.sufficiency == "sufficient":
         return (
             "generate"

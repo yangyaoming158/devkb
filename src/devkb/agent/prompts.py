@@ -48,24 +48,30 @@ GENERATE_SYSTEM = (
 )
 
 
-def _evidence_blocks(evidences: list[Evidence]) -> str:
-    if not evidences:
-        return "（无证据）"
-    return "\n\n".join(
-        f"<{e.evidence_id} path={json.dumps(e.rel_path, ensure_ascii=False)} "
-        f"lines={e.start_line}-{e.end_line}>\n{e.content}\n</{e.evidence_id}>"
-        for e in evidences
-    )
+def _evidence_payload(evidences: list[Evidence]) -> list[dict[str, object]]:
+    """正文作为 JSON string 值编码，不能闭合标签或伪造兄弟 evidence 字段。"""
+    return [
+        {
+            "evidence_id": evidence.evidence_id,
+            "rel_path": evidence.rel_path,
+            "title_path": evidence.title_path,
+            "start_line": evidence.start_line,
+            "end_line": evidence.end_line,
+            "content": evidence.content,
+        }
+        for evidence in evidences
+    ]
 
 
 def build_plan_user(question: str) -> str:
-    return f"<question>\n{question}\n</question>"
+    return json.dumps({"question": question}, ensure_ascii=False, separators=(",", ":"))
 
 
 def build_evaluate_user(question: str, evidences: list[Evidence]) -> str:
-    return (
-        f"<question>\n{question}\n</question>\n"
-        f"<evidence>\n{_evidence_blocks(evidences)}\n</evidence>"
+    return json.dumps(
+        {"question": question, "evidences": _evidence_payload(evidences)},
+        ensure_ascii=False,
+        separators=(",", ":"),
     )
 
 
@@ -88,10 +94,14 @@ def build_generate_user(
     evaluation: EvaluateOutput,
 ) -> str:
     mode_hint = "full" if evaluation.sufficiency == "sufficient" else "partial"
-    return (
-        f"<question>\n{question}\n</question>\n"
-        f"<requested_mode>{mode_hint}</requested_mode>\n"
-        f"<evidence>\n{_evidence_blocks(evidences)}\n</evidence>"
+    return json.dumps(
+        {
+            "question": question,
+            "requested_mode": mode_hint,
+            "evidences": _evidence_payload(evidences),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
     )
 
 

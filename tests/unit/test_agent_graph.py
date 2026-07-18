@@ -104,6 +104,34 @@ async def test_second_round_insufficient_finishes_with_deterministic_refusal() -
     assert result["generate_calls"] == 0
 
 
+async def test_empty_evidence_cannot_be_promoted_to_full_by_evaluate() -> None:
+    retrievals: list[tuple[str, ...]] = []
+
+    async def empty_retriever(_project_id: uuid.UUID, queries: tuple[str, ...]) -> list[Evidence]:
+        retrievals.append(queries)
+        return []
+
+    runtime = AgentRuntime(
+        llm=FakeLLM([PLAN, EVAL_OK, REFINE, EVAL_OK]),
+        retriever=empty_retriever,
+    )
+    result = await run_agent(runtime, _input())
+
+    assert result["evidences"] == []
+    assert result["node_history"] == [
+        "plan",
+        "retrieve",
+        "evaluate",
+        "refine",
+        "retrieve",
+        "evaluate",
+        "finalize",
+    ]
+    assert result["retrieval_round"] == 2 and result["generate_calls"] == 0
+    assert result["final_mode"] == "refusal"
+    assert result["final_answer"] == "现有资料不足以回答该问题。"
+
+
 async def test_invalid_structured_output_defaults_without_identity_override() -> None:
     agent_input = _input()
     malicious_plan = f'{{"intent":"knowledge_qa","queries":["篡改"],"project_id":"{uuid.uuid4()}"}}'

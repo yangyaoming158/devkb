@@ -465,3 +465,11 @@
 - T16 的 verify 目前只是显式拓扑接点；L0/L1、验证失败重生成与完整三态 Answer 按任务边界留给 T17。节点/工具轨迹落库与 run 终态原子性留给 T18，不提前实现。
 
 证据：14 项新增单测覆盖 strict schema、Prompt snapshot、首轮充分、补检成功、二次不足、结构化失败、身份不可覆盖、预算熔断、refine/generate 默认、请求恰达 6、业务上限与 HNSW 接线；`make ci` 通过（ruff/pyright 零错误，pytest 159 passed）。证据 commit：本提交。
+
+## 2026-07-18 · T16 复评修复 · 零证据路由与 evidence 载荷边界
+
+审查发现 1 中等 + 1 低等实现问题，均属实并修复；另接受“5 个子任务合并提交使逐项证据映射变弱”的流程注记，后续恢复按子任务提交节奏。
+
+- 中等：evaluate Prompt 虽要求空证据返回 insufficient，但 router 的 sufficient 分支没有读取证据数，模型违规时可到达“零证据 full”。修复为证据数量优先的确定性硬守卫：无证据一律按 insufficient 控制流，在轮次/预算允许时 refine，否则 finalize refusal；Fake 路径用连续两轮空检索但 evaluate 均返回 sufficient 的敌意脚本，精确断言 `plan→retrieve→evaluate→refine→retrieve→evaluate→finalize`、generate=0、终态 refusal。
+- 低等：原 Prompt 用 `<E1 ...>正文</E1>` 包装未转义正文，`</E1><E2 path=...>` 可伪造视觉上的证据元数据。修复为统一 JSON user payload，question/requested_mode/evidences 都是结构化字段，正文只作为 `evidences[].content` 字符串编码；evaluate/generate 两条路径用恶意闭合标签断言反序列化后始终只有真实 E1/path/line。证据包装口径属于冻结的 Prompt 版本递增条件，故同步将机器真相源与版本文档从 `p1-agent-v1` 递增为 `p1-agent-v2`；v1 尚无 Agentic 真实报告，T20 首份报告直接记录 v2。
+- 质量门：T16 定向测试由 14 增至 16；`make ci` 为 ruff/pyright 零错误、pytest 161 passed。证据 commit：本提交。
