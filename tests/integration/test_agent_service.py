@@ -295,6 +295,73 @@ async def test_database_error_during_retrieval_degrades_to_persisted_refusal(
     assert run.usage is not None and run.usage["llm_calls"] == 4
 
 
+async def test_real_aborted_transaction_during_retrieval_still_persists_run_and_trace(
+    session: AsyncSession, monkeypatch: Any
+) -> None:
+    """T18.4：真实 DB 错误使事务 aborted——rollback 后降级 run 与轨迹仍须落库。
+
+    T18.2 真实 run 实测缺口：此前 aborted 事务令后续 INSERT 全部失败，
+    run 永久 running。坏 SQL 在被测 session 上真实执行以复现 aborted 状态。
+    """
+    from sqlalchemy import text
+
+    project_id = await _seeded_project(session)
+
+    async def poisoned_retrieve(inner_session: Any, *args: Any, **kwargs: Any) -> Any:
+        await inner_session.execute(text("SELECT 1/0"))
+
+    monkeypatch.setattr("devkb.agent.nodes.retrieve", poisoned_retrieve)
+    llm = FakeLLM([PLAN, EVAL_OK, '{"queries":["补偿查询"]}', EVAL_OK], model="deepseek-v4-flash")
+
+    answer = await agentic_answer_question(
+        session, project_id, "库存怎么保证并发安全？", embedder=FakeEmbedder(), llm=llm, top_k=4
+    )
+
+    assert answer["mode"] == "refusal"
+    run_id = uuid.UUID(answer["run_id"])
+    run = await RunRepo(session, project_id).get(run_id)
+    assert run is not None and run.status == "succeeded"
+    steps = await AgentStepRepo(session, project_id).list_for_run(run_id)
+    assert [step.seq for step in steps] == list(range(1, len(steps) + 1))
+    retrieves = [step for step in steps if step.node == "retrieve"]
+    assert retrieves and all(step.status == "degraded" for step in retrieves)
+    assert all(step.error is not None and step.error.startswith("retrieve:") for step in retrieves)
+    tools = await ToolInvocationRepo(session, project_id).list_for_run(run_id)
+    assert tools and all(tool.status == "failed" for tool in tools)
+    # 无永久 running
+    assert all(r.status != "running" for r in await RunRepo(session, project_id).list_recent(10))
+
+
+async def test_llm_timeout_run_persists_degraded_step_with_request_errors(
+    session: AsyncSession,
+) -> None:
+    """T18.4：generate 双超时降级——run succeeded 终态，step 明细含 request_failed。"""
+    from devkb.errors import LLMTimeoutError
+
+    project_id = await _seeded_project(session)
+    llm = FakeLLM(
+        [PLAN, EVAL_OK, LLMTimeoutError("超时"), LLMTimeoutError("超时")],
+        model="deepseek-v4-flash",
+    )
+
+    answer = await agentic_answer_question(
+        session, project_id, "库存怎么保证并发安全？", embedder=FakeEmbedder(), llm=llm, top_k=4
+    )
+
+    run_id = uuid.UUID(answer["run_id"])
+    run = await RunRepo(session, project_id).get(run_id)
+    assert run is not None and run.status == "succeeded"
+    steps = await AgentStepRepo(session, project_id).list_for_run(run_id)
+    generate = next(step for step in steps if step.node == "generate")
+    assert generate.status == "degraded"
+    assert generate.output_summary is not None
+    requests = generate.output_summary["llm_requests"]
+    assert [r["status"] for r in requests] == ["request_failed", "request_failed"]
+    assert all("LLMTimeoutError" in r["error"] for r in requests)
+    assert steps[-1].node == "finalize" and steps[-1].status == "ok"
+    assert all(r.status != "running" for r in await RunRepo(session, project_id).list_recent(10))
+
+
 async def test_database_error_before_persistence_marks_run_failed(
     session: AsyncSession, monkeypatch: Any
 ) -> None:

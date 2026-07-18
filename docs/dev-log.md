@@ -553,3 +553,9 @@
 - 踩坑：Rich 表格在 CliRunner 默认 80 列下把"insufficient"折断成两行导致断言失败——tokens/cost/latency 合并为一列减少挤压，测试显式 COLUMNS=200。
 - 真实 run 414bcd57 回放人工验证：11 步完整可读——evaluate#1 partial+4 项缺失→refine 补检（证据 8→11 条）→evaluate#2 sufficient→generate#1 6 claims→verify#1 L1 单 quote 未过→generate#2→verify#2 仍有 claim[0] 未过→finalize 删除重建降级 partial。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 209 passed（+1 集成回放/隔离、+3 CLI）。证据 commit：本提交。
+
+## 2026-07-19 · T18.4 · 轨迹故障一致性
+
+- 收掉 T18.2 真实 run 暴露的一致性缺口：检索期真实 DB 异常（如 GUC 未注册、连接故障）会使 PostgreSQL 事务进入 aborted 状态，retrieve 节点虽按设计吸收异常降级，但同 session 后续所有 INSERT（轨迹、run 终态）全部失败——run 永久 running。修复三处：make_pg_retriever 闭包捕获 SQLAlchemyError 先 `session.rollback()` 恢复事务再上抛（节点降级语义不变）；service 成功/失败两条路径的 `_persist_trace` 均加兜底（写入失败 rollback 保 session + warning，run 终态优先于轨迹完整性）；rollback 会使 ORM 实例过期、其后访问 `run.id` 触发同步惰性刷新抛 MissingGreenlet（集成测试实测），改为建 run 后立即取纯 UUID 贯穿全程。
+- 故障矩阵集成测试（复现手法：在被测 session 上真实执行 `SELECT 1/0` 制造 aborted 事务，而非 monkeypatch 抛异常——后者不会污染事务，测不到本缺口）：aborted 事务→refusal run succeeded、retrieve steps degraded（error 带 retrieve: 前缀）、tools failed、seq 连续；generate 双超时→step degraded 且 llm_requests 两条 request_failed（含 LLMTimeoutError 错误文本）、finalize ok；持久化前 DB 异常→run failed（既有）；节点内未捕获异常→run failed + 最后 step failed（既有）。所有用例断言项目内无 running 残留。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 211 passed（+2 集成故障矩阵）。证据 commit：本提交。

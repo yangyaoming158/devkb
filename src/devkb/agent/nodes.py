@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pydantic import ValidationError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from devkb.agent import prompts
@@ -227,15 +228,21 @@ def make_pg_retriever(
         rankings: list[ChannelRanking] = []
         catalog: dict[uuid.UUID, RetrievedChunk] = {}
         for query in dict.fromkeys(queries):
-            hits = await retrieve(
-                session,
-                project_id,
-                query,
-                embedder=embedder,
-                top_k=top_k,
-                mode="hnsw",
-                ef_search=HNSW_EF_SEARCH,
-            )
+            try:
+                hits = await retrieve(
+                    session,
+                    project_id,
+                    query,
+                    embedder=embedder,
+                    top_k=top_k,
+                    mode="hnsw",
+                    ef_search=HNSW_EF_SEARCH,
+                )
+            except SQLAlchemyError:
+                # DB 异常会使事务 aborted：先回滚恢复 session 再上抛，
+                # 否则 retrieve 节点降级后轨迹/run 终态无法落库（T18.4 一致性）
+                await session.rollback()
+                raise
             rankings.append(ChannelRanking(query, "vector", tuple(hit.chunk_id for hit in hits)))
             for hit in hits:
                 catalog.setdefault(hit.chunk_id, hit)

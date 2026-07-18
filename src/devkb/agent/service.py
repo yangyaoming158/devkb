@@ -109,7 +109,7 @@ async def get_run_trace(
         )
     return {
         "run": {
-            "run_id": str(run.id),
+            "run_id": str(run_id),
             "question": run.question,
             "status": run.status,
             "model": run.model,
@@ -157,7 +157,10 @@ async def agentic_answer_question(
     run_repo = RunRepo(session, project_id)
     run = await run_repo.create(question)
     await session.commit()
-    agent_input = AgentInput(run_id=run.id, project_id=project_id, question=question)
+    # 立即取出纯 UUID：图执行/轨迹写入路径上的 rollback 会使 ORM 实例过期，
+    # 过期后访问 run.id 触发同步惰性刷新（MissingGreenlet，T18.4 实测）
+    run_id = run.id
+    agent_input = AgentInput(run_id=run_id, project_id=project_id, question=question)
     recorder = TraceRecorder()
 
     started = time.perf_counter()
@@ -168,12 +171,12 @@ async def agentic_answer_question(
         # 失败路径尽力保留轨迹（最后一个 step 为 failed）；轨迹写入自身失败时
         # 回滚以保住 session，run 终态 failed 优先于轨迹完整性
         try:
-            await _persist_trace(session, project_id, run.id, recorder)
+            await _persist_trace(session, project_id, run_id, recorder)
         except Exception:
             await session.rollback()
-            logger.warning("trace_persist_failed", run_id=str(run.id))
+            logger.warning("trace_persist_failed", run_id=str(run_id))
         await run_repo.finish(
-            run.id,
+            run_id,
             answer={"error": f"{type(exc).__name__}: {exc}"},
             model="",
             tokens_in=0,
@@ -196,9 +199,14 @@ async def agentic_answer_question(
         "llm_calls": state["llm_calls"],
         "llm_retries": state["llm_retries"],
     }
-    await _persist_trace(session, project_id, run.id, recorder)
+    # 轨迹写入失败不掩盖 run 终态：rollback 保住 session 后仍写 succeeded
+    try:
+        await _persist_trace(session, project_id, run_id, recorder)
+    except Exception:
+        await session.rollback()
+        logger.warning("trace_persist_failed", run_id=str(run_id))
     await run_repo.finish(
-        run.id,
+        run_id,
         answer=answer,
         model=state["model"],
         tokens_in=state["tokens_in"],
@@ -211,7 +219,7 @@ async def agentic_answer_question(
     await session.commit()
     logger.info(
         "agentic_run_finished",
-        run_id=str(run.id),
+        run_id=str(run_id),
         mode=answer["mode"],
         llm_calls=state["llm_calls"],
         warnings=len(answer["warnings"]),
