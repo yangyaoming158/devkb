@@ -36,9 +36,9 @@ P1 不新增问题，以遵守 Evaluation v0 的 31 问上限。Java 解析质�
 | 模式 | 用途 |
 |---|---|
 | `vector-exact` | P0 纯向量精确扫描基线 |
-| `vector-hnsw` | 测 HNSW 对精确结果的近似损失 |
+| `vector-hnsw` | 测 HNSW 对精确结果的近似损失；**P1 在线默认检索**（2026-07-18 T15.4 裁决，见 §5.1 修订） |
 | `lexical` | 单独观察 FTS 对中文/标识符/数字 token 的贡献 |
-| `hybrid-rrf` | P1 默认检索，对照前三者 |
+| `hybrid-rrf` | 显式调用与评测路径，对照前三者（裁决前曾定位为 P1 默认检索，2026-07-18 起非在线默认，见 §5.1 修订） |
 | `agentic` | 完整 plan→retrieve→evaluate→refine→generate→verify |
 
 CLI 的统一评测枚举为 `vector-exact|vector-hnsw|lexical|hybrid-rrf|agentic|all`；`all` 不是第六种算法，而是按表中五种模式依次运行并产出同快照对照。报告、dev 和 holdout 命令均不得再使用 `vector`、`hybrid`、`vector-fixed`、`agentic-hybrid` 等别名。

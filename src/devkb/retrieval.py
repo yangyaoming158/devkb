@@ -19,6 +19,11 @@ from devkb.repositories import ChunkRepo, VectorSearchMode
 
 RRF_K_DEFAULT = 60
 
+# T15.3 冻结的 HNSW 查询开关（Gate 报告 p1-dev-hnsw-overlap-20260718T122103+0800，
+# 17/17 题 overlap=1.0）。数值与 pgvector 会话默认一致，但在线/评测路径一律显式
+# 下发本常量，配置冻结不依赖数据库会话默认（T15 复评修复）。
+HNSW_EF_SEARCH = 40
+
 # Hybrid 编排硬上限（§8"全部经配置约束并设硬上限，用户不能绕过"）
 MAX_SUBQUERIES = 3
 MAX_CHANNEL_CANDIDATES = 50
@@ -210,7 +215,7 @@ async def hybrid_retrieve(
     per_channel_n: int = MAX_CHANNEL_CANDIDATES,
     rrf_k: int = RRF_K_DEFAULT,
     vector_mode: VectorSearchMode = "hnsw",
-    ef_search: int | None = None,
+    ef_search: int = HNSW_EF_SEARCH,
 ) -> list[HybridHit]:
     """每个子查询跑 Vector + FTS 各 top-N，全部 (query, channel) ranking 交给
     rrf_fuse 融合，裁剪 final top-k 后组装完整引用元数据。
@@ -219,7 +224,8 @@ async def hybrid_retrieve(
       超出硬上限直接 ValueError——上限不是默认值，调用方不能绕过；
     - vector_mode 默认 hnsw：T15.3 对照通过（17 dev 平均 top-10 overlap=1.0
       @ ef_search=40，报告 evalsets/reports/p1-dev-hnsw-overlap-20260718T122103+0800）；
-      ef_search=None 沿用 pgvector 会话默认 40（冻结值），评测基线可切 exact；
+      ef_search 默认冻结常量 HNSW_EF_SEARCH=40，显式下发不依赖会话默认，
+      评测基线可切 exact（该模式下 ef_search 无效）；
     - failed 文档与其他 project 的不可见性由两条 channel 的仓储查询
       共同保证（D7），本层不重复过滤。
     """

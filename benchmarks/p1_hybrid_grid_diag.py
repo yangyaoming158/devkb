@@ -21,25 +21,38 @@ k 与 channel 权重不在 P1 规格自由度内（§8 冻结默认 k=60、无�
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from p1_lexical_dev import calculate_metrics, load_dev_questions, question_group
+from p1_lexical_dev import (
+    calculate_metrics,
+    corpus_hash,
+    git_value,
+    load_dev_questions,
+    question_group,
+)
 
 from devkb.config import get_settings
 from devkb.db import create_engine, create_session_factory
 from devkb.embedding import SentenceTransformerEmbedder
-from devkb.repositories import ChunkRepo, ProjectRepo
-from devkb.retrieval import RRF_K_DEFAULT, ChannelRanking, rrf_fuse
+from devkb.repositories import ChunkRepo, DocumentRepo, ProjectRepo
+from devkb.retrieval import HNSW_EF_SEARCH, RRF_K_DEFAULT, ChannelRanking, rrf_fuse
 
 ROOT = Path(__file__).resolve().parent.parent
 RESULT_PATH = ROOT / "benchmarks/results/hybrid_grid_diag.txt"
+RESULT_JSON_PATH = ROOT / "benchmarks/results/hybrid_grid_diag.json"
+TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 TOP_K = 10
 CAPTURE_N = 50
+# 人读表格用代表性网格；结论用穷举网格（1..50 × 1..50，见 EXHAUSTIVE_MAX）
 N_VECTOR_GRID = [5, 10, 20, 50]
 N_LEXICAL_GRID = [1, 2, 3, 5, 10, 20, 50]
+EXHAUSTIVE_MAX = 50
 # 附录证据（规格外自由度，仅供偏差裁决）：k 变体在代表性 n 组合上的表现
 APPENDIX_K_GRID = [10, 20, 120]
 
@@ -121,6 +134,7 @@ async def capture() -> tuple[list[dict[str, Any]], dict[str, Any]]:
                 raise RuntimeError("项目 mini-mall 不存在")
             repo = ChunkRepo(session, project.id)
             chunk_count = await repo.count()
+            documents = await DocumentRepo(session, project.id).list_active()
             embedder = SentenceTransformerEmbedder(
                 settings.embedding_model_id,
                 device=settings.embedding_device,
@@ -130,7 +144,9 @@ async def capture() -> tuple[list[dict[str, Any]], dict[str, Any]]:
             for question in questions:
                 text = question["question"]
                 embedding = embedder.embed_query(text)
-                vector_rows = await repo.vector_search(embedding, CAPTURE_N, mode="hnsw")
+                vector_rows = await repo.vector_search(
+                    embedding, CAPTURE_N, mode="hnsw", ef_search=HNSW_EF_SEARCH
+                )
                 lexical_rows = await repo.lexical_search(text, CAPTURE_N)
                 exact_rows = await repo.vector_search(embedding, TOP_K, mode="exact")
                 catalog: dict[str, Candidate] = {}
@@ -155,7 +171,31 @@ async def capture() -> tuple[list[dict[str, Any]], dict[str, Any]]:
                 )
     finally:
         await engine.dispose()
-    return captured, {"chunk_count": chunk_count, "question_count": len(questions)}
+    document_snapshot = sorted((doc.rel_path, doc.content_hash) for doc in documents)
+    meta = {
+        "started_at": datetime.now(TIMEZONE).isoformat(timespec="seconds"),
+        "devkb_commit": git_value(ROOT, "rev-parse", "HEAD"),
+        "devkb_worktree_dirty": bool(git_value(ROOT, "status", "--short")),
+        "document_count": len(document_snapshot),
+        "chunk_count": chunk_count,
+        "corpus_sha256": corpus_hash(document_snapshot),
+        "embedding_model_id": settings.embedding_model_id,
+        "dataset": "evalsets/v0/retrieval_dev.jsonl",
+        "question_count": len(questions),
+        "capture": {
+            "per_channel_n": CAPTURE_N,
+            "vector_mode": "hnsw",
+            "ef_search": HNSW_EF_SEARCH,
+            "rrf_k": RRF_K_DEFAULT,
+            "top_k": TOP_K,
+        },
+        "command": (
+            "env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY "
+            "-u all_proxy -u ALL_PROXY HF_HUB_OFFLINE=1 "
+            "uv run python benchmarks/p1_hybrid_grid_diag.py"
+        ),
+    }
+    return captured, meta
 
 
 def main() -> None:
@@ -163,19 +203,23 @@ def main() -> None:
     vector_metrics = calculate_metrics([item["vector_exact_rank"] for item in captured])
     lines: list[str] = [
         "T15.4 hybrid (n_vector, n_lexical) 网格诊断（官方 rrf_fuse 截断，k=60）",
-        f"语料 chunks={meta['chunk_count']}，问题数={meta['question_count']}，"
+        f"运行：{meta['started_at']} ｜ devkb commit：{meta['devkb_commit']}"
+        f"（dirty={meta['devkb_worktree_dirty']}）",
+        f"语料：{meta['document_count']} 文档 / {meta['chunk_count']} chunks ｜ "
+        f"corpus sha256：{meta['corpus_sha256']}",
+        f"模型：{meta['embedding_model_id']} ｜ 数据集：{meta['dataset']}"
+        f"（{meta['question_count']} 题）｜ 候选捕获：{json.dumps(meta['capture'])}",
+        f"复现：{meta['command']}",
         f"vector-exact 基线：R@10={vector_metrics.recall_at_10:.3f} "
         f"MRR@10={vector_metrics.mrr_at_10:.3f}",
         "",
+        "代表性网格（人读；穷举结论见下）",
         "n_vec | n_lex | R@5   | R@10  | MRR@10 | ΔMRR    | G1 G2 G3 | 过 | token 改善题",
         "------|-------|-------|-------|--------|---------|----------|----|-------------",
     ]
-    passing: list[dict[str, Any]] = []
     for n_vector in N_VECTOR_GRID:
         for n_lexical in N_LEXICAL_GRID:
             row = fuse_case(captured, n_vector, n_lexical, RRF_K_DEFAULT)
-            if row["gate_passed"]:
-                passing.append(row)
             g1, g2, g3 = row["gates"]
             lines.append(
                 f"{n_vector:5d} | {n_lexical:5d} | {row['recall_at_5']:.3f} | "
@@ -184,9 +228,31 @@ def main() -> None:
                 f"{'✓' if g3 else '✗'}  | {'过' if row['gate_passed'] else '—'} | "
                 f"{','.join(row['improved_ids']) or '-'}"
             )
+
+    # 穷举网格：候选截断只取前缀，n 超出捕获深度 50 无意义，1..50 即规格内全空间
+    exhaustive_rows: list[dict[str, Any]] = []
+    passing: list[dict[str, Any]] = []
+    best_delta_row: dict[str, Any] | None = None
+    for n_vector in range(1, EXHAUSTIVE_MAX + 1):
+        for n_lexical in range(1, EXHAUSTIVE_MAX + 1):
+            row = fuse_case(captured, n_vector, n_lexical, RRF_K_DEFAULT)
+            exhaustive_rows.append(row)
+            if row["gate_passed"]:
+                passing.append(row)
+            if best_delta_row is None or row["mrr_delta"] > best_delta_row["mrr_delta"]:
+                best_delta_row = row
+    assert best_delta_row is not None
     lines += [
         "",
-        f"全 Gate 通过组合数：{len(passing)}",
+        f"穷举网格（n_vector=1..{EXHAUSTIVE_MAX} × n_lexical=1..{EXHAUSTIVE_MAX}，"
+        f"k={RRF_K_DEFAULT}，共 {len(exhaustive_rows)} 组）：",
+        f"- 全 Gate（G1∧G2∧G3）通过组合数：{len(passing)}",
+        f"- G2（ΔMRR ≥ -0.02）最好成绩：ΔMRR={best_delta_row['mrr_delta']:+.4f} "
+        f"@ (n_vec={best_delta_row['n_vector']}, n_lex={best_delta_row['n_lexical']})",
+        f"- 各单项通过组合数：G1={sum(1 for r in exhaustive_rows if r['gates'][0])}，"
+        f"G2={sum(1 for r in exhaustive_rows if r['gates'][1])}，"
+        f"G3={sum(1 for r in exhaustive_rows if r['gates'][2])}",
+        "（逐组合完整指标见同目录 hybrid_grid_diag.json）",
         "",
         "附录（规格外自由度，仅供偏差裁决参考，不据此改默认）：k 变体 @ 代表性 n 组合",
     ]
@@ -216,8 +282,45 @@ def main() -> None:
     output = "\n".join(lines) + "\n"
     RESULT_PATH.parent.mkdir(parents=True, exist_ok=True)
     RESULT_PATH.write_text(output, encoding="utf-8")
+    RESULT_JSON_PATH.write_text(
+        json.dumps(
+            {
+                "schema_version": "p1-hybrid-grid-diag-v2",
+                "meta": meta,
+                "vector_exact_baseline": {
+                    "recall_at_10": vector_metrics.recall_at_10,
+                    "mrr_at_10": vector_metrics.mrr_at_10,
+                },
+                "exhaustive": {
+                    "n_vector_range": [1, EXHAUSTIVE_MAX],
+                    "n_lexical_range": [1, EXHAUSTIVE_MAX],
+                    "k": RRF_K_DEFAULT,
+                    "total": len(exhaustive_rows),
+                    "gate_passed_count": len(passing),
+                    "rows": [
+                        {
+                            "n_vector": r["n_vector"],
+                            "n_lexical": r["n_lexical"],
+                            "recall_at_5": r["recall_at_5"],
+                            "recall_at_10": r["recall_at_10"],
+                            "mrr_at_10": r["mrr_at_10"],
+                            "mrr_delta": r["mrr_delta"],
+                            "gates": list(r["gates"]),
+                            "gate_passed": r["gate_passed"],
+                            "improved_ids": r["improved_ids"],
+                        }
+                        for r in exhaustive_rows
+                    ],
+                },
+            },
+            ensure_ascii=False,
+            indent=1,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     print(output)
-    print(f"已写入 {RESULT_PATH.relative_to(ROOT)}")
+    print(f"已写入 {RESULT_PATH.relative_to(ROOT)} 与 {RESULT_JSON_PATH.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

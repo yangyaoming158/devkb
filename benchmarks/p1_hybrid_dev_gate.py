@@ -41,6 +41,7 @@ from devkb.db import create_engine, create_session_factory
 from devkb.embedding import MAX_SEQ_LENGTH, SentenceTransformerEmbedder
 from devkb.repositories import ChunkRepo, DocumentRepo, ProjectRepo
 from devkb.retrieval import (
+    HNSW_EF_SEARCH,
     MAX_CHANNEL_CANDIDATES,
     RRF_K_DEFAULT,
     hybrid_retrieve,
@@ -192,7 +193,13 @@ async def run(args: argparse.Namespace) -> tuple[Path, Path]:
                 )
                 lexical_hits = await lexical_retrieve(session, project.id, text, top_k=TOP_K)
                 hybrid_hits = await hybrid_retrieve(
-                    session, project.id, [text], embedder=embedder, top_k=TOP_K
+                    session,
+                    project.id,
+                    [text],
+                    embedder=embedder,
+                    top_k=TOP_K,
+                    vector_mode="hnsw",
+                    ef_search=HNSW_EF_SEARCH,
                 )
                 mode_results: dict[str, list[Any]] = {
                     "vector-exact": vector_hits,
@@ -311,7 +318,7 @@ async def run(args: argparse.Namespace) -> tuple[Path, Path]:
             "rrf_k": RRF_K_DEFAULT,
             "per_channel_n": MAX_CHANNEL_CANDIDATES,
             "vector_mode": "hnsw",
-            "ef_search": 40,
+            "ef_search": HNSW_EF_SEARCH,
             "mrr_max_drop": MRR_MAX_DROP,
             "hnsw_overlap_report": "evalsets/reports/p1-dev-hnsw-overlap-20260718T122103+0800",
             "token_group_rule": "与 benchmarks/p1_lexical_dev.py TOKEN_QUESTION_RE 一致"
