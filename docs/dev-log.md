@@ -508,3 +508,7 @@
 - §5.3 十二类路径逐类映射写入 test_agent_graph.py 模块 docstring。本轮补齐第 9 类：检索工具异常（两轮均抛 RuntimeError → errors 精确记录、零 generate、确定性 refusal、工具调用次数可断言）、LLM 超时重问后成功（预算/retry_counts/warning 逐项断言）、generate 双超时确定性降级 partial。数据库异常在 test_agent_service.py（run 终态 failed），第 10 类越权在 test_isolation.py 已有。
 - 冲突：判据要求 12 类"全部覆盖"，但第 11 类（API 并发边界/事件循环）依赖 T19 FastAPI，执行顺序 T17→T19 且 T19.4 判据与之重合。已写入清单偏差记录，建议以 1–10、12 类为 T17.5 完成口径并显式移交第 11 类给 T19.4；等用户裁决，不自行改规格、不勾选。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 191 passed。证据 commit：本提交。
+
+## 2026-07-18 · T17.5 裁决落地
+
+用户裁决采纳推荐项：T17.5 以 §5.3 的 1–10、12 类覆盖为完成口径勾选；第 11 类（API 并发边界/事件循环）显式移交 T19.4（判据行已加承接标记），T21 验收按 12 类整体复核。偏差记录已填裁决列。T17 全部子任务完成。
