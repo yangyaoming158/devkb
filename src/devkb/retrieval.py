@@ -167,9 +167,13 @@ async def retrieve(
     *,
     embedder: Embedder,
     top_k: int = 8,
+    mode: VectorSearchMode = "exact",
+    ef_search: int | None = None,
 ) -> list[RetrievedChunk]:
     query_embedding = embedder.embed_query(query)
-    rows = await ChunkRepo(session, project_id).vector_search(query_embedding, top_k)
+    rows = await ChunkRepo(session, project_id).vector_search(
+        query_embedding, top_k, mode=mode, ef_search=ef_search
+    )
     return [
         RetrievedChunk(
             chunk_id=chunk.id,

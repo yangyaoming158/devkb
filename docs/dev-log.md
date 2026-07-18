@@ -452,3 +452,16 @@
 - 低等（修订说明证据滞后）：Eval v1 §5.1 修订注记仍只引 28 组网格。修复：改为"28 组代表性网格加穷举 2500 组均 0 过、G2 单项通过数为 0"，并同时指向 txt 与 json 归档。
 - 巡检：`hybrid-rrf Recall@10` 的其余出现均为"原文保留+日期化注记"模式的原句或历史 dev-log 叙事，符合不改写历史的惯例，不动。
 - 质量门：ruff/pyright 零错误，pytest 145 passed。
+
+## 2026-07-18 · T16 · LangGraph 单 Agent 有界骨架
+
+做了什么：按《P1实现规格》§9 实现 `agent/state.py`、`prompts.py`、`nodes.py`、`graph.py`。四类 LLM 输出使用 extra-forbid/strict Pydantic schema，run_id/project_id 只存在于服务层初态；Prompt 统一携带 `p1-agent-v1`、不可信 evidence 边界和 JSON schema，并用 SHA-256 snapshot 锁定。LangGraph 拓扑为 plan→retrieve→evaluate→refine(≤1)→retrieve→evaluate→generate→verify→finalize，不启用 checkpointer；router 只读 sufficiency/证据/轮次/预算，模型输出无法指定节点。
+
+关键边界与定位：
+
+- T15.4 已裁决在线默认是 vector-HNSW 而非 Hybrid。为保持 P0 对照，`retrieval.retrieve()` 只新增可选 mode/ef_search 参数且仍默认 exact；T16 PG retriever 显式传 `hnsw/40`，多 query 仅在 vector rankings 上做 RRF，不触 lexical channel。
+- 全局请求在调用供应商前计数，最大 6；每个逻辑调用点解析/传输失败只重问 1 次。允许重问，但补检前必须还能容纳 refine+二次 evaluate+generate 三次请求，因此早期重试会确定性裁掉可选补检，不靠 LangGraph recursion_limit 控预算。
+- 自审发现首轮 top-k 已满时“旧证据优先合并”会让二次新证据全部被截断，改为新证据优先、旧证据填充，最终仍受 12 条硬上限；另将 generate 两次结构化失败明确标记为失败并降级 partial/refusal，避免沿用 sufficient 信号误标 full。
+- T16 的 verify 目前只是显式拓扑接点；L0/L1、验证失败重生成与完整三态 Answer 按任务边界留给 T17。节点/工具轨迹落库与 run 终态原子性留给 T18，不提前实现。
+
+证据：14 项新增单测覆盖 strict schema、Prompt snapshot、首轮充分、补检成功、二次不足、结构化失败、身份不可覆盖、预算熔断、refine/generate 默认、请求恰达 6、业务上限与 HNSW 接线；`make ci` 通过（ruff/pyright 零错误，pytest 159 passed）。证据 commit：本提交。
