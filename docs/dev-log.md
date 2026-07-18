@@ -488,3 +488,10 @@
 - 两个额外确定性护栏：充分判定但 claims 为空 → 降级 partial 记 warning（full 的"每 claim 绑定证据"承诺不能建立在空集合上）；draft.not_found 非空时不给 full（自称充分又列缺失是矛盾信号，保守取 partial）。
 - answer_text 复用 P0 `apply_l0` 剔除越界 [E#]（agent/nodes 导入 devkb.answer，无环）。verification.failed_claims 的删除/降级分支已就位，等 T17.4 的 verify 真实现填充。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 171 passed（新增部分证据 partial+not_found 合并、充分无 claim 降级 2 项；3 个既有 refusal 用例补模板逐字断言）。证据 commit：本提交。
+
+## 2026-07-18 · T17.3 · L1 引文原文匹配
+
+- 规范化与阈值冻结（dev 集，2026-07-18）：NFKC（全角字母/数字/标点折半角）+ NFKC 不覆盖的中文标点显式映射（。→. 、→, 引号书名号等）+ 去除全部空白；之后 quote 必须是其绑定的某单条证据 content 的精确子串。设计取舍记录在模块 docstring：相似度阈值 <1.0 会放行"轻微篡改"（与引文忠实目标直接冲突）故不做模糊匹配；不折叠大小写（OrderService ≠ orderservice，代码敏感）；规范化后 <4 字符的引文（如"保护。"）几乎必然误配，直接判失败。
+- 跨 chunk 拼接天然失败：拼接文本不构成任何单条证据的子串。错误 evidence（逐字来自 E2 但绑定 E1）失败，测试含改绑 E2 后通过的对照，证明失败原因是绑定错误而非匹配器过严。
+- `l1_errors` 返回 `L1:claim[i]:quote[j]:no_verbatim_match` 机器可读错误 + 失败 claim 下标，供 T17.4 反馈 generate 与二次降级删除。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 178 passed（新增 test_l1.py 7 项）。证据 commit：本提交。
