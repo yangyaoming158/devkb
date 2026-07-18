@@ -481,3 +481,10 @@
 - 契约版本：generate 输出 schema 说明变化 → Prompt bundle `p1-agent-v2→p1-agent-v3`；AgentState 新增 verification_feedback/final_claims/final_not_found/model 字段 → `p1-agent-state-v1→v2`。版本文档追加变更记录；Prompt 快照 SHA-256 重锁。
 - CLI：ask 渲染抽成 `_render_answer`，对无 mode 的 P0 老 Answer 原样渲染（旧 runs 可读取判据），v1 Answer 增加 mode 着色、not_found、limitations 展示。坑：SIM300 Yoda condition 被 ruff 拦下（集合包含断言写反向），改为 `set(answer) >= …`。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 169 passed（新增 test_answer_v1.py 4 项、CLI 渲染 3 项、prompts feedback 1 项）。证据 commit：本提交。
+
+## 2026-07-18 · T17.2 · 三态确定性策略
+
+- finalize 重写：mode 完全由结构化状态判定（draft 有无、generate_failed、verification.failed_claims、sufficiency、claims 数、draft.not_found），零 LLM 调用。拒答模板 `_refusal_text` 列出缺失方面（evaluate.missing_aspects ∪ draft.not_found 去重），evaluate 默认不足时模板会如实展示冻结默认的"证据充分性无法确认"。
+- 两个额外确定性护栏：充分判定但 claims 为空 → 降级 partial 记 warning（full 的"每 claim 绑定证据"承诺不能建立在空集合上）；draft.not_found 非空时不给 full（自称充分又列缺失是矛盾信号，保守取 partial）。
+- answer_text 复用 P0 `apply_l0` 剔除越界 [E#]（agent/nodes 导入 devkb.answer，无环）。verification.failed_claims 的删除/降级分支已就位，等 T17.4 的 verify 真实现填充。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 171 passed（新增部分证据 partial+not_found 合并、充分无 claim 降级 2 项；3 个既有 refusal 用例补模板逐字断言）。证据 commit：本提交。

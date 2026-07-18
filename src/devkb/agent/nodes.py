@@ -21,12 +21,14 @@ from devkb.agent.state import (
     AgentState,
     EvaluateOutput,
     Evidence,
+    FinalMode,
     GenerateOutput,
     PlanOutput,
     RefineOutput,
     StrictModel,
     VerificationOutput,
 )
+from devkb.answer import apply_l0
 from devkb.embedding import Embedder
 from devkb.llm import LLMClient, compute_cost
 from devkb.retrieval import (
@@ -39,6 +41,17 @@ from devkb.retrieval import (
 )
 
 Retriever = Callable[[uuid.UUID, tuple[str, ...]], Awaitable[list[Evidence]]]
+
+
+def _refusal_text(missing: list[str]) -> str:
+    """确定性拒答模板（说明缺什么），不消耗 LLM 预算。"""
+    if missing:
+        return f"现有资料不足以回答该问题。缺少：{'；'.join(missing)}。"
+    return "现有资料不足以回答该问题。"
+
+
+def _merge_unique(*groups: list[str]) -> list[str]:
+    return list(dict.fromkeys(item for group in groups for item in group))
 
 
 @dataclass(frozen=True)
@@ -337,20 +350,69 @@ class AgentNodes:
         return {"verification": verification, "node_history": ["verify"]}
 
     async def finalize(self, state: AgentState) -> dict[str, Any]:
+        """三态确定性收尾（规格 §10）：只读结构化状态，不发起任何 LLM 调用。"""
         draft = state["answer_draft"]
         evaluation = state["evaluation"]
+        verification = state["verification"]
+        missing = list(evaluation.missing_aspects) if evaluation else []
+        warnings: list[str] = []
+
         if draft is None:
-            answer = "现有资料不足以回答该问题。"
-            mode = "refusal"
-        elif state["generate_failed"]:
-            answer = draft.answer_text
-            mode = "partial" if state["evidences"] else "refusal"
+            return {
+                "final_answer": _refusal_text(missing),
+                "final_mode": "refusal",
+                "final_claims": [],
+                "final_not_found": missing,
+                "status": "succeeded",
+                "node_history": ["finalize"],
+            }
+
+        if state["generate_failed"]:
+            mode: FinalMode = "partial" if state["evidences"] else "refusal"
+            answer = draft.answer_text if mode == "partial" else _refusal_text(missing)
+            return {
+                "final_answer": answer,
+                "final_mode": mode,
+                "final_claims": [],
+                "final_not_found": _merge_unique(draft.not_found, missing),
+                "status": "succeeded",
+                "node_history": ["finalize"],
+            }
+
+        failed = set(verification.failed_claims) if verification else set()
+        kept = [claim for index, claim in enumerate(draft.claims) if index not in failed]
+        removed = len(draft.claims) - len(kept)
+        if removed:
+            warnings.append(f"finalize: 已移除 {removed} 个未通过验证的 claim")
+
+        answer, _, l0_warnings = apply_l0(draft.answer_text, len(state["evidences"]))
+        warnings.extend(l0_warnings)
+
+        not_found = _merge_unique(draft.not_found, missing)
+        verification_ok = verification is None or verification.passed
+        if removed:
+            mode = "partial" if kept else "refusal"
+        elif (
+            evaluation is not None
+            and evaluation.sufficiency == "sufficient"
+            and kept
+            and not draft.not_found
+            and verification_ok
+        ):
+            mode = "full"
         else:
-            answer = draft.answer_text
-            mode = "full" if evaluation and evaluation.sufficiency == "sufficient" else "partial"
+            mode = "partial"
+            if evaluation is not None and evaluation.sufficiency == "sufficient" and not kept:
+                warnings.append("finalize: 充分判定但无结构化 claim，降级 partial")
+        if mode == "refusal":
+            answer = _refusal_text(not_found)
+            kept = []
         return {
             "final_answer": answer,
             "final_mode": mode,
+            "final_claims": kept,
+            "final_not_found": not_found if mode != "full" else [],
             "status": "succeeded",
             "node_history": ["finalize"],
+            "warnings": warnings,
         }

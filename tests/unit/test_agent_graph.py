@@ -22,8 +22,17 @@ from devkb.retrieval import HNSW_EF_SEARCH, RetrievedChunk
 PLAN = '{"intent":"knowledge_qa","queries":["库存扣减"]}'
 EVAL_OK = '{"sufficiency":"sufficient","supported_aspects":["库存"],"missing_aspects":[]}'
 EVAL_NO = '{"sufficiency":"insufficient","supported_aspects":[],"missing_aspects":["补偿"]}'
+EVAL_PART = '{"sufficiency":"partial","supported_aspects":["库存"],"missing_aspects":["回滚补偿"]}'
 REFINE = '{"queries":["库存补偿机制"]}'
-GENERATE = '{"answer_text":"库存扣减由事务保护。"}'
+GENERATE = (
+    '{"answer_text":"库存扣减由事务保护 [E1]。","claims":[{"text":"库存扣减由事务保护",'
+    '"evidence_ids":["E1"],"quotes":["库存扣减由事务保护。"]}],"not_found":[]}'
+)
+GENERATE_NOCLAIMS = '{"answer_text":"库存扣减由事务保护。","claims":[],"not_found":[]}'
+GENERATE_PART = (
+    '{"answer_text":"仅库存部分有证据 [E1]。","claims":[{"text":"库存扣减由事务保护",'
+    '"evidence_ids":["E1"],"quotes":["库存扣减由事务保护。"]}],"not_found":["回滚补偿细节"]}'
+)
 
 
 def _evidence(seed: int = 1) -> Evidence:
@@ -66,7 +75,9 @@ async def test_first_round_sufficient_has_exact_bounded_path() -> None:
     assert result["retrieval_round"] == 1
     assert result["llm_calls"] == 3 and result["llm_retries"] == 0
     assert result["final_mode"] == "full" and result["status"] == "succeeded"
-    assert result["final_answer"] == "库存扣减由事务保护。"
+    assert result["final_answer"] == "库存扣减由事务保护 [E1]。"
+    assert [claim.text for claim in result["final_claims"]] == ["库存扣减由事务保护"]
+    assert result["final_not_found"] == []
     assert retrievals == [("库存扣减",)]
 
 
@@ -102,6 +113,31 @@ async def test_second_round_insufficient_finishes_with_deterministic_refusal() -
     assert result["llm_calls"] == 4
     assert result["final_mode"] == "refusal"
     assert result["generate_calls"] == 0
+    # 拒答模板为确定性代码生成并说明缺什么；FakeLLM 脚本恰好耗尽证明无额外调用
+    assert result["final_answer"] == "现有资料不足以回答该问题。缺少：补偿。"
+    assert result["final_not_found"] == ["补偿"]
+
+
+async def test_partial_evidence_yields_partial_answer_with_merged_not_found() -> None:
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, EVAL_PART, REFINE, EVAL_PART, GENERATE_PART], retrievals), _input()
+    )
+
+    assert result["node_history"][-3:] == ["generate", "verify", "finalize"]
+    assert result["final_mode"] == "partial"
+    assert result["final_answer"] == "仅库存部分有证据 [E1]。"
+    assert [claim.text for claim in result["final_claims"]] == ["库存扣减由事务保护"]
+    assert result["final_not_found"] == ["回滚补偿细节", "回滚补偿"]
+
+
+async def test_sufficient_without_structured_claims_downgrades_to_partial() -> None:
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_OK, GENERATE_NOCLAIMS], retrievals), _input())
+
+    assert result["final_mode"] == "partial"
+    assert result["final_claims"] == []
+    assert any("无结构化 claim" in warning for warning in result["warnings"])
 
 
 async def test_empty_evidence_cannot_be_promoted_to_full_by_evaluate() -> None:
@@ -146,6 +182,8 @@ async def test_invalid_structured_output_defaults_without_identity_override() ->
     assert result["llm_calls"] == 4 and result["llm_retries"] == 2
     assert result["retry_counts"] == {"plan": 1, "evaluate:1": 1}
     assert result["final_mode"] == "refusal"
+    # evaluate 双失败走冻结默认 insufficient；拒答模板说明缺什么
+    assert result["final_answer"] == "现有资料不足以回答该问题。缺少：证据充分性无法确认。"
     assert all(count <= 1 for count in result["retry_counts"].values())
 
 
