@@ -473,3 +473,11 @@
 - 中等：evaluate Prompt 虽要求空证据返回 insufficient，但 router 的 sufficient 分支没有读取证据数，模型违规时可到达“零证据 full”。修复为证据数量优先的确定性硬守卫：无证据一律按 insufficient 控制流，在轮次/预算允许时 refine，否则 finalize refusal；Fake 路径用连续两轮空检索但 evaluate 均返回 sufficient 的敌意脚本，精确断言 `plan→retrieve→evaluate→refine→retrieve→evaluate→finalize`、generate=0、终态 refusal。
 - 低等：原 Prompt 用 `<E1 ...>正文</E1>` 包装未转义正文，`</E1><E2 path=...>` 可伪造视觉上的证据元数据。修复为统一 JSON user payload，question/requested_mode/evidences 都是结构化字段，正文只作为 `evidences[].content` 字符串编码；evaluate/generate 两条路径用恶意闭合标签断言反序列化后始终只有真实 E1/path/line。证据包装口径属于冻结的 Prompt 版本递增条件，故同步将机器真相源与版本文档从 `p1-agent-v1` 递增为 `p1-agent-v2`；v1 尚无 Agentic 真实报告，T20 首份报告直接记录 v2。
 - 质量门：T16 定向测试由 14 增至 16；`make ci` 为 ruff/pyright 零错误、pytest 161 passed。证据 commit：本提交。
+
+## 2026-07-18 · T17.1 · Answer v1 与兼容渲染
+
+- Answer v1 组装收口到新模块 `agent/answer.py`：纯序列化终态 AgentState，不发起 LLM 调用。P0 四字段（answer_text/citations/warnings/stats）保留原形状，citations 取 claims 绑定 ∪ 文本 [E#] 的并集按编号升序；新增 run_id/mode/claims/not_found/limitations/trace_summary。trace_summary 只含节点序列与计数器，不含 chain-of-thought。
+- claims 结构按规格 §10 落在 GenerateOutput 上：ClaimOutput 的 evidence_ids 由 schema 强制 min_length=1（“每个 claim 至少绑定一个 evidence”成为结构约束而非事后检查），quotes 上限 4、claim 上限 20、单 claim 证据上限 12 并有测试锁定与 retrieval.MAX_FINAL_TOP_K 相等。generate Prompt 声明 claims/quotes 逐字纪律与 verification_errors 修正口径（供 T17.4 重生成复用），user payload 仅在有反馈时携带 verification_errors 字段。
+- 契约版本：generate 输出 schema 说明变化 → Prompt bundle `p1-agent-v2→p1-agent-v3`；AgentState 新增 verification_feedback/final_claims/final_not_found/model 字段 → `p1-agent-state-v1→v2`。版本文档追加变更记录；Prompt 快照 SHA-256 重锁。
+- CLI：ask 渲染抽成 `_render_answer`，对无 mode 的 P0 老 Answer 原样渲染（旧 runs 可读取判据），v1 Answer 增加 mode 着色、not_found、limitations 展示。坑：SIM300 Yoda condition 被 ruff 拦下（集合包含断言写反向），改为 `set(answer) >= …`。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 169 passed（新增 test_answer_v1.py 4 项、CLI 渲染 3 项、prompts feedback 1 项）。证据 commit：本提交。

@@ -13,7 +13,7 @@ from devkb.contracts import PROMPT_VERSION
 
 def test_prompt_snapshot_locks_version_security_and_output_contract() -> None:
     snapshot = prompt_snapshot()
-    assert snapshot["version"] == PROMPT_VERSION == "p1-agent-v2"
+    assert snapshot["version"] == PROMPT_VERSION == "p1-agent-v3"
     assert set(snapshot) == {"version", "plan", "evaluate", "refine", "generate"}
     for name in ("plan", "evaluate", "refine", "generate"):
         prompt = snapshot[name]
@@ -26,7 +26,7 @@ def test_prompt_snapshot_locks_version_security_and_output_contract() -> None:
     serialized = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     assert (
         hashlib.sha256(serialized.encode()).hexdigest()
-        == "da0fa9016b35dfce2dc3566a3d33ab4b14c86f5b6bea636efe2c838e25d6ea92"
+        == "4200342d59b1d3ec92c710cc826382750f605651bc8b113d09805367f131ff11"
     )
 
 
@@ -55,3 +55,20 @@ def test_evidence_content_cannot_forge_sibling_metadata_in_json_payload() -> Non
         assert payload["evidences"][0]["evidence_id"] == "E1"
         assert payload["evidences"][0]["rel_path"] == "docs/real.md"
         assert payload["evidences"][0]["content"] == forged
+
+
+def test_generate_prompt_declares_claims_schema_and_feedback_is_optional() -> None:
+    snapshot = prompt_snapshot()
+    for token in ('"claims"', '"evidence_ids"', '"quotes"', '"not_found"', "verification_errors"):
+        assert token in snapshot["generate"]
+
+    evaluation = EvaluateOutput(sufficiency="partial", supported_aspects=[], missing_aspects=["x"])
+    plain = json.loads(build_generate_user("问题", [], evaluation))
+    assert "verification_errors" not in plain
+    with_feedback = json.loads(
+        build_generate_user(
+            "问题", [], evaluation, verification_errors=["L1:claim[0]:quote[0]:no_match"]
+        )
+    )
+    assert with_feedback["verification_errors"] == ["L1:claim[0]:quote[0]:no_match"]
+    assert with_feedback["requested_mode"] == "partial"

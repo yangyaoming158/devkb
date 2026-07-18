@@ -102,7 +102,20 @@ def ask(
     if json_output:
         console.print_json(json.dumps(answer, ensure_ascii=False))
         return
+    _render_answer(answer)
+
+
+def _render_answer(answer: dict[str, Any]) -> None:
+    """兼容渲染：P0 Answer（无 mode/claims）与 P1 Answer v1 共用一个渲染器。"""
+    mode = answer.get("mode")
+    if mode is not None:
+        color = {"full": "green", "partial": "yellow", "refusal": "red"}.get(mode, "white")
+        console.print(f"[{color}]mode={mode}[/{color}]")
     console.print(answer["answer_text"])
+    for item in answer.get("not_found", []):
+        console.print(f"[yellow]not_found[/yellow] {item}")
+    for item in answer.get("limitations", []):
+        console.print(f"[dim]limitation[/dim] {item}")
     if answer["warnings"]:
         for w in answer["warnings"]:
             console.print(f"[yellow]warning[/yellow] {w}")

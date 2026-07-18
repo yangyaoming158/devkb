@@ -25,6 +25,9 @@ MAX_RETRIEVAL_ROUNDS = 2
 MAX_REASKS_PER_CALL = 1
 MAX_REFINE_CALLS = 1
 MAX_GENERATE_CALLS = 2
+MAX_CLAIMS = 20
+MAX_CLAIM_EVIDENCE_IDS = 12  # 与 retrieval.MAX_FINAL_TOP_K 对齐（有测试锁定）
+MAX_QUOTES_PER_CLAIM = 4
 
 Intent = Literal["knowledge_qa"]
 Sufficiency = Literal["sufficient", "partial", "insufficient"]
@@ -39,6 +42,15 @@ QueryText = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_QUERY_CHARS),
 ]
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+ClaimText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=2000),
+]
+QuoteText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=500),
+]
+EvidenceId = Annotated[str, StringConstraints(pattern=r"^E[1-9][0-9]*$")]
 
 
 class StrictModel(BaseModel):
@@ -80,11 +92,26 @@ class RefineOutput(StrictModel):
         return list(dict.fromkeys(queries))
 
 
+class ClaimOutput(StrictModel):
+    """事实性断言：必须绑定至少一个 evidence（规格 §10 full 模式前提）。"""
+
+    text: ClaimText
+    evidence_ids: list[EvidenceId] = Field(min_length=1, max_length=MAX_CLAIM_EVIDENCE_IDS)
+    quotes: list[QuoteText] = Field(default_factory=list, max_length=MAX_QUOTES_PER_CLAIM)
+
+    @field_validator("evidence_ids")
+    @classmethod
+    def deduplicate_evidence_ids(cls, evidence_ids: list[str]) -> list[str]:
+        return list(dict.fromkeys(evidence_ids))
+
+
 class GenerateOutput(StrictModel):
     answer_text: Annotated[
         str,
         StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_ANSWER_CHARS),
     ]
+    claims: list[ClaimOutput] = Field(default_factory=list, max_length=MAX_CLAIMS)
+    not_found: list[ShortText] = Field(default_factory=list, max_length=10)
 
 
 class Evidence(StrictModel):
@@ -105,10 +132,15 @@ class Evidence(StrictModel):
 
 
 class VerificationOutput(StrictModel):
+    """由确定性代码构造（非 LLM 输出）；errors 为机器可读反馈，可回传 generate。"""
+
     passed: bool
     l0_passed: bool
     l1_passed: bool
-    errors: list[ShortText] = Field(default_factory=list, max_length=20)
+    errors: list[ShortText] = Field(default_factory=list, max_length=2 * MAX_CLAIMS)
+    failed_claims: list[Annotated[int, Field(ge=0)]] = Field(
+        default_factory=list, max_length=MAX_CLAIMS
+    )
 
 
 class AgentState(TypedDict):
@@ -122,8 +154,12 @@ class AgentState(TypedDict):
     evaluation: EvaluateOutput | None
     answer_draft: GenerateOutput | None
     verification: VerificationOutput | None
+    verification_feedback: list[str]
     final_answer: str | None
     final_mode: FinalMode | None
+    final_claims: list[ClaimOutput]
+    final_not_found: list[str]
+    model: str
     status: Literal["running", "succeeded", "failed"]
     llm_calls: int
     llm_retries: int
@@ -154,8 +190,12 @@ def initial_agent_state(agent_input: AgentInput) -> AgentState:
         evaluation=None,
         answer_draft=None,
         verification=None,
+        verification_feedback=[],
         final_answer=None,
         final_mode=None,
+        final_claims=[],
+        final_not_found=[],
+        model="",
         status="running",
         llm_calls=0,
         llm_retries=0,

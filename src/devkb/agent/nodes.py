@@ -89,6 +89,7 @@ async def _structured_call[StructuredT: StrictModel](
     tokens_out = state["tokens_out"]
     cost = state["cost"]
     latency_ms = state["latency_ms"]
+    model = state["model"]
     warnings: list[str] = []
 
     for attempt in range(MAX_REASKS_PER_CALL + 1):
@@ -111,6 +112,7 @@ async def _structured_call[StructuredT: StrictModel](
         tokens_in += int(result.usage.get("prompt_tokens", 0))
         tokens_out += int(result.usage.get("completion_tokens", 0))
         cost = _cost_after_result(cost, result.model, result.usage)
+        model = result.model
         try:
             value = schema.model_validate_json(result.text)
         except ValidationError:
@@ -127,6 +129,7 @@ async def _structured_call[StructuredT: StrictModel](
                 "tokens_out": tokens_out,
                 "cost": cost,
                 "latency_ms": latency_ms,
+                "model": model,
             },
             warnings=warnings,
         )
@@ -142,6 +145,7 @@ async def _structured_call[StructuredT: StrictModel](
             "tokens_out": tokens_out,
             "cost": cost,
             "latency_ms": latency_ms,
+            "model": model,
         },
         warnings=[*warnings, f"{call_key}:default_applied"],
     )
