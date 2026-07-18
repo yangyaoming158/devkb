@@ -1,4 +1,22 @@
-"""T16.3–T16.5 有界 LangGraph、预算守卫与第一批 Fake 路径矩阵。"""
+"""有界 LangGraph Fake 路径矩阵（T16.3–T16.5 + T17.5）。
+
+Evaluation-v1 §5.3 十二类路径在本仓库的覆盖映射：
+ 1 首轮充分直接生成          → test_first_round_sufficient_has_exact_bounded_path
+ 2 首轮不足→refine→二次充分  → test_refine_then_second_round_sufficient
+ 3 二次仍不足→refusal        → test_second_round_insufficient_finishes_with_deterministic_refusal
+ 4 部分证据→partial+not_found → test_partial_evidence_yields_partial_answer_with_merged_not_found
+ 5 L0 失败→重生成一次        → test_l0_failure_feeds_machine_errors_back_and_regenerates_once
+ 6 L1 篡改引文→重生成一次    → test_l1_tampered_quote_second_failure_strips_claims_and_downgrades
+ 7 第二次验证仍失败→降级     → 同上 + test_second_failure_with_all_claims_removed_refuses
+ 8 结构化解析失败默认路径    → test_invalid_structured_output_defaults_without_identity_override
+                              + test_refine_parse_failure_keeps_query_and_does_not_retrieve_again
+ 9 检索工具异常/LLM 超时     → test_retriever_exception_records_error_and_refuses
+                              + test_llm_timeout_retries_then_succeeds / double-timeout 降级
+   数据库异常                → tests/integration/test_agent_service.py（run 终态 failed）
+10 跨项目越权不可见          → tests/integration/test_isolation.py（runs/chunks/steps/tools）
+11 API 并发边界/事件循环     → 依赖 T19 FastAPI，见清单偏差记录（待裁决）
+12 轮次/调用/重试硬上限      → 各用例逐项断言 + test_global_budget_can_reach_but_never_exceed_six
+"""
 
 from __future__ import annotations
 
@@ -16,6 +34,7 @@ from devkb.agent.graph import (
 from devkb.agent.nodes import AgentRuntime, make_pg_retriever
 from devkb.agent.state import AgentInput, EvaluateOutput, Evidence, initial_agent_state
 from devkb.embedding import FakeEmbedder
+from devkb.errors import LLMTimeoutError
 from devkb.llm import FakeLLM
 from devkb.retrieval import HNSW_EF_SEARCH, RetrievedChunk
 
@@ -204,6 +223,51 @@ async def test_second_failure_with_all_claims_removed_refuses() -> None:
     assert result["generate_calls"] == 2
     assert result["final_claims"] == [] and result["final_mode"] == "refusal"
     assert result["final_answer"] == "现有资料不足以回答该问题。"
+
+
+async def test_retriever_exception_records_error_and_refuses() -> None:
+    attempts = 0
+
+    async def broken_retriever(_project_id: uuid.UUID, _queries: tuple[str, ...]) -> list[Evidence]:
+        nonlocal attempts
+        attempts += 1
+        raise RuntimeError("db down")
+
+    runtime = AgentRuntime(
+        llm=FakeLLM([PLAN, EVAL_NO, REFINE, EVAL_NO]), retriever=broken_retriever
+    )
+    result = await run_agent(runtime, _input())
+
+    assert attempts == 2  # 两轮检索都尝试过（工具调用可断言）
+    assert result["errors"] == ["retrieve:RuntimeError", "retrieve:RuntimeError"]
+    assert result["evidences"] == [] and result["generate_calls"] == 0
+    assert result["final_mode"] == "refusal"
+    assert result["llm_calls"] == 4
+
+
+async def test_llm_timeout_retries_then_succeeds_within_budget() -> None:
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([LLMTimeoutError("超时"), PLAN, EVAL_OK, GENERATE], retrievals), _input()
+    )
+
+    assert result["llm_calls"] == 4 and result["llm_retries"] == 1
+    assert result["retry_counts"] == {"plan": 1}
+    assert any("plan:request_failed:LLMTimeoutError" in w for w in result["warnings"])
+    assert result["final_mode"] == "full"
+
+
+async def test_llm_double_timeout_on_generate_degrades_deterministically() -> None:
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, EVAL_OK, LLMTimeoutError("超时1"), LLMTimeoutError("超时2")], retrievals),
+        _input(),
+    )
+
+    assert result["generate_failed"] is True and result["generate_calls"] == 1
+    assert result["llm_calls"] == 4
+    assert result["final_mode"] == "partial"
+    assert result["final_answer"] == "现有证据不足以可靠生成回答。"
 
 
 async def test_regeneration_blocked_when_budget_exhausted() -> None:
