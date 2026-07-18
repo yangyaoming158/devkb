@@ -123,6 +123,33 @@ async def test_lexical_search_is_safe_for_hostile_and_cjk_input(session: AsyncSe
     assert await repo.count() == 1, "chunks 表必须还在（未被注入删除）"
 
 
+async def test_lexical_diagnostic_base_matches_official_search(session: AsyncSession) -> None:
+    pid = await _seed_project(
+        session,
+        "fts-diag",
+        [
+            ChunkDraft(0, "Data > 状态机", "OrderStateMachine 定义 状态 迁移", "c0", 8, 1, 3, None),
+            ChunkDraft(1, "Data > 支付", "PaymentService 发布 支付 事件", "c1", 8, 4, 6, None),
+            ChunkDraft(2, "Data > 库存", "库存 扣减 的 幂等 键", "c2", 8, 7, 9, None),
+        ],
+    )
+    repo = ChunkRepo(session, pid)
+    query = "OrderStateMachine 支付 的 状态"
+
+    official = await repo.lexical_search(query, top_k=10)
+    base = await repo.lexical_search_diagnostic(query, top_k=10)
+    assert [(c.id, s) for c, _, s in base] == [(c.id, s) for c, _, s in official], (
+        "默认参数的诊断查询必须与正式 lexical_search 逐行一致（含分数）"
+    )
+
+    filtered = await repo.lexical_search_diagnostic(query, top_k=10, drop_single_cjk=True)
+    assert all(c.ordinal != 2 for c, _, _ in filtered), (
+        "丢弃单字 CJK 后，仅靠 '的' 命中的块不得再出现"
+    )
+    normed = await repo.lexical_search_diagnostic(query, top_k=10, rank_normalization=32)
+    assert all(0 <= s < 1 for _, _, s in normed), "norm=32 时 rank/(rank+1) 必然落在 [0,1)"
+
+
 async def test_explain_lexical_search_is_bound_and_safe(session: AsyncSession) -> None:
     pid = await _seed_project(
         session,

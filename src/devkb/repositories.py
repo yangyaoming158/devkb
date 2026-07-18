@@ -262,15 +262,32 @@ class ChunkRepo:
         rows = (await self._session.execute(stmt)).all()
         return [(row[0], row[1], float(row[2])) for row in rows]
 
-    def _lexical_stmt(self, query: str, top_k: int) -> Select[tuple[Chunk, str, Any]] | None:
+    def _lexical_stmt(
+        self,
+        query: str,
+        top_k: int,
+        *,
+        rank_normalization: int = 0,
+        drop_single_cjk: bool = False,
+    ) -> Select[tuple[Chunk, str, Any]] | None:
+        """lexical 查询构造的唯一出处；两个关键字参数仅供诊断路径使用。
+
+        rank_normalization=0 时用二参 ts_rank_cd（与 T14.2 冻结的业务语句完全
+        一致，不产生任何 SQL 差异）；非 0 时以第三参传入 PG 的归一化 flag。
+        """
         tokens = tokenize_query(query)
+        if drop_single_cjk:
+            tokens = [t for t in tokens if not (len(t) == 1 and not t.isascii())]
         if not tokens:
             return None
         parts = [func.plainto_tsquery("simple", token) for token in tokens]
         tsquery = parts[0]
         for part in parts[1:]:
             tsquery = tsquery.op("||")(part)
-        rank = func.ts_rank_cd(Chunk.search_tsv, tsquery).label("rank")
+        if rank_normalization:
+            rank = func.ts_rank_cd(Chunk.search_tsv, tsquery, rank_normalization).label("rank")
+        else:
+            rank = func.ts_rank_cd(Chunk.search_tsv, tsquery).label("rank")
         return (
             select(Chunk, Document.rel_path, rank)
             .join(Document, Chunk.document_id == Document.id)
@@ -282,6 +299,31 @@ class ChunkRepo:
             .order_by(rank.desc(), Chunk.id)
             .limit(top_k)
         )
+
+    async def lexical_search_diagnostic(
+        self,
+        query: str,
+        top_k: int,
+        *,
+        rank_normalization: int = 0,
+        drop_single_cjk: bool = False,
+    ) -> list[tuple[Chunk, str, float]]:
+        """诊断专用（T14.4 复评归档）：与 lexical_search 共用同一查询构造，
+        仅开放 ts_rank_cd 归一化 flag 与"丢弃单字 CJK token"两个实验参数。
+
+        默认参数下与 lexical_search 结果逐行一致（集成测试锁定），从而保证
+        排序变体对照实验"只改变排名参数、其余口径相同"。不在业务路径调用。
+        """
+        stmt = self._lexical_stmt(
+            query,
+            top_k,
+            rank_normalization=rank_normalization,
+            drop_single_cjk=drop_single_cjk,
+        )
+        if stmt is None:
+            return []
+        rows = (await self._session.execute(stmt)).all()
+        return [(row[0], row[1], float(row[2])) for row in rows]
 
     async def explain_lexical_search(self, query: str, top_k: int) -> str:
         """对与 lexical_search 完全同源的查询形状跑 EXPLAIN (ANALYZE, BUFFERS)。

@@ -4,11 +4,10 @@
 ts_rank_cd 归一化 flag（0/1/4/32）与查询侧丢弃单字 CJK token 的组合，
 输出每题相关块在 top-100 内的名次与各变体的 R@5/R@10/MRR。
 
-注意：本脚本为**只读诊断**，为了注入 ts_rank_cd 归一化参数（业务路径不
-提供、也不应提供）使用了本地 SQL；业务查询构造仍全部收口在
-src/devkb/repositories.py（D7 静态检查范围为 src/devkb，与集成测试中的
-诊断 SQL 同一口径）。tsquery 文本由 tokenize_query 的受限字符集 token
-构造并经参数绑定传入。
+查询全部经 `ChunkRepo.lexical_search_diagnostic`（与正式 lexical_search
+共用同一 plainto_tsquery + OR 构造，只开放两个实验参数，D7 收口不破）。
+每题运行前先断言 base 变体与正式 `lexical_search` 的 top-100 逐行一致，
+保证对照实验"只改变排名参数、其余口径相同"。
 
 运行（无模型调用）：
     uv run python benchmarks/p1_lexical_variants_diag.py
@@ -24,26 +23,15 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import text
-
 from devkb.config import get_settings
 from devkb.db import create_engine, create_session_factory
-from devkb.fts import tokenize_query
-from devkb.repositories import ProjectRepo
+from devkb.models import Chunk
+from devkb.repositories import ChunkRepo, ProjectRepo
 
 ROOT = Path(__file__).resolve().parent.parent
 DEV_SET = ROOT / "evalsets/v0/retrieval_dev.jsonl"
 TIMEZONE = ZoneInfo("Asia/Shanghai")
-
-SQL = """
-SELECT d.rel_path, c.title_path
-FROM chunks c
-JOIN documents d ON c.document_id = d.id,
-     (SELECT CAST(:tsq_text AS tsquery) AS tsq) q
-WHERE c.project_id = :pid AND d.status = 'active' AND c.search_tsv @@ q.tsq
-ORDER BY ts_rank_cd(c.search_tsv, q.tsq, :norm) DESC, c.id
-LIMIT 100
-"""
+DIAG_TOP_K = 100
 
 # 变体：ts_rank_cd 归一化 flag × 是否丢弃单字 CJK token（jieba 虚词如"的/是"）
 VARIANTS: dict[str, tuple[int, bool]] = {
@@ -68,25 +56,12 @@ def load_questions() -> list[dict[str, Any]]:
     return questions
 
 
-def build_tsq(tokens: list[str]) -> str:
-    """token（tokenize_query 受限字符集）→ OR tsquery 文本，经绑定参数传入 CAST。"""
-
-    def quote(token: str) -> str:
-        return "'" + token.replace("'", "''") + "'"
-
-    return " | ".join(quote(token) for token in tokens)
-
-
-def drop_single_cjk(tokens: list[str]) -> list[str]:
-    return [t for t in tokens if not (len(t) == 1 and not t.isascii())]
-
-
-def first_hit(rows: list[Any], relevant: list[dict[str, str]]) -> int | None:
-    for i, (rel_path, title_path) in enumerate(rows, start=1):
+def first_hit(rows: list[tuple[Chunk, str, float]], relevant: list[dict[str, str]]) -> int | None:
+    for i, (chunk, rel_path, _score) in enumerate(rows, start=1):
         for anchor in relevant:
             if (
                 rel_path == anchor["rel_path"]
-                and anchor["anchor"].casefold() in title_path.casefold()
+                and anchor["anchor"].casefold() in chunk.title_path.casefold()
             ):
                 return i
     return None
@@ -108,20 +83,24 @@ async def main() -> None:
             project = await ProjectRepo(session).get_by_slug("mini-mall")
             if project is None:
                 raise RuntimeError("项目 mini-mall 不存在")
+            repo = ChunkRepo(session, project.id)
             for question in questions:
-                tokens = tokenize_query(question["question"])
+                official = await repo.lexical_search(question["question"], DIAG_TOP_K)
                 for name, (norm, nostop) in VARIANTS.items():
-                    toks = drop_single_cjk(tokens) if nostop else tokens
-                    if not toks:
-                        summary[name].append(None)
-                        continue
-                    rows = (
-                        await session.execute(
-                            text(SQL),
-                            {"tsq_text": build_tsq(toks), "pid": project.id, "norm": norm},
-                        )
-                    ).all()
-                    summary[name].append(first_hit(list(rows), question["relevant"]))
+                    rows = await repo.lexical_search_diagnostic(
+                        question["question"],
+                        DIAG_TOP_K,
+                        rank_normalization=norm,
+                        drop_single_cjk=nostop,
+                    )
+                    if name == "base(norm=0)":
+                        assert [(c.id, s) for c, _, s in rows] == [
+                            (c.id, s) for c, _, s in official
+                        ], f"base 变体必须与正式 lexical_search 逐行一致：{question['id']}"
+                    summary[name].append(first_hit(rows, question["relevant"]))
+            print(
+                f"# base 一致性：17/17 题 base 变体与正式 lexical_search top-{DIAG_TOP_K} 逐行一致"
+            )
     finally:
         await engine.dispose()
 
@@ -134,7 +113,7 @@ async def main() -> None:
         r10 = sum(1 for r in ranks if r is not None and r <= 10) / n
         mrr = sum(1 / r for r in ranks if r is not None and r <= 10) / n
         print(f"{name:24} {cells}  R@5={r5:.3f} R@10={r10:.3f} MRR@10={mrr:.3f}")
-    print("# 名次为相关块在该变体 top-100 内的位置，- 表示 top-100 外")
+    print(f"# 名次为相关块在该变体 top-{DIAG_TOP_K} 内的位置，- 表示 top-{DIAG_TOP_K} 外")
 
 
 asyncio.run(main())

@@ -376,3 +376,13 @@
 - 证据项 1（T14.4 报告出处）：报告生成时工作树 dirty 且所记 commit（30c561c）不含生成器代码。复评已独立复跑确认指标逐题一致，但按纪律应从干净提交重新生成——本次代码提交后重跑，新报告与旧报告并存（时间戳报告不覆盖原则），清单证据指向新报告。
 - 证据项 2（排序变体无原始证据）：scratchpad 诊断脚本整理归档为 `benchmarks/p1_lexical_variants_diag.py`（只读诊断；为注入 ts_rank_cd 归一化参数使用本地 SQL，与集成测试中诊断 SQL 同一口径，业务查询构造仍收口 repositories），原始输出落 `benchmarks/results/lexical_variants_diag.txt`，报告措辞改为引用归档物。重跑与 scratchpad 结果完全一致（6 变体 R@10 均 0.059）。
 - 质量门：ruff/pyright 零错误，pytest 135 passed。
+
+## 2026-07-18 · T14 二次复评修复 · 诊断查询收口 repositories
+
+做了什么：二次复评指出诊断脚本两个问题，均属实——(1) 在 benchmarks/ 用 sqlalchemy text() 自建 SQL 违反 D7 硬规则（规则不区分目录，"静态检查只扫 src"不构成豁免）；(2) 手拼 tsquery（整 token 加引号）与正式 per-token plainto_tsquery 口径不同——多词素 token（如 order_status → 'order' & 'status'）两种构造语义不同，q09 名次 62 vs 68 的差异正源于此，归档物无法严格证明"只改排名参数"（证据：本提交）。
+
+- 修复：查询收口为 `ChunkRepo.lexical_search_diagnostic`，与 lexical_search 共用 `_lexical_stmt`（该方法只加两个关键字实验参数：ts_rank_cd 归一化 flag、丢弃单字 CJK token；norm=0 走二参 ts_rank_cd，业务语句零差异）。诊断脚本只调 Repo，不再 import 任何查询构造。
+- 同口径证明双保险：脚本运行时每题断言 base 变体与正式 lexical_search top-100 逐行一致（含分数，17/17 过）；集成测试 test_lexical_diagnostic_base_matches_official_search 把等价性固化进 CI，另断言两个实验参数的可观察效果（单字 CJK 块被过滤、norm=32 分数落 [0,1)）。
+- 防复发：test_layering 的 D7 静态扫描范围从 src/devkb 扩至 benchmarks/（tests/ 的少量诊断性 SQL 维持现状，docstring 说明）。
+- 归档重生成：新名次与正式报告的 diag_hit_rank_at_100 完全对齐（q09=68、q22=29、q14=1），6 变体 R@10 仍全部 0.059——"低召回非排序调参问题"结论在正确口径下依然成立，报告正文无需改动。
+- 质量门：ruff/pyright 零错误，pytest 136 passed。
