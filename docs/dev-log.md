@@ -559,3 +559,10 @@
 - 收掉 T18.2 真实 run 暴露的一致性缺口：检索期真实 DB 异常（如 GUC 未注册、连接故障）会使 PostgreSQL 事务进入 aborted 状态，retrieve 节点虽按设计吸收异常降级，但同 session 后续所有 INSERT（轨迹、run 终态）全部失败——run 永久 running。修复三处：make_pg_retriever 闭包捕获 SQLAlchemyError 先 `session.rollback()` 恢复事务再上抛（节点降级语义不变）；service 成功/失败两条路径的 `_persist_trace` 均加兜底（写入失败 rollback 保 session + warning，run 终态优先于轨迹完整性）；rollback 会使 ORM 实例过期、其后访问 `run.id` 触发同步惰性刷新抛 MissingGreenlet（集成测试实测），改为建 run 后立即取纯 UUID 贯穿全程。
 - 故障矩阵集成测试（复现手法：在被测 session 上真实执行 `SELECT 1/0` 制造 aborted 事务，而非 monkeypatch 抛异常——后者不会污染事务，测不到本缺口）：aborted 事务→refusal run succeeded、retrieve steps degraded（error 带 retrieve: 前缀）、tools failed、seq 连续；generate 双超时→step degraded 且 llm_requests 两条 request_failed（含 LLMTimeoutError 错误文本）、finalize ok；持久化前 DB 异常→run failed（既有）；节点内未捕获异常→run failed + 最后 step failed（既有）。所有用例断言项目内无 running 残留。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 211 passed（+2 集成故障矩阵）。证据 commit：本提交。
+
+## 2026-07-19 · T19.1 · CLI/API 共用应用服务
+
+- 新建 `src/devkb/service.py` AppService：ask（agentic/fixed-rag 双链路分发）/list_runs/run_trace/ingest/backfill_search 五个入口收口全部装配（engine/session factory 构造时持有，Embedder/LLM/Qwen 分词器懒初始化）；embedder/llm/count_tokens 构造参数可注入，集成测试用 FakeEmbedder/FakeLLM/approx_token_counter 全链路跑通（CI 禁真模型）。CLI 五个 `_run_*` 助手改为 `_app_service()` 上下文管理器内一行委托，cli.py 不再 import 任何 repositories/embedding/llm/db 装配件；输入校验（pipeline 白名单、top_k 1..12、问题 1..4000 字符）在 service.ask 统一执行，API（T19.2）直接复用。
+- 异常映射 `map_errors`：DevKbError 透传；SQLAlchemyError/OSError→DATABASE_ERROR；其余未预期异常→INTERNAL_ERROR 并生成 12 位 error_id（消息只含 error_id，异常细节与类型进 stderr 结构化日志）。设计点：用户可见消息只带异常类型名不带原始错误串——SQLAlchemy/asyncpg 的错误串可能含 DSN 主机/口令；单测断言注入的口令与主机不出现在 DevKbError 消息中。DB 不可达集成测试连 127.0.0.1:9（discard 端口，永拒绝）验证稳定错误码。
+- 踩坑：CLI 测试经 CliRunner 触发 configure_logging 时 structlog 以 cache_logger_on_first_use=True 缓存了 pytest 的临时 stderr，用例结束后该流被关闭，之后任何首次使用的 logger（本次是 service.py 的 map_errors 日志）都写已关闭文件抛 ValueError——单跑 test_service_errors 全绿、全量跑必挂的顺序依赖。修复：tests/conftest.py 增 autouse 夹具，每用例后 structlog.reset_defaults()（默认配置不缓存、写当前 stdout），隔离对后续测试的污染。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 222 passed（+5 单元映射/校验、+5 集成 AppService、+1 CLI 无 traceback 渲染）。证据 commit：本提交。

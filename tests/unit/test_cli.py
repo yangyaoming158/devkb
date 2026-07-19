@@ -91,6 +91,21 @@ def test_ask_json_output_is_full_answer_v1(monkeypatch: Any) -> None:
     assert payload["claims"][0]["quotes"] == ["enum OrderStatus"]
 
 
+def test_ask_service_error_renders_stable_code_without_traceback(monkeypatch: Any) -> None:
+    from devkb.errors import InternalError
+
+    async def fake_run_ask(
+        question: str, project: str, top_k: int | None, pipeline: str = "agentic"
+    ) -> dict[str, Any]:
+        raise InternalError("内部错误（error_id=abc123def456）", error_id="abc123def456")
+
+    monkeypatch.setattr("devkb.cli._run_ask", fake_run_ask)
+    result = runner.invoke(app, ["ask", "问题", "--project", "demo"])
+    assert result.exit_code == 1
+    assert "INTERNAL_ERROR" in result.output and "abc123def456" in result.output
+    assert "Traceback" not in result.output
+
+
 def test_ask_rejects_invalid_pipeline_and_out_of_range_top_k(monkeypatch: Any) -> None:
     assert _invoke_ask_with(monkeypatch, _v1_answer(), "--pipeline", "agent-x").exit_code != 0
     assert _invoke_ask_with(monkeypatch, _v1_answer(), "--top-k", "0").exit_code != 0

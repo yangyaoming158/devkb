@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -13,7 +16,7 @@ from rich.console import Console
 from rich.table import Table
 
 from devkb import __version__
-from devkb.errors import ConfigError, DevKbError, NotFoundError
+from devkb.errors import ConfigError, DevKbError
 from devkb.ingest.pipeline import IngestReport
 from devkb.logging import configure_logging
 
@@ -265,30 +268,22 @@ def _render_replay(payload: dict[str, Any]) -> None:
     )
 
 
-async def _resolve_project(session: Any, slug: str) -> Any:
-    from devkb.repositories import ProjectRepo
+@asynccontextmanager
+async def _app_service() -> AsyncIterator[Any]:
+    """每条命令构造一个 AppService（懒 import：CLI 启动不拖入 ml/agent 依赖）。"""
+    from devkb.config import get_settings
+    from devkb.service import AppService
 
-    project = await ProjectRepo(session).get_by_slug(slug)
-    if project is None:
-        raise NotFoundError(f"项目 '{slug}' 不存在（先执行 devkb ingest）")
-    return project
+    service = AppService(get_settings())
+    try:
+        yield service
+    finally:
+        await service.aclose()
 
 
 async def _run_backfill_search(project_slug: str) -> tuple[int, int]:
-    from devkb.config import get_settings
-    from devkb.db import create_engine, create_session_factory
-    from devkb.repositories import ChunkRepo
-
-    settings = get_settings()
-    engine = create_engine(settings.database_url)
-    try:
-        async with create_session_factory(engine)() as session:
-            project = await _resolve_project(session, project_slug)
-            result = await ChunkRepo(session, project.id).backfill_search_text()
-            await session.commit()
-            return result
-    finally:
-        await engine.dispose()
+    async with _app_service() as service:
+        return await service.backfill_search(project_slug)
 
 
 async def _run_ask(
@@ -297,98 +292,30 @@ async def _run_ask(
     top_k: int | None,
     pipeline: str = "agentic",
 ) -> dict[str, Any]:
-    from devkb.agent.service import agentic_answer_question
-    from devkb.answer import answer_question
-    from devkb.config import get_settings
-    from devkb.db import create_engine, create_session_factory
-    from devkb.embedding import SentenceTransformerEmbedder
-    from devkb.llm import OpenAICompatLLM
-
-    settings = get_settings()
-    embedder = SentenceTransformerEmbedder(
-        settings.embedding_model_id,
-        device=settings.embedding_device,
-        batch_size=settings.embedding_batch_size,
-    )
-    llm = OpenAICompatLLM(
-        api_key=settings.llm_api_key.get_secret_value(),
-        base_url=settings.llm_base_url,
-        model=settings.llm_model,
-    )
-    engine = create_engine(settings.database_url)
-    try:
-        async with create_session_factory(engine)() as session:
-            project = await _resolve_project(session, project_slug)
-            if pipeline == "fixed-rag":
-                return await answer_question(
-                    session,
-                    project.id,
-                    question,
-                    embedder=embedder,
-                    llm=llm,
-                    top_k=top_k or settings.retrieval_top_k,
-                )
-            return await agentic_answer_question(
-                session,
-                project.id,
-                question,
-                embedder=embedder,
-                llm=llm,
-                top_k=top_k or settings.retrieval_top_k,
-            )
-    finally:
-        await engine.dispose()
+    async with _app_service() as service:
+        return await service.ask(project_slug, question, top_k=top_k, pipeline=pipeline)
 
 
 async def _runs_list(project_slug: str, limit: int) -> list[tuple[str, ...]]:
-    from devkb.config import get_settings
-    from devkb.db import create_engine, create_session_factory
-    from devkb.repositories import RunRepo
-
-    settings = get_settings()
-    engine = create_engine(settings.database_url)
-    try:
-        async with create_session_factory(engine)() as session:
-            project = await _resolve_project(session, project_slug)
-            runs = await RunRepo(session, project.id).list_recent(limit)
-            return [
-                (
-                    str(r.id),
-                    r.status,
-                    (r.question[:40] + "…") if len(r.question) > 40 else r.question,
-                    f"{r.tokens_in or 0}+{r.tokens_out or 0}",
-                    f"{r.latency_ms or 0}ms",
-                    r.created_at.strftime("%m-%d %H:%M"),
-                )
-                for r in runs
-            ]
-    finally:
-        await engine.dispose()
+    async with _app_service() as service:
+        rows = await service.list_runs(project_slug, limit)
+    return [
+        (
+            r["run_id"],
+            r["status"],
+            (r["question"][:40] + "…") if len(r["question"]) > 40 else r["question"],
+            f"{r['tokens_in'] or 0}+{r['tokens_out'] or 0}",
+            f"{r['latency_ms'] or 0}ms",
+            datetime.fromisoformat(r["created_at"]).strftime("%m-%d %H:%M"),
+        )
+        for r in rows
+    ]
 
 
 async def _load_run_trace(run_id: str, project_slug: str) -> dict[str, Any]:
     """runs show/replay 共用：按项目隔离装配只读轨迹（非法/跨项目 run_id → NotFound）。"""
-    import uuid as uuid_mod
-
-    from devkb.agent.service import get_run_trace
-    from devkb.config import get_settings
-    from devkb.db import create_engine, create_session_factory
-
-    settings = get_settings()
-    try:
-        run_uuid = uuid_mod.UUID(run_id)
-    except ValueError as exc:
-        raise NotFoundError(f"非法 run_id：{run_id}") from exc
-    engine = create_engine(settings.database_url)
-    try:
-        async with create_session_factory(engine)() as session:
-            project = await _resolve_project(session, project_slug)
-            try:
-                return await get_run_trace(session, project.id, run_uuid)
-            except NotFoundError as exc:
-                raise NotFoundError(f"run {run_id} 不存在于项目 '{project_slug}'") from exc
-    finally:
-        await engine.dispose()
+    async with _app_service() as service:
+        return await service.run_trace(project_slug, run_id)
 
 
 async def _runs_show(run_id: str, project_slug: str) -> dict[str, Any]:
@@ -406,37 +333,5 @@ async def _runs_replay(run_id: str, project_slug: str) -> dict[str, Any]:
 
 
 async def _run_ingest(directory: Path, project_slug: str) -> IngestReport:
-    from devkb.config import get_settings
-    from devkb.db import create_engine, create_session_factory
-    from devkb.embedding import SentenceTransformerEmbedder
-    from devkb.ingest.markdown import qwen_token_counter
-    from devkb.ingest.pipeline import ingest_directory
-    from devkb.repositories import ProjectRepo
-
-    settings = get_settings()
-    # 生产计数器与 Embedder 均为 ADR-0002 冻结模型（ml 依赖组，懒加载）
-    count_tokens = qwen_token_counter(settings.embedding_model_id)
-    embedder = SentenceTransformerEmbedder(
-        settings.embedding_model_id,
-        device=settings.embedding_device,
-        batch_size=settings.embedding_batch_size,
-    )
-
-    engine = create_engine(settings.database_url)
-    try:
-        async with create_session_factory(engine)() as session:
-            repo = ProjectRepo(session)
-            project = await repo.get_by_slug(project_slug)
-            if project is None:
-                project = await repo.create(slug=project_slug, name=project_slug)
-                await session.commit()
-            return await ingest_directory(
-                session,
-                project.id,
-                directory,
-                embedder=embedder,
-                count_tokens=count_tokens,
-                target_tokens=settings.chunk_target_tokens,
-            )
-    finally:
-        await engine.dispose()
+    async with _app_service() as service:
+        return await service.ingest(project_slug, directory)

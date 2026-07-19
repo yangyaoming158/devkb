@@ -45,6 +45,22 @@ class NotFoundError(DevKbError):
     code = "NOT_FOUND"
 
 
+class DatabaseError(DevKbError):
+    """数据库连接/事务/查询失败的稳定包装（《P1实现规格》§13）。"""
+
+    code = "DATABASE_ERROR"
+
+
+class InternalError(DevKbError):
+    """未预期异常的稳定包装；error_id 用于与 stderr 日志关联（《P1实现规格》§13）。"""
+
+    code = "INTERNAL_ERROR"
+
+    def __init__(self, message: str, *, error_id: str) -> None:
+        super().__init__(message)
+        self.error_id = error_id
+
+
 class InvalidInputError(DevKbError):
     """输入越限（问题长度/top_k 等，《P1实现规格》§13）。"""
 
