@@ -308,6 +308,12 @@ def eval_run(
             "[red]INVALID_INPUT[/red] holdout 只在最终验收运行一次：必须显式 --confirm-holdout"
         )
         raise typer.Exit(1)
+    if split == "holdout" and mode != "all":
+        console.print(
+            "[red]INVALID_INPUT[/red] holdout 一次性访问必须完整运行："
+            "--mode all（Evaluation-v1 §7），不得只跑部分模式"
+        )
+        raise typer.Exit(1)
     try:
         paths = asyncio.run(_run_eval(split, mode, project, confirm_holdout, output_dir))
     except DevKbError as exc:

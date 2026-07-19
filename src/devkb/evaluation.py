@@ -55,7 +55,9 @@ RETRIEVAL_MODES: tuple[EvalMode, ...] = ("vector-exact", "vector-hnsw", "lexical
 EVAL_MODES: tuple[EvalMode, ...] = (*RETRIEVAL_MODES, "agentic")
 Split = Literal["dev", "holdout"]
 
-REPORT_SCHEMA_VERSION = "p1-eval-v1"
+# v1 为 T20.4 期间历史 schema（citation Gate 字段名经 2026-07-19 裁决更名，三份已提交
+# 报告冻结不改写）；v1.1 起 Gate 键集合 split-aware 且固定，见 test_eval_reports_schema
+REPORT_SCHEMA_VERSION = "p1-eval-v1.1"
 EVAL_TOP_K = 10
 TIMEZONE = ZoneInfo("Asia/Shanghai")
 # 冻结题量（Evaluation v0 的 31 问上限；v1 不扩题）
@@ -231,9 +233,13 @@ async def _retrieve_by_mode(
     mode: EvalMode,
     question: str,
     *,
-    embedder: Embedder,
+    embedder: Embedder | None,
     top_k: int,
 ) -> list[Any]:
+    if mode == "lexical":
+        return await lexical_retrieve(session, project_id, question, top_k=top_k)
+    if embedder is None:
+        raise InvalidInputError(f"检索模式 {mode} 需要 embedding 模型，当前未提供")
     if mode == "vector-exact":
         return await retrieve(
             session, project_id, question, embedder=embedder, top_k=top_k, mode="exact"
@@ -248,8 +254,6 @@ async def _retrieve_by_mode(
             mode="hnsw",
             ef_search=HNSW_EF_SEARCH,
         )
-    if mode == "lexical":
-        return await lexical_retrieve(session, project_id, question, top_k=top_k)
     if mode == "hybrid-rrf":
         return await hybrid_retrieve(
             session,
@@ -269,10 +273,13 @@ async def evaluate_retrieval(
     questions: list[dict[str, Any]],
     modes: Sequence[EvalMode],
     *,
-    embedder: Embedder,
+    embedder: Embedder | None,
     top_k: int = EVAL_TOP_K,
 ) -> dict[str, Any]:
-    """同一快照上按 mode 逐题检索；返回逐题名次/结果与聚合指标。"""
+    """同一快照上按 mode 逐题检索；返回逐题名次/结果与聚合指标。
+
+    embedder 只有向量/hybrid 模式需要；纯 lexical 评测传 None 即可。
+    """
     ranks: dict[str, list[int | None]] = {mode: [] for mode in modes}
     latencies: dict[str, list[float]] = {mode: [] for mode in modes}
     question_rows: list[dict[str, Any]] = []
@@ -339,11 +346,12 @@ async def evaluate_agentic(
     project_id: uuid_mod.UUID,
     questions: QuestionSets,
     *,
+    split: Split,
     embedder: Embedder,
     llm: LLMClient,
     top_k: int = 8,
 ) -> dict[str, Any]:
-    """21 题 agentic 逐题运行 + 最终 Answer 确定性终检 + §5.2 聚合。"""
+    """agentic 逐题运行 + 最终 Answer 确定性终检 + split 对应 Gate 聚合。"""
     chunk_repo = ChunkRepo(session, project_id)
     rows: list[dict[str, Any]] = []
     for question in [*questions.answerable, *questions.unanswerable]:
@@ -411,14 +419,21 @@ async def evaluate_agentic(
             ),
         )
         rows.append(row)
-    return {"questions": rows, "aggregates": aggregate_agentic(rows)}
+    return {"questions": rows, "aggregates": aggregate_agentic(rows, split=split)}
 
 
-def aggregate_agentic(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """§5.2 聚合与 Gate 判定（纯函数，T20.2 手算单测）。"""
+def aggregate_agentic(rows: list[dict[str, Any]], *, split: Split) -> dict[str, Any]:
+    """split 对应回答 Gate 的聚合判定（纯函数，T20.2 手算单测）。
+
+    dev 按 §5.2（2026-07-19 修订）：拒答/误拒/L0/L1/预算/终态六项硬 Gate；
+    holdout 按 §7：硬 Gate 仅 L0/L1/预算/终态，拒答/误拒只记录不设阈值。
+    两个 split 都要求"无失败 run"：失败 run 不进 L0/L1/预算统计，
+    不计入硬判定会让 Gate 在有失败题时静默通过。
+    """
     answerable = [r for r in rows if r["answerable"]]
     unanswerable = [r for r in rows if not r["answerable"]]
     succeeded = [r for r in rows if r.get("status") == "succeeded"]
+    no_failed_runs = len(succeeded) == len(rows)
     correct_unanswerable = sum(1 for r in unanswerable if r.get("mode") == r.get("expected_mode"))
     false_refusals = sum(1 for r in answerable if r.get("mode") == "refusal")
     l0_pass = all(not r.get("l0_errors") for r in succeeded)
@@ -433,10 +448,20 @@ def aggregate_agentic(rows: list[dict[str, Any]]) -> dict[str, Any]:
     within_budget = all(r.get("within_budget", False) for r in succeeded)
     latencies = [float(r["latency_ms"]) for r in succeeded]
     gates = {
+        "note": (
+            "§5.2 硬 Gate：拒答/误拒/L0/L1/预算/终态/无失败 run；"
+            "citation proxy 为记录义务（2026-07-19 裁决）"
+            if split == "dev"
+            else "§7 硬 Gate：L0/L1/预算/终态/无失败 run；拒答/误拒/citation proxy 为记录义务"
+        ),
         "correct_unanswerable": correct_unanswerable,
-        "correct_unanswerable_gate": (correct_unanswerable >= 3 if unanswerable else None),
+        "correct_unanswerable_gate": (
+            (correct_unanswerable >= 3 if unanswerable else None) if split == "dev" else None
+        ),
         "false_refusals": false_refusals,
-        "false_refusal_gate": false_refusals <= 1 if answerable else None,
+        "false_refusal_gate": (
+            (false_refusals <= 1 if answerable else None) if split == "dev" else None
+        ),
         "l0_pass": l0_pass,
         "l1_pass": l1_pass,
         # 2026-07-19 修订（T20.4 偏差裁决）：proxy 为记录义务——值与对冻结阈值
@@ -447,6 +472,7 @@ def aggregate_agentic(rows: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "within_budget": within_budget,
         "terminal_complete": terminal_complete,
+        "no_failed_runs": no_failed_runs,
     }
     hard_items = [
         gates["correct_unanswerable_gate"],
@@ -455,6 +481,7 @@ def aggregate_agentic(rows: list[dict[str, Any]]) -> dict[str, Any]:
         l1_pass,
         within_budget,
         terminal_complete,
+        no_failed_runs,
     ]
     gates["gate_passed"] = all(item is not False for item in hard_items) and rows != []
     return {
@@ -475,10 +502,26 @@ def aggregate_agentic(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def retrieval_gates(retrieval: dict[str, Any]) -> dict[str, Any]:
-    """§5.1（2026-07-18 修订）：第 1–3 条为对照记录义务，第 4 条 overlap 硬 Gate。"""
+def retrieval_gates(retrieval: dict[str, Any], *, split: Split) -> dict[str, Any]:
+    """检索 Gate（纯函数）：dev 按 §5.1、holdout 按 §7（均为 2026-07-18 修订口径）。
+
+    dev 硬项 = HNSW↔exact overlap ≥ 0.95；holdout 硬项 = 在线默认 vector-hnsw 的
+    Recall@10 不低于同快照 vector-exact。hybrid 对照两个 split 均只记录不判定。
+    键集合按 split 固定（不可计算时为 None），保证同 schema 版本报告形状稳定。
+    """
     metrics = retrieval["metrics"]
-    gates: dict[str, Any] = {"note": "§5.1 第 1–3 条为记录义务（T15.4 裁决），仅第 4 条硬 Gate"}
+    gates: dict[str, Any] = {
+        "note": (
+            "§5.1 第 1–3 条为记录义务（T15.4 裁决），仅第 4 条 overlap 硬 Gate"
+            if split == "dev"
+            else "§7 硬 Gate：vector-hnsw Recall@10 ≥ vector-exact（T15.4 裁决修订）；"
+            "hybrid 对照与 overlap 为记录义务"
+        ),
+        "record_recall_delta": None,
+        "record_mrr_delta": None,
+        "record_token_question_improved": None,
+        "hnsw_overlap_mean": None,
+    }
     if "hybrid-rrf" in metrics and "vector-exact" in metrics:
         gates["record_recall_delta"] = (
             metrics["hybrid-rrf"]["recall_at_10"] - metrics["vector-exact"]["recall_at_10"]
@@ -494,10 +537,25 @@ def retrieval_gates(retrieval: dict[str, Any]) -> dict[str, Any]:
     overlap = retrieval.get("overlap_exact_hnsw")
     if overlap is not None:
         gates["hnsw_overlap_mean"] = overlap["mean"]
-        gates["hnsw_overlap_gate"] = overlap["mean"] >= HNSW_OVERLAP_GATE
+    if split == "dev":
+        gates["hnsw_overlap_gate"] = (
+            overlap["mean"] >= HNSW_OVERLAP_GATE if overlap is not None else None
+        )
+        # 未同时运行 exact+hnsw：本报告不判定硬 Gate
         gates["gate_passed"] = gates["hnsw_overlap_gate"]
+        return gates
+    # holdout：run_eval 已强制 --mode all，exact/hnsw 必在；None 口径仅防御纯函数误用
+    if "vector-hnsw" in metrics and "vector-exact" in metrics:
+        gates["hnsw_recall_at_10"] = metrics["vector-hnsw"]["recall_at_10"]
+        gates["exact_recall_at_10"] = metrics["vector-exact"]["recall_at_10"]
+        gates["hnsw_recall_ge_exact"] = bool(
+            gates["hnsw_recall_at_10"] >= gates["exact_recall_at_10"]
+        )
     else:
-        gates["gate_passed"] = None  # 未同时运行 exact+hnsw：本报告不判定硬 Gate
+        gates["hnsw_recall_at_10"] = None
+        gates["exact_recall_at_10"] = None
+        gates["hnsw_recall_ge_exact"] = None
+    gates["gate_passed"] = gates["hnsw_recall_ge_exact"]
     return gates
 
 
@@ -590,7 +648,9 @@ def render_markdown(report: dict[str, Any]) -> str:
             )
         lines += [
             "",
-            "### 检索 Gate（§5.1，2026-07-18 修订口径）",
+            "### 检索 Gate（§7 holdout 口径，2026-07-18 修订）"
+            if run["split"] == "holdout"
+            else "### 检索 Gate（§5.1，2026-07-18 修订口径）",
             "",
             "```json",
             json.dumps(report["gates"]["retrieval"], ensure_ascii=False, indent=2),
@@ -601,7 +661,9 @@ def render_markdown(report: dict[str, Any]) -> str:
     if agentic:
         agg = agentic["aggregates"]
         lines += [
-            "## Agentic 回答指标（§5.2）",
+            "## Agentic 回答指标（§7 holdout 口径）"
+            if run["split"] == "holdout"
+            else "## Agentic 回答指标（§5.2）",
             "",
             f"- 题数：{agg['question_count']}（成功 {agg['succeeded']} / 失败 {agg['failed']}）",
             f"- mode 分布：{agg['mode_counts']}",
@@ -611,7 +673,8 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"- citation-to-anchor proxy：{agg['gates']['citation_proxy']}",
             f"- 预算内（轮次≤{MAX_RETRIEVAL_ROUNDS}/请求≤{MAX_LLM_REQUESTS}）："
             f"{agg['gates']['within_budget']}；"
-            f"终态完整：{agg['gates']['terminal_complete']}",
+            f"终态完整：{agg['gates']['terminal_complete']}；"
+            f"无失败 run：{agg['gates']['no_failed_runs']}",
             f"- tokens：{agg['total_tokens_in']}+{agg['total_tokens_out']}；"
             f"latency P50/P95：{agg['latency_ms_p50']}/{agg['latency_ms_p95']} ms",
             f"- **Gate：{'通过' if agg['gates']['gate_passed'] else '未通过'}**",
@@ -664,10 +727,15 @@ async def run_eval(
 ) -> list[tuple[Path, Path]]:
     """按 split/modes 运行评测并落盘报告；返回 (json, md) 路径列表。
 
-    holdout 只在 P1 最终验收运行一次：未显式 confirm 一律拒绝（§6）。
+    holdout 只在 P1 最终验收运行一次：未显式 confirm 一律拒绝（§6），
+    且必须完整运行全部模式（§7）——部分模式会白白消耗一次性访问。
     """
     if split == "holdout" and not confirm_holdout:
         raise InvalidInputError("holdout 只在最终验收运行一次：必须显式 --confirm-holdout")
+    if split == "holdout" and set(modes) != set(EVAL_MODES):
+        raise InvalidInputError(
+            "holdout 一次性访问必须完整运行 --mode all（Evaluation-v1 §7），不得只跑部分模式"
+        )
     questions = load_questions(evalsets_dir, split, enforce_counts=enforce_counts)
     retrieval_modes: list[EvalMode] = [m for m in modes if m != "agentic"]
     run_agentic = "agentic" in modes
@@ -698,7 +766,9 @@ async def run_eval(
                     + json.dumps(missing, ensure_ascii=False)
                 )
 
-            if embedder is None and (retrieval_modes or run_agentic):
+            # 纯 lexical 评测不加载真实 embedding 模型（轻量路径）
+            needs_embedder = run_agentic or any(m != "lexical" for m in retrieval_modes)
+            if embedder is None and needs_embedder:
                 from devkb.embedding import SentenceTransformerEmbedder
 
                 embedder = SentenceTransformerEmbedder(
@@ -710,7 +780,7 @@ async def run_eval(
                 await evaluate_retrieval(
                     session, project.id, questions.answerable, retrieval_modes, embedder=embedder
                 )
-                if retrieval_modes and embedder is not None
+                if retrieval_modes
                 else None
             )
             agentic_result = None
@@ -725,7 +795,7 @@ async def run_eval(
                     )
                 assert embedder is not None
                 agentic_result = await evaluate_agentic(
-                    session, project.id, questions, embedder=embedder, llm=llm
+                    session, project.id, questions, split=split, embedder=embedder, llm=llm
                 )
     finally:
         await engine.dispose()
@@ -778,7 +848,9 @@ async def run_eval(
             "retrieval": retrieval_result,
             "agentic": agentic_result,
             "gates": {
-                "retrieval": retrieval_gates(retrieval_result) if retrieval_result else None,
+                "retrieval": (
+                    retrieval_gates(retrieval_result, split="holdout") if retrieval_result else None
+                ),
                 "agentic": (agentic_result or {}).get("aggregates", {}).get("gates"),
             },
         }
@@ -790,7 +862,7 @@ async def run_eval(
         report = {
             **base_report,
             "retrieval": retrieval_result,
-            "gates": {"retrieval": retrieval_gates(retrieval_result)},
+            "gates": {"retrieval": retrieval_gates(retrieval_result, split="dev")},
         }
         written.append(
             write_report(

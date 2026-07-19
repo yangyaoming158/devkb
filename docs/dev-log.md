@@ -640,3 +640,11 @@
 - 按新口径重跑 agentic（新报告 p1-dev-agentic-20260719T230855+0800，首跑报告原样保留）：21/21 成功、六项硬 Gate 全过——拒答 3/4（u01–03 对，u04 期望 partial 仍 refusal）、误拒 1/17（q02，首跑为 0，DeepSeek 输出波动在 Gate 容忍内）、L0/L1 独立终检双 100%、总 76 调用 0 重试全部预算内、终态完整；proxy 52.9% 如实落盘（较首跑 47% 自然波动，仍低于 85% 冻结阈值）。P50/P95 延迟 23s/60s，tokens 134k+58k。
 - 两次运行对照可见 temperature=0 下 DeepSeek 仍有逐题模式波动（full/partial/refusal 分布 7/10/4 → 8/8/5），Gate 阈值的容忍空间（≥3/4、≤1/17）正是为此预留；两份报告均留档不覆盖。
 - 质量门：`make ci` 261 passed + `make eval-ci` 13 passed（新报告过 schema 校验）。证据 commit：本提交。
+
+## 2026-07-19 · T20 复评修复 · Gate split-aware 与 holdout 护栏
+
+- 用户转达 T20 验收前审查（4 High + 2 Medium），逐条用只读纯函数探针复现后当日修复。最大的坑是 `aggregate_agentic` 的分母陷阱：L0/L1/预算只对 `status=="succeeded"` 行统计，失败 run 从所有硬项分母里消失，"1 个可答题异常 + 其余通过"时 gate_passed 仍为 True。修复不是把失败行塞进各分母（失败 run 本就没有 Answer/usage 可检），而是补一个显式"无失败 run"硬项兜底，dev/holdout 均硬；专项单测构造"其余硬项全为通过形态"的场景，保证只有这个兜底能拦住。
+- Gate 全面 split-aware：此前 holdout 复用 dev 的 §5.1 overlap Gate 和 §5.2 阈值，两个方向都错——检索侧 exact=1.0/hnsw=0.0 也判过（§7 修订要求的恰是 hnsw R@10 ≥ exact），回答侧 holdout 只有 2 个不可答题、硬编码 ≥3 使完美 2/2 必判败。重读 §7 发现其硬 Gate 本就只有三条（检索对照/L0/L1/预算终态），拒答/误拒是报告义务，据此实现而非拍一个折算阈值；该口径差异与"无失败 run"一起登记偏差记录待用户复评确认。
+- holdout 一次性访问补 `--mode all` 强制（CLI+run_eval 双层，confirm 了也拒绝部分模式）；lexical-only 不再加载真实 embedding 模型（此前 `retrieval_modes or run_agentic` 对 ["lexical"] 也为真），回归测试用 monkeypatch 禁实例化锁死。
+- schema 教训：T20.4 裁决把 `citation_proxy_gate` 更名为 `citation_proxy_meets_frozen_threshold` 时没有 bump schema_version，两份同版本报告字段名漂移且校验测试只查"有 Gate 字段"。现 bump 到 p1-eval-v1.1：三份 v1 报告按文件名冻结为历史形状（报告不改写），v1.1 的 Gate 键集合按 split 精确锁定，并加一条"常量 ↔ harness 实际输出"双向互锁测试——以后改任何 Gate 键必须显式过这道闸。
+- 验证：新口径复算已提交 dev agentic 报告逐字段一致（21/21 无失败，gate_passed 不变）；`make ci` 271 passed、`make eval-ci` 59+16 全绿。证据 commit：本提交。

@@ -76,10 +76,31 @@ def _write_mini_evalsets(root: Path) -> Path:
             "relevant": [],
         }
     ]
-    expectations = [{"id": "u1", "split": "dev", "expected_mode": "refusal"}]
+    holdout_answerable = [
+        {
+            "id": "hq1",
+            "question": "库存怎么保证并发安全？",
+            "answerable": True,
+            "relevant": [{"rel_path": "zh.md", "anchor": "并发控制"}],
+        }
+    ]
+    holdout_unanswerable = [
+        {
+            "id": "hu1",
+            "question": "生产环境 Redis 版本是多少？",
+            "answerable": False,
+            "relevant": [],
+        }
+    ]
+    expectations = [
+        {"id": "u1", "split": "dev", "expected_mode": "refusal"},
+        {"id": "hu1", "split": "holdout", "expected_mode": "refusal"},
+    ]
     for name, rows in (
         ("v0/retrieval_dev.jsonl", answerable),
         ("v0/unanswerable_dev.jsonl", unanswerable),
+        ("v0/retrieval_holdout.jsonl", holdout_answerable),
+        ("v0/unanswerable_holdout.jsonl", holdout_unanswerable),
         ("v1/answer-expectations.jsonl", expectations),
     ):
         (root / name).write_text(
@@ -127,7 +148,7 @@ async def test_run_eval_all_modes_writes_schema_complete_reports(
         assert json_path.exists() and markdown_path.exists()
         report = json.loads(json_path.read_text(encoding="utf-8"))
         # 判据字段：commit / 语料 manifest+hash / 模型 / Prompt / 配置
-        assert report["schema_version"] == "p1-eval-v1"
+        assert report["schema_version"] == "p1-eval-v1.1"
         assert report["run"]["devkb_commit"] and report["run"]["holdout_accessed"] is False
         assert report["corpus"]["sha256"]
         assert len(report["corpus"]["manifest"]) == report["corpus"]["document_count"] == 5
@@ -174,8 +195,99 @@ async def test_run_eval_holdout_requires_explicit_confirmation(tmp_path: Path) -
         )
 
 
+async def test_run_eval_holdout_requires_mode_all(tmp_path: Path) -> None:
+    """§7：holdout 一次性访问不得只跑部分模式（confirm 了也一样拒绝）。"""
+    settings = Settings(
+        llm_api_key=SecretStr("eval-test"),
+        database_url="postgresql+asyncpg://devkb:x@127.0.0.1:9/devkb",
+    )
+    for partial in (["agentic"], ["lexical"], ["vector-exact", "vector-hnsw"]):
+        with pytest.raises(InvalidInputError, match="mode all"):
+            await run_eval(
+                settings,
+                split="holdout",
+                modes=partial,  # type: ignore[arg-type]
+                project_slug="any",
+                output_dir=tmp_path,
+                confirm_holdout=True,
+            )
+
+
+async def test_run_eval_holdout_full_run_uses_split_aware_gates(
+    session: AsyncSession, migrated_db_url: str, tmp_path: Path
+) -> None:
+    slug = f"t20h-{uuid.uuid4().hex[:8]}"
+    await _seed_project(session, slug)
+    evalsets_dir = _write_mini_evalsets(tmp_path / "evalsets")
+    settings = Settings(llm_api_key=SecretStr("eval-test"), database_url=migrated_db_url)
+
+    written = await run_eval(
+        settings,
+        split="holdout",
+        modes=list(EVAL_MODES),
+        project_slug=slug,
+        output_dir=tmp_path / "reports",
+        evalsets_dir=evalsets_dir,
+        embedder=FakeEmbedder(),
+        llm=_RoutedLLM(),
+        confirm_holdout=True,
+        enforce_counts=False,
+    )
+
+    assert len(written) == 1  # holdout：单份合并报告
+    json_path, _ = written[0]
+    assert json_path.name.startswith("p1-holdout-")
+    report = json.loads(json_path.read_text(encoding="utf-8"))
+    assert report["schema_version"] == "p1-eval-v1.1"
+    assert report["run"]["holdout_accessed"] is True
+    retrieval_gate = report["gates"]["retrieval"]
+    # §7 硬 Gate：vector-hnsw R@10 ≥ 同快照 vector-exact；overlap 只记录不判定
+    assert isinstance(retrieval_gate["hnsw_recall_ge_exact"], bool)
+    assert retrieval_gate["gate_passed"] == retrieval_gate["hnsw_recall_ge_exact"]
+    assert "hnsw_overlap_gate" not in retrieval_gate
+    assert retrieval_gate["hnsw_overlap_mean"] is not None
+    agentic_gate = report["gates"]["agentic"]
+    # §7：拒答/误拒只记录；硬项 = L0/L1/预算/终态/无失败 run
+    assert agentic_gate["correct_unanswerable_gate"] is None
+    assert agentic_gate["false_refusal_gate"] is None
+    assert agentic_gate["no_failed_runs"] is True
+    assert agentic_gate["gate_passed"] is True
+
+
+async def test_run_eval_lexical_only_never_loads_real_embedder(
+    session: AsyncSession,
+    migrated_db_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """纯 lexical 评测是轻量路径：绝不 import/加载真实 embedding 模型。"""
+    slug = f"t20l-{uuid.uuid4().hex[:8]}"
+    await _seed_project(session, slug)
+    evalsets_dir = _write_mini_evalsets(tmp_path / "evalsets")
+
+    def _forbid(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("lexical-only 评测不得实例化 SentenceTransformerEmbedder")
+
+    monkeypatch.setattr("devkb.embedding.SentenceTransformerEmbedder", _forbid)
+    settings = Settings(llm_api_key=SecretStr("eval-test"), database_url=migrated_db_url)
+    written = await run_eval(
+        settings,
+        split="dev",
+        modes=["lexical"],
+        project_slug=slug,
+        output_dir=tmp_path / "reports",
+        evalsets_dir=evalsets_dir,
+        enforce_counts=False,
+    )
+    assert len(written) == 1
+    report = json.loads(written[0][0].read_text(encoding="utf-8"))
+    assert set(report["retrieval"]["metrics"]) == {"lexical"}
+    # 无 exact+hnsw 对照：本报告不判定检索硬 Gate
+    assert report["gates"]["retrieval"]["gate_passed"] is None
+
+
 def test_write_report_refuses_overwrite(tmp_path: Path) -> None:
-    report: dict[str, Any] = {"schema_version": "p1-eval-v1"}
+    report: dict[str, Any] = {"schema_version": "p1-eval-v1.1"}
     write_report(report, "# md", tmp_path, "p1-dev-retrieval-x")
     with pytest.raises(InvalidInputError, match="拒绝覆盖"):
         write_report(report, "# md", tmp_path, "p1-dev-retrieval-x")

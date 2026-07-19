@@ -97,6 +97,15 @@ def test_eval_run_holdout_without_confirm_is_refused() -> None:
     assert "confirm-holdout" in result.output
 
 
+def test_eval_run_holdout_partial_mode_is_refused() -> None:
+    """§7：holdout 一次性访问必须 --mode all；确认了也不允许只跑部分模式。"""
+    result = runner.invoke(
+        app, ["eval", "run", "--split", "holdout", "--confirm-holdout", "--mode", "agentic"]
+    )
+    assert result.exit_code == 1
+    assert "--mode all" in result.output
+
+
 def test_eval_run_rejects_unknown_split_and_mode() -> None:
     assert runner.invoke(app, ["eval", "run", "--split", "test"]).exit_code != 0
     # 别名（vector/hybrid 等）不合法：mode 校验先于任何配置读取与评测执行

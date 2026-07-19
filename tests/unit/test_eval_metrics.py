@@ -22,6 +22,7 @@ from devkb.evaluation import (
     question_group,
     rank_improved,
     recall_at,
+    retrieval_gates,
     top_overlap,
 )
 
@@ -207,7 +208,7 @@ def test_aggregate_agentic_hand_computed_gates() -> None:
         # 期望 refusal 实际 full → 不正确
         _row(id="u3", answerable=False, expected_mode="refusal", mode="full", citation_hit=None),
     ]
-    agg = aggregate_agentic(rows)
+    agg = aggregate_agentic(rows, split="dev")
     gates = agg["gates"]
     assert gates["correct_unanswerable"] == 2  # u1(partial 对) + u2；u3 错
     assert gates["correct_unanswerable_gate"] is False  # 2 < 3
@@ -232,7 +233,7 @@ def test_citation_proxy_below_threshold_recorded_but_not_hard_gate() -> None:
         _row(id="u2", answerable=False, expected_mode="refusal", mode="refusal", citation_hit=None),
         _row(id="u3", answerable=False, expected_mode="partial", mode="partial", citation_hit=None),
     ]
-    gates = aggregate_agentic(rows)["gates"]
+    gates = aggregate_agentic(rows, split="dev")["gates"]
     assert gates["citation_proxy"] == 0.0
     assert gates["citation_proxy_meets_frozen_threshold"] is False
     assert gates["gate_passed"] is True
@@ -250,26 +251,155 @@ def test_aggregate_agentic_budget_violation_and_failed_run() -> None:
             "run_terminal": True,
         },
     ]
-    agg = aggregate_agentic(rows)
+    agg = aggregate_agentic(rows, split="dev")
     assert agg["succeeded"] == 1 and agg["failed"] == 1
     assert agg["gates"]["within_budget"] is False
     assert agg["gates"]["terminal_complete"] is True
+    assert agg["gates"]["no_failed_runs"] is False
     assert agg["gates"]["gate_passed"] is False
     # 失败 run 无终态落库 → 终态完整率破
     rows[1]["run_terminal"] = False
-    assert aggregate_agentic(rows)["gates"]["terminal_complete"] is False
+    assert aggregate_agentic(rows, split="dev")["gates"]["terminal_complete"] is False
+
+
+def test_aggregate_agentic_failed_run_breaks_gate_even_if_rest_pass() -> None:
+    """失败 run 不进 L0/L1/预算统计——"无失败 run"硬项必须兜底，防止静默通过。"""
+    rows = [
+        _row(id="q1"),
+        {
+            "id": "q2",
+            "answerable": True,
+            "expected_mode": None,
+            "status": "failed",
+            "error": "LLMError: boom",
+            "run_terminal": True,  # 终态已落库：其余硬项全部为通过形态
+        },
+        _row(id="u1", answerable=False, expected_mode="refusal", mode="refusal", citation_hit=None),
+        _row(id="u2", answerable=False, expected_mode="refusal", mode="refusal", citation_hit=None),
+        _row(id="u3", answerable=False, expected_mode="partial", mode="partial", citation_hit=None),
+    ]
+    gates = aggregate_agentic(rows, split="dev")["gates"]
+    # 拒答 3/3、误拒 0、L0/L1 无错、预算/终态齐——只有失败 run 兜底能拦住
+    assert gates["correct_unanswerable_gate"] is True
+    assert gates["false_refusal_gate"] is True
+    assert gates["l0_pass"] is True and gates["l1_pass"] is True
+    assert gates["within_budget"] is True and gates["terminal_complete"] is True
+    assert gates["no_failed_runs"] is False
+    assert gates["gate_passed"] is False
+    # holdout 口径同样必须被失败 run 拦住
+    assert aggregate_agentic(rows, split="holdout")["gates"]["gate_passed"] is False
+
+
+def test_aggregate_agentic_holdout_hard_gates_per_section7() -> None:
+    """§7：holdout 硬 Gate 仅 L0/L1/预算/终态/无失败 run；拒答/误拒只记录不设阈值。"""
+    rows = [
+        _row(id="q1", mode="refusal", citation_hit=False),  # holdout 误拒只记录
+        _row(id="u1", answerable=False, expected_mode="refusal", mode="full", citation_hit=None),
+        _row(id="u2", answerable=False, expected_mode="refusal", mode="refusal", citation_hit=None),
+    ]
+    gates = aggregate_agentic(rows, split="holdout")["gates"]
+    assert gates["correct_unanswerable"] == 1 and gates["correct_unanswerable_gate"] is None
+    assert gates["false_refusals"] == 1 and gates["false_refusal_gate"] is None
+    assert gates["gate_passed"] is True  # L0/L1/预算/终态/无失败 run 全过
+    # 同一数据在 dev 口径：拒答 1<3 破 Gate（防 split 混用回归）
+    assert aggregate_agentic(rows, split="dev")["gates"]["gate_passed"] is False
+    # holdout 只有 2 个不可答题：完美 2/2 不得再被 dev 的 >=3 阈值误杀
+    perfect = [
+        _row(id="u1", answerable=False, expected_mode="refusal", mode="refusal", citation_hit=None),
+        _row(id="u2", answerable=False, expected_mode="partial", mode="partial", citation_hit=None),
+    ]
+    holdout_gates = aggregate_agentic(perfect, split="holdout")["gates"]
+    assert holdout_gates["correct_unanswerable"] == 2
+    assert holdout_gates["gate_passed"] is True
 
 
 def test_aggregate_agentic_l0_l1_failures_break_gate() -> None:
     rows = [_row(l0_errors=["L0:claim[0]:unknown_evidence:E9"])]
-    agg = aggregate_agentic(rows)
+    agg = aggregate_agentic(rows, split="dev")
     assert agg["gates"]["l0_pass"] is False and agg["gates"]["gate_passed"] is False
     rows = [_row(l1_errors=["L1:claim[0]:quote[0]:no_verbatim_match"])]
-    assert aggregate_agentic(rows)["gates"]["l1_pass"] is False
+    assert aggregate_agentic(rows, split="dev")["gates"]["l1_pass"] is False
+    # L0/L1 在 holdout 也是硬 Gate（§7）
+    assert aggregate_agentic(rows, split="holdout")["gates"]["gate_passed"] is False
 
 
 def test_aggregate_agentic_empty_rows_never_pass() -> None:
-    agg = aggregate_agentic([])
+    agg = aggregate_agentic([], split="dev")
     assert agg["question_count"] == 0
     assert agg["gates"]["gate_passed"] is False
     assert agg["latency_ms_p50"] is None and agg["gates"]["citation_proxy"] is None
+    assert aggregate_agentic([], split="holdout")["gates"]["gate_passed"] is False
+
+
+# ---------------------------------------------------------------------------
+# 检索 Gate（split-aware）
+# ---------------------------------------------------------------------------
+
+
+def _retrieval_payload(
+    metrics: dict[str, Any],
+    *,
+    overlap: dict[str, Any] | None = None,
+    questions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return {"metrics": metrics, "overlap_exact_hnsw": overlap, "questions": questions or []}
+
+
+def test_retrieval_gates_dev_overlap_is_the_only_hard_item() -> None:
+    metrics = {
+        "vector-exact": {"recall_at_10": 0.6, "mrr_at_10": 0.5},
+        "vector-hnsw": {"recall_at_10": 0.6, "mrr_at_10": 0.5},
+        "hybrid-rrf": {"recall_at_10": 0.7, "mrr_at_10": 0.45},
+    }
+    questions = [{"group": "token", "ranks": {"hybrid-rrf": 2, "vector-exact": 5}}]
+    payload = _retrieval_payload(
+        metrics, overlap={"per_question": [1.0], "mean": 0.95}, questions=questions
+    )
+    gates = retrieval_gates(payload, split="dev")
+    # 记录义务：0.7-0.6 / 0.45-0.5；token 题 2<5 改善；overlap 0.95>=0.95 硬项过
+    assert gates["record_recall_delta"] == pytest.approx(0.1)
+    assert gates["record_mrr_delta"] == pytest.approx(-0.05)
+    assert gates["record_token_question_improved"] is True
+    assert gates["hnsw_overlap_gate"] is True and gates["gate_passed"] is True
+    # hybrid 大幅退化也不破 dev 硬 Gate（T15.4 裁决：第 1–3 条仅记录）
+    worse = {**metrics, "hybrid-rrf": {"recall_at_10": 0.1, "mrr_at_10": 0.1}}
+    gates = retrieval_gates(
+        _retrieval_payload(worse, overlap={"per_question": [0.94], "mean": 0.94}), split="dev"
+    )
+    assert gates["record_recall_delta"] == pytest.approx(-0.5)
+    assert gates["hnsw_overlap_gate"] is False and gates["gate_passed"] is False  # overlap<0.95
+
+
+def test_retrieval_gates_holdout_requires_hnsw_recall_not_below_exact() -> None:
+    """§7 修订：holdout 硬 Gate = vector-hnsw R@10 ≥ vector-exact；overlap 仅记录。"""
+    # 复评探针场景：exact 全中、hnsw 全丢——overlap 再高也必须判不过
+    metrics = {
+        "vector-exact": {"recall_at_10": 1.0, "mrr_at_10": 1.0},
+        "vector-hnsw": {"recall_at_10": 0.0, "mrr_at_10": 0.0},
+    }
+    gates = retrieval_gates(
+        _retrieval_payload(metrics, overlap={"per_question": [1.0], "mean": 1.0}), split="holdout"
+    )
+    assert gates["hnsw_recall_at_10"] == 0.0 and gates["exact_recall_at_10"] == 1.0
+    assert gates["hnsw_recall_ge_exact"] is False and gates["gate_passed"] is False
+    assert "hnsw_overlap_gate" not in gates and gates["hnsw_overlap_mean"] == 1.0
+    # 相等即满足"不低于"；overlap 低也只记录不判定
+    equal = {
+        "vector-exact": {"recall_at_10": 0.875, "mrr_at_10": 0.6},
+        "vector-hnsw": {"recall_at_10": 0.875, "mrr_at_10": 0.6},
+    }
+    gates = retrieval_gates(
+        _retrieval_payload(equal, overlap={"per_question": [0.5], "mean": 0.5}), split="holdout"
+    )
+    assert gates["hnsw_recall_ge_exact"] is True and gates["gate_passed"] is True
+
+
+def test_retrieval_gates_missing_modes_yield_none_verdict_with_stable_keys() -> None:
+    """键集合固定：不可计算处为 None，不判定硬 Gate（防 schema 漂移与误判）。"""
+    dev = retrieval_gates(_retrieval_payload({"lexical": {"recall_at_10": 0.2}}), split="dev")
+    assert dev["record_recall_delta"] is None and dev["hnsw_overlap_mean"] is None
+    assert dev["hnsw_overlap_gate"] is None and dev["gate_passed"] is None
+    holdout = retrieval_gates(
+        _retrieval_payload({"lexical": {"recall_at_10": 0.2}}), split="holdout"
+    )
+    assert holdout["hnsw_recall_ge_exact"] is None and holdout["gate_passed"] is None
