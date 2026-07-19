@@ -170,7 +170,12 @@ async def test_hybrid_fuses_both_channels_with_full_metadata(session: AsyncSessi
     project_id = await _seed_hybrid_project(session)
     query = "OrderTimeoutJob 扫描 pending 订单并触发取消"  # = A 的逐字原文
 
-    hits = await hybrid_retrieve(session, project_id, [query], embedder=FakeEmbedder(), top_k=8)
+    # vector_mode=exact：本测试断言精确名次，测的是 RRF 融合语义。HNSW 是跨项目
+    # 共享的全局索引 + 随机图层级，项目过滤后小样本偶发漏召回（T20.3 实测 ~1/3
+    # 概率 A 掉出 vector channel），会把融合语义断言变成近似召回抽签
+    hits = await hybrid_retrieve(
+        session, project_id, [query], embedder=FakeEmbedder(), top_k=8, vector_mode="exact"
+    )
 
     top = hits[0]
     assert top.title_path == "任务 > 扫描", "双 channel 都排第 1 的块必须融合后居首"
@@ -194,14 +199,19 @@ async def test_hybrid_multi_query_merges_and_dedupes(session: AsyncSession) -> N
     project_id = await _seed_hybrid_project(session)
     q1, q2 = "OrderTimeoutJob 扫描", "OrderTimeoutJob 调度周期"
 
-    hits = await hybrid_retrieve(session, project_id, [q1, q2], embedder=FakeEmbedder(), top_k=8)
+    # vector_mode=exact 的原因同上一个测试：断言精确名次须排除 HNSW 近似抽签
+    hits = await hybrid_retrieve(
+        session, project_id, [q1, q2], embedder=FakeEmbedder(), top_k=8, vector_mode="exact"
+    )
     top = hits[0]
     assert top.hit_queries == (q1, q2), "两个子查询都命中的块须回带全部命中 query"
     assert {h.title_path for h in hits[:2]} == {"任务 > 扫描", "任务 > 配置"}
 
-    single = await hybrid_retrieve(session, project_id, [q1], embedder=FakeEmbedder(), top_k=8)
+    single = await hybrid_retrieve(
+        session, project_id, [q1], embedder=FakeEmbedder(), top_k=8, vector_mode="exact"
+    )
     duplicated = await hybrid_retrieve(
-        session, project_id, [q1, q1], embedder=FakeEmbedder(), top_k=8
+        session, project_id, [q1, q1], embedder=FakeEmbedder(), top_k=8, vector_mode="exact"
     )
     assert duplicated == single, "重复子查询去重后不得重复计分"
 

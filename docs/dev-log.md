@@ -616,3 +616,12 @@
 - 指标已在 T20.1 落为 evaluation.py 纯函数，本项补齐判据要求的手算对齐：每个断言旁注释算式（如 MRR@10=(1/1+1/3+1/6)/5=0.3、overlap=|{a,b,c}∩{b,c,d}|/3、P50 nearest-rank=ceil(0.5×4)=第 2 小），不是"函数自己算一遍再对比"式的假测试。
 - 边界覆盖：空集（Recall/MRR/percentile/overlap 四处 ValueError）；多 relevant 取最先命中的结果名次而非 anchor 声明顺序；rank>k 不进截断指标；u04 类"期望 partial"按 expected_mode 精确匹配计正确（拒答二元计分被明确排除）；L1 的"quote 出现在语料他处但未绑定该 claim"判失败（只查绑定证据，堵跨证据拼接）；聚合层预算越界/失败 run 无终态/L0L1 失败均单独破 Gate，空 rows 永不通过。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 257 passed（+14 手算单测）。证据 commit：本提交。
+
+## 2026-07-19 · T20.3 · make eval-ci
+
+- Makefile 新增 eval-ci 目标，按《Evaluation-v1》§6 五项逐一映射到既有/新增测试；新增 tests/unit/test_eval_reports_schema.py 解析 evalsets/reports 全部已提交 JSON：schema_version、40 位 commit、started_at/command、config/corpus 存在、JSON 与 Markdown 成对提交、非 holdout 报告的 holdout_accessed 必为假（防 dev 阶段静默碰 holdout）、gate 类报告 Gate 字段完整。GitHub Actions 在 pytest 后追加 `make eval-ci` 步骤，push 触发分支补上 p1（此前只有 main/p0，P1 头提交不会跑 CI）。
+- "故意破坏必红"按判据实测三连（改完即还原，日志留 /tmp）：RRF 计分公式 1/(k+rank)→1/(k+2·rank) 3 failed；MAX_LLM_REQUESTS 6→8 3 failed（graph 预算矩阵接住）；quote_matches_evidence 永真 6 failed（L1 单测+graph 重生成路径接住）。
+- 踩坑一：eval-ci 最初把 unit 与 integration 文件混在一次 pytest 调用，test_rrf 的 `from conftest import ...` 裸导入被解析到 integration/conftest 报 ImportError（全量跑不触发、混合子集必炸）——目标拆成两次调用，不动既有测试导入风格。
+- 踩坑二：test_hybrid_multi_query_merges_and_dedupes 在 eval-ci 组合下 ~1/3 失败：断言 hits[:2] 精确集合，但 hybrid 默认 vector_mode=hnsw，而 HNSW 是跨项目共享的全局索引 + 随机图层级，项目过滤后小样本偶发漏召回（实测失败样本里种子块 A 整个从 vector channel 消失）。两个断言精确名次的 hybrid 语义测试固定 vector_mode=exact（RRF 融合语义与近似召回解耦；HNSW 质量另有 overlap 报告与专项测试），连续 10 次组合运行全绿。
+- 附带：evaluation.py 的 MAX_RETRIEVAL_ROUNDS/MAX_LLM_REQUESTS 改为从 agent.state 导入，评测口径与在线预算单一来源。
+- 质量门：`make ci` 260 passed + `make eval-ci` 13 passed，ruff/pyright 零错误。证据 commit：本提交。

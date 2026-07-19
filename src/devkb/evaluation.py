@@ -30,6 +30,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from devkb.agent.service import agentic_answer_question, get_run_trace
+from devkb.agent.state import MAX_LLM_REQUESTS, MAX_RETRIEVAL_ROUNDS
 from devkb.agent.verification import quote_matches_evidence
 from devkb.config import Settings
 from devkb.contracts import PROMPT_VERSION
@@ -64,12 +65,10 @@ EXPECTED_COUNTS: dict[str, tuple[int, int]] = {"dev": (17, 4), "holdout": (8, 2)
 TOKEN_QUESTION_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.\-/]{4,}|\d{3,}")
 _EVIDENCE_MARK_RE = re.compile(r"\[E(\d+)\]")
 
-# §5 预冻结阈值
+# §5 预冻结阈值；轮次/调用硬上限直接取 agent.state 冻结常量（单一来源不漂移）
 MRR_MAX_DROP = 0.02
 HNSW_OVERLAP_GATE = 0.95
 CITATION_PROXY_GATE = 0.85
-MAX_RETRIEVAL_ROUNDS = 2
-MAX_LLM_REQUESTS = 6
 
 
 # ---------------------------------------------------------------------------

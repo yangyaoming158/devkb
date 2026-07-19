@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main, p0]
+    branches: [main, p0, p1]
   pull_request:
 
 env:
@@ -37,3 +37,5 @@ jobs:
       - run: uv run ruff check src tests
       - run: uv run pyright
       - run: uv run pytest -q
+      # Evaluation v1 §6 确定性评测回归（Fake + fixture + service PG）
+      - run: make eval-ci
