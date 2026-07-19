@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from devkb.embedding import Embedder
+from devkb.embedding import Embedder, embed_query_in_thread
 from devkb.fts import tokenize_query
 from devkb.models import Chunk
 from devkb.repositories import ChunkRepo, VectorSearchMode
@@ -170,7 +170,7 @@ async def retrieve(
     mode: VectorSearchMode = "exact",
     ef_search: int | None = None,
 ) -> list[RetrievedChunk]:
-    query_embedding = embedder.embed_query(query)
+    query_embedding = await embed_query_in_thread(embedder, query)
     rows = await ChunkRepo(session, project_id).vector_search(
         query_embedding, top_k, mode=mode, ef_search=ef_search
     )
@@ -247,8 +247,9 @@ async def hybrid_retrieve(
     rankings: list[ChannelRanking] = []
     catalog: dict[uuid.UUID, tuple[Chunk, str]] = {}
     for query in deduped:
+        query_embedding = await embed_query_in_thread(embedder, query)
         vector_rows = await repo.vector_search(
-            embedder.embed_query(query), per_channel_n, mode=vector_mode, ef_search=ef_search
+            query_embedding, per_channel_n, mode=vector_mode, ef_search=ef_search
         )
         lexical_rows = await repo.lexical_search(query, per_channel_n)
         for channel, rows in (("vector", vector_rows), ("lexical", lexical_rows)):

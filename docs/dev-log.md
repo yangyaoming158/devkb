@@ -580,3 +580,10 @@
 - `GET /runs/{run_id}?project=<slug>`：路由零新逻辑，直接经 AppService.run_trace 复用 T18.3 的只读装配（run+Answer+steps 含 llm_requests 明细+每步 tools）。run_id 声明为 uuid.UUID 路径类型——非法格式在 FastAPI 校验层 422，不进业务；project 查询参数复用 ProjectSlug 严格模式。跨项目与未知项目统一 404（Repository 按 project_id 实例化的 D7 语义在 API 层原样呈现，不泄漏 run 存在性）。
 - `/healthz`：迁移版本查询需要原生 SQL（alembic_version 非 ORM 模型），按 D7 把 `text("SELECT version_num FROM alembic_version")` 放进 repositories.py 新增模块函数 get_alembic_version，service.healthz 组装 {status,database,migration}。"不加载模型/不调用 LLM"的测法：AppService 子类把 _get_embedder/_get_llm 覆写为立即 AssertionError，healthz 200 即证明探测路径完全不触碰模型；另断言响应文本不含 API key、"postgresql"（DSN）与口令。DB 不可达（127.0.0.1:9）→ 503 DATABASE_ERROR。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 231 passed（+4 API 集成）。证据 commit：本提交。
+
+## 2026-07-19 · T19.4 · 同步模型隔离与并发上限
+
+- embedding.py 新增 `embed_query_in_thread(embedder, text)`：asyncio.to_thread 把同步 embed_query 移出事件循环，进程内 `threading.Semaphore(EMBED_CONCURRENCY=1)` 限流。选 threading 而非 asyncio.Semaphore 的原因：后者绑定事件循环，CLI 每条命令一个 asyncio.run、pytest 每用例一个 loop 的形态下跨 loop 复用会炸；threading 版在工作线程内阻塞等待，与 loop 无关，两种形态统一。retrieval.py 的 vector/hybrid 两个在线调用点改为 await 该入口（ingest 的 embed_documents 是显式 CLI 管理操作，无服务器阻塞问题，不动）。
+- `/ask` 路由套 `asyncio.shield`：httpx/uvicorn 断开会取消处理协程，而 agentic 落库路径的 `except Exception` 接不住 CancelledError（BaseException），run 将永久 running——shield 让取消只打断响应，图执行与终态写库继续。shield 属传输语义，放路由层不违反"api.py 不放业务逻辑"。
+- 并发测试设计：FakeLLM 顺序脚本在并发下会串台（多 run 交错弹错响应），改用按 system prompt 关键词（查询规划器/充分性评估器/其余→generate）路由的 _RoutedLLM；探针 embedder 在线程内 sleep 0.5s 并用锁维护 active/max_active。断言：3 并发 /ask 全 200 且 max_active==1（上限可观察）；asks 在飞时 /healthz 0.25s 内返回、ask 任务仍 pending（循环未被阻塞）；cancel 请求后轮询 list_runs 至 succeeded（断开终态一致）。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 233 passed（+2 并发集成）。证据 commit：本提交。

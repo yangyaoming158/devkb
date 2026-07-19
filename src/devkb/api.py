@@ -10,6 +10,7 @@ P1 无鉴权：默认只监听 127.0.0.1，不得直接暴露公网（README）�
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -96,7 +97,8 @@ def create_app(service: AppService | None = None) -> FastAPI:
     @app.post("/ask")
     async def ask(request: Request, body: AskRequest) -> dict[str, Any]:
         service: AppService = request.app.state.service
-        return await service.ask(body.project, body.question, top_k=body.top_k)
+        # shield：客户端断开（连接取消）不打断已建立的 run，终态仍会写库（T19.4）
+        return await asyncio.shield(service.ask(body.project, body.question, top_k=body.top_k))
 
     @app.get("/runs/{run_id}")
     async def get_run(

@@ -9,9 +9,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import math
 import random
+import threading
 from collections.abc import Sequence
 from typing import Protocol
 
@@ -19,6 +21,25 @@ from devkb.errors import EmbeddingError
 from devkb.models import EMBEDDING_DIM
 
 MAX_SEQ_LENGTH = 1024  # ADR-0002：超长截断上限
+
+# T19.4：同步 GPU 工作的进程内并发上限（semaphore 默认 1）
+EMBED_CONCURRENCY = 1
+
+_embed_semaphore = threading.Semaphore(EMBED_CONCURRENCY)
+
+
+async def embed_query_in_thread(embedder: Embedder, text: str) -> list[float]:
+    """同步 embed_query 移入线程并受进程内 semaphore 限流；不阻塞事件循环。
+
+    用 threading.Semaphore 而非 asyncio.Semaphore：在工作线程内阻塞等待，
+    与事件循环无绑定，API 单循环与 CLI 每命令一个 asyncio.run 两种形态都安全。
+    """
+
+    def _call() -> list[float]:
+        with _embed_semaphore:
+            return embedder.embed_query(text)
+
+    return await asyncio.to_thread(_call)
 
 
 class Embedder(Protocol):
