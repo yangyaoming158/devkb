@@ -625,3 +625,11 @@
 - 踩坑二：test_hybrid_multi_query_merges_and_dedupes 在 eval-ci 组合下 ~1/3 失败：断言 hits[:2] 精确集合，但 hybrid 默认 vector_mode=hnsw，而 HNSW 是跨项目共享的全局索引 + 随机图层级，项目过滤后小样本偶发漏召回（实测失败样本里种子块 A 整个从 vector channel 消失）。两个断言精确名次的 hybrid 语义测试固定 vector_mode=exact（RRF 融合语义与近似召回解耦；HNSW 质量另有 overlap 报告与专项测试），连续 10 次组合运行全绿。
 - 附带：evaluation.py 的 MAX_RETRIEVAL_ROUNDS/MAX_LLM_REQUESTS 改为从 agent.state 导入，评测口径与在线预算单一来源。
 - 质量门：`make ci` 260 passed + `make eval-ci` 13 passed，ruff/pyright 零错误。证据 commit：本提交。
+
+## 2026-07-19 · T20.4 · 首次真实 dev 全量评测（未勾选，待裁决）
+
+- `devkb eval run --split dev --mode all --project mini-mall`（真实 Qwen + DeepSeek，网络双开关），445 文档/4788 chunks 快照，21 题 agentic 全部成功落库，报告 `p1-dev-{retrieval,agentic}-20260719T224424+0800`，holdout 未接触。
+- §5.1 检索：HNSW overlap=1.0 硬 Gate 通过；对照记录义务如实落盘——hybrid-rrf R@10=0.529 vs vector 0.588、MRR −0.258，与 T15.4 负结果一致；vector R@10=0.588 相对 P0 0.875 是语料规模 39→445 的预声明变化。lexical P95 1138ms、vector-exact P95 1574ms（首查询含模型/连接暖机，小样本口径报告已声明）。
+- §5.2 agentic 六过一败：正确拒答 3/4（u01–u03 refusal 全对；u04 期望 partial 实得 refusal）、误拒 0/17、最终 L0/L1 100%（21 题独立终检零违规）、预算内（总 87 调用、重试 2，单 run ≤6/轮次 ≤2）、终态完整 100%、P50/P95 延迟 26s/95s、总 tokens 152k+81k。**唯一未过：citation-to-anchor proxy 8/17=47% < 85%。**
+- 逐题归因（agentic 报告与同快照检索报告交叉比对）：9 个未命中题中 q02/04/07/08/15/22 六题的原问题在 vector-hnsw top-10 也无命中——是 445 文件语料上的检索天花板而非 agent 行为缺陷（85% 阈值冻结于 2026-07-16，早于 T13.5 全量摄取暴露的难度变化）；q03/05/12 三题检索名次 4/7/6 在窗口内，但 agent 计划查询与 claims 选证未覆盖人工 anchor。另注意 q02/q13/q22 mode=full 但 proxy 未命中——可能引用了同样支撑答案的 Java 实现块而非标注的 markdown 锚点，proxy 本就是代理指标（人工引用正确率抽查在 U2.2）。
+- 按勾选纪律不勾选 T20.4，偏差记录给出三个裁决选项（推荐：修订 proxy Gate 口径以匹配当前语料检索天花板；备选：dev 迭代后重跑，但天花板题预计无法达标；或挂起至 P2 检索改进）。不得自行改规格，等用户裁决。
