@@ -610,3 +610,9 @@
 - agentic 评测的 L0/L1 终检不信任在线路径自检：对最终 Answer JSON 独立复验——L0 校验 [E#] 与 claims.evidence_ids 都指向 citations；L1 经 ChunkRepo 新增 get_contents 取回引用 chunk 原文，复用 agent.verification.quote_matches_evidence 判逐字匹配。每题另记录检索轮次（trace retrieve 步数）、llm_calls/重试（run.usage）、预算达标与终态完整；单题异常不中断评测，取该项目最新 run 验证失败终态仍落库。
 - dev 产两份报告（p1-dev-retrieval-*/p1-dev-agentic-*），holdout 合并为单份 p1-holdout-*（§8 建议产物形状）。§5.1 Gate 按 2026-07-18 裁决实现：1–3 条为对照记录字段（recall/mrr delta、token 题改善），仅 HNSW overlap ≥0.95 为硬 Gate；§5.2 七项 Gate 全部落 gates 字段。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 243 passed（+4 harness 集成、+2 CLI）。证据 commit：本提交。
+
+## 2026-07-19 · T20.2 · 指标手算单测
+
+- 指标已在 T20.1 落为 evaluation.py 纯函数，本项补齐判据要求的手算对齐：每个断言旁注释算式（如 MRR@10=(1/1+1/3+1/6)/5=0.3、overlap=|{a,b,c}∩{b,c,d}|/3、P50 nearest-rank=ceil(0.5×4)=第 2 小），不是"函数自己算一遍再对比"式的假测试。
+- 边界覆盖：空集（Recall/MRR/percentile/overlap 四处 ValueError）；多 relevant 取最先命中的结果名次而非 anchor 声明顺序；rank>k 不进截断指标；u04 类"期望 partial"按 expected_mode 精确匹配计正确（拒答二元计分被明确排除）；L1 的"quote 出现在语料他处但未绑定该 claim"判失败（只查绑定证据，堵跨证据拼接）；聚合层预算越界/失败 run 无终态/L0L1 失败均单独破 Gate，空 rows 永不通过。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 257 passed（+14 手算单测）。证据 commit：本提交。
