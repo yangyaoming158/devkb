@@ -1,0 +1,190 @@
+"""T20.1 eval harness：报告产出/schema 字段/不覆盖/holdout 确认/模式枚举。
+
+fixture 语料 + Fake 组件 + 真实测试 PG（§6 eval-ci 路径）；迷你题集走
+enforce_counts=False，冻结 31 问题量校验由 CLI 真实评测路径承担。
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from pathlib import Path
+from typing import Any
+
+import pytest
+from pydantic import SecretStr
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from devkb.config import Settings
+from devkb.embedding import FakeEmbedder
+from devkb.errors import InvalidInputError
+from devkb.evaluation import EVAL_MODES, expand_modes, run_eval, write_report
+from devkb.ingest.markdown import approx_token_counter
+from devkb.ingest.pipeline import ingest_directory
+from devkb.llm import LLMResult
+from devkb.repositories import ProjectRepo
+
+CORPUS_MD = Path(__file__).parents[1] / "fixtures" / "corpus_md"
+
+PLAN = '{"intent":"knowledge_qa","queries":["库存 并发"]}'
+EVAL_OK = '{"sufficiency":"sufficient","supported_aspects":["库存"],"missing_aspects":[]}'
+GEN = (
+    '{"answer_text":"库存并发由行锁保证 [E1]。","claims":[{"text":"库存并发由行锁保证",'
+    '"evidence_ids":["E1"],"quotes":[]}],"not_found":[]}'
+)
+
+
+class _RoutedLLM:
+    """按 system prompt 路由，多题顺序评测互不串台。"""
+
+    async def complete(self, *, system: str, user: str) -> LLMResult:
+        if "查询规划器" in system:
+            text = PLAN
+        elif "充分性评估器" in system:
+            text = EVAL_OK
+        else:
+            text = GEN
+        return LLMResult(
+            text=text,
+            model="deepseek-v4-flash",
+            usage={"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
+        )
+
+
+def _write_mini_evalsets(root: Path) -> Path:
+    (root / "v0").mkdir(parents=True)
+    (root / "v1").mkdir()
+    answerable = [
+        {
+            "id": "q1",
+            "question": "库存怎么保证并发安全？",
+            "answerable": True,
+            "relevant": [{"rel_path": "zh.md", "anchor": "并发控制"}],
+        },
+        {
+            "id": "q2",
+            "question": "订单取消后库存如何回补？（InventoryService）",
+            "answerable": True,
+            "relevant": [{"rel_path": "zh.md", "anchor": "回补策略"}],
+        },
+    ]
+    unanswerable = [
+        {
+            "id": "u1",
+            "question": "生产环境数据库连接池大小是多少？",
+            "answerable": False,
+            "relevant": [],
+        }
+    ]
+    expectations = [{"id": "u1", "split": "dev", "expected_mode": "refusal"}]
+    for name, rows in (
+        ("v0/retrieval_dev.jsonl", answerable),
+        ("v0/unanswerable_dev.jsonl", unanswerable),
+        ("v1/answer-expectations.jsonl", expectations),
+    ):
+        (root / name).write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8"
+        )
+    return root
+
+
+async def _seed_project(session: AsyncSession, slug: str) -> None:
+    project = await ProjectRepo(session).create(slug=slug, name=slug)
+    await session.commit()
+    report = await ingest_directory(
+        session, project.id, CORPUS_MD, embedder=FakeEmbedder(), count_tokens=approx_token_counter
+    )
+    assert report.count("failed") == 0
+    await session.commit()
+
+
+async def test_run_eval_all_modes_writes_schema_complete_reports(
+    session: AsyncSession, migrated_db_url: str, tmp_path: Path
+) -> None:
+    slug = f"t20-{uuid.uuid4().hex[:8]}"
+    await _seed_project(session, slug)
+    evalsets_dir = _write_mini_evalsets(tmp_path / "evalsets")
+    output_dir = tmp_path / "reports"
+    settings = Settings(llm_api_key=SecretStr("eval-test"), database_url=migrated_db_url)
+
+    written = await run_eval(
+        settings,
+        split="dev",
+        modes=list(EVAL_MODES),
+        project_slug=slug,
+        output_dir=output_dir,
+        evalsets_dir=evalsets_dir,
+        embedder=FakeEmbedder(),
+        llm=_RoutedLLM(),
+        enforce_counts=False,
+    )
+
+    assert len(written) == 2  # dev：retrieval 与 agentic 各一份
+    stems = [json_path.name for json_path, _ in written]
+    assert any(name.startswith("p1-dev-retrieval-") for name in stems)
+    assert any(name.startswith("p1-dev-agentic-") for name in stems)
+    for json_path, markdown_path in written:
+        assert json_path.exists() and markdown_path.exists()
+        report = json.loads(json_path.read_text(encoding="utf-8"))
+        # 判据字段：commit / 语料 manifest+hash / 模型 / Prompt / 配置
+        assert report["schema_version"] == "p1-eval-v1"
+        assert report["run"]["devkb_commit"] and report["run"]["holdout_accessed"] is False
+        assert report["corpus"]["sha256"]
+        assert len(report["corpus"]["manifest"]) == report["corpus"]["document_count"] == 5
+        assert report["config"]["embedding_model_id"] and report["config"]["llm_model"]
+        assert report["config"]["prompt_version"]
+        assert markdown_path.read_text(encoding="utf-8").startswith("# Evaluation v1 报告")
+
+    retrieval_report = json.loads(
+        next(p for p, _ in written if p.name.startswith("p1-dev-retrieval-")).read_text(
+            encoding="utf-8"
+        )
+    )
+    metrics = retrieval_report["retrieval"]["metrics"]
+    assert set(metrics) == {"vector-exact", "vector-hnsw", "lexical", "hybrid-rrf"}
+    for mode_metrics in metrics.values():
+        assert {"recall_at_5", "recall_at_10", "mrr_at_10", "latency_ms_p50"} <= set(mode_metrics)
+    assert isinstance(retrieval_report["gates"]["retrieval"]["hnsw_overlap_gate"], bool)
+
+    agentic_report = json.loads(
+        next(p for p, _ in written if p.name.startswith("p1-dev-agentic-")).read_text(
+            encoding="utf-8"
+        )
+    )
+    rows = agentic_report["agentic"]["questions"]
+    assert [row["id"] for row in rows] == ["q1", "q2", "u1"]
+    assert all(row["status"] == "succeeded" and row["run_terminal"] for row in rows)
+    gates = agentic_report["gates"]["agentic"]
+    assert {"l0_pass", "l1_pass", "citation_proxy", "within_budget", "gate_passed"} <= set(gates)
+
+
+async def test_run_eval_holdout_requires_explicit_confirmation(tmp_path: Path) -> None:
+    settings = Settings(
+        llm_api_key=SecretStr("eval-test"),
+        database_url="postgresql+asyncpg://devkb:x@127.0.0.1:9/devkb",
+    )
+    with pytest.raises(InvalidInputError, match="confirm-holdout"):
+        await run_eval(
+            settings,
+            split="holdout",
+            modes=["vector-exact"],
+            project_slug="any",
+            output_dir=tmp_path,
+            confirm_holdout=False,
+        )
+
+
+def test_write_report_refuses_overwrite(tmp_path: Path) -> None:
+    report: dict[str, Any] = {"schema_version": "p1-eval-v1"}
+    write_report(report, "# md", tmp_path, "p1-dev-retrieval-x")
+    with pytest.raises(InvalidInputError, match="拒绝覆盖"):
+        write_report(report, "# md", tmp_path, "p1-dev-retrieval-x")
+
+
+def test_expand_modes_enum() -> None:
+    assert expand_modes("all") == list(EVAL_MODES)
+    assert expand_modes("vector-hnsw") == ["vector-hnsw"]
+    with pytest.raises(InvalidInputError):
+        expand_modes("vector")  # 别名不合法（Evaluation-v1 §3）
+    with pytest.raises(InvalidInputError):
+        expand_modes("agentic-hybrid")

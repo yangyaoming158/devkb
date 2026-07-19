@@ -400,6 +400,18 @@ class ChunkRepo:
         rows = (await self._session.execute(stmt)).all()
         return [(row[0], row[1]) for row in rows]
 
+    async def get_contents(self, chunk_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """按 id 取 chunk 正文（Evaluation v1 对最终 Answer 的 L1 终检用）。
+
+        跨项目 id 在此天然不可见——查不到的 id 直接缺席返回值。
+        """
+        if not chunk_ids:
+            return {}
+        stmt = select(Chunk.id, Chunk.content).where(
+            Chunk.project_id == self._project_id, Chunk.id.in_(list(chunk_ids))
+        )
+        return {row[0]: row[1] for row in (await self._session.execute(stmt)).all()}
+
 
 class RunRepo:
     def __init__(self, session: AsyncSession, project_id: uuid.UUID) -> None:

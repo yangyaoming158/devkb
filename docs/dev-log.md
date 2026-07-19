@@ -602,3 +602,11 @@
 - 低③：Settings(retrieval_top_k=13) 可构造，service.ask 省略 top_k 时直接使用——agentic 路径深处 ValueError 变 500，fixed-rag 可能真超上限。修复：ask 校验最终生效值（显式传参与配置默认同一道闸）；Settings.retrieval_top_k 加 Field(ge=1, le=12)，上限数字与 retrieval.MAX_FINAL_TOP_K 的一致性由 test_config 用 annotated_types 元数据断言防漂移（config 不反向 import retrieval，避免把 sqlalchemy 链拖进配置模块）。
 - 低④：README 已知限制第 4 条"无 API 服务（FastAPI 在 P1）"与同文件新增的 API 章节自相矛盾——改为指向上文安全边界。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 237 passed（422 契约断言强化 +2 新测试）。证据 commit：本提交。
+
+## 2026-07-19 · T20.1 · devkb eval run 与报告 schema
+
+- `src/devkb/evaluation.py` 收口 Evaluation v1 harness：题集加载（v0 冻结题 + v1 answer-expectations 合并 expected_mode，题量与 31 问冻结集不符即拒评）、检索四模式与 agentic 运行器、报告装配与落盘。指标口径全部沿用 T14.4/T15.4 基准脚本（rel_path+anchor casefold 包含命中、预声明 token 题正则），基准脚本继续留档不动，harness 成为正式入口。
+- 判据落点：mode 枚举拒绝一切规格外别名；报告 JSON 记录 commit（含 worktree 脏标记）、语料 manifest（逐文档 rel_path+content_hash 全量入报告）与 sha256、双模型名、Prompt 版本、rrf_k/per_channel_n/ef_search/top_k、复现命令；文件名带时区时间戳，write_report 同名即 INVALID_INPUT 不覆盖；holdout 在 CLI（进程入口，无需配置即可拒）与 run_eval（库入口）双层要求 --confirm-holdout。
+- agentic 评测的 L0/L1 终检不信任在线路径自检：对最终 Answer JSON 独立复验——L0 校验 [E#] 与 claims.evidence_ids 都指向 citations；L1 经 ChunkRepo 新增 get_contents 取回引用 chunk 原文，复用 agent.verification.quote_matches_evidence 判逐字匹配。每题另记录检索轮次（trace retrieve 步数）、llm_calls/重试（run.usage）、预算达标与终态完整；单题异常不中断评测，取该项目最新 run 验证失败终态仍落库。
+- dev 产两份报告（p1-dev-retrieval-*/p1-dev-agentic-*），holdout 合并为单份 p1-holdout-*（§8 建议产物形状）。§5.1 Gate 按 2026-07-18 裁决实现：1–3 条为对照记录字段（recall/mrr delta、token 题改善），仅 HNSW overlap ≥0.95 为硬 Gate；§5.2 七项 Gate 全部落 gates 字段。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 243 passed（+4 harness 集成、+2 CLI）。证据 commit：本提交。

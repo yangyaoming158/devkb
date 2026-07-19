@@ -91,6 +91,20 @@ def test_ask_json_output_is_full_answer_v1(monkeypatch: Any) -> None:
     assert payload["claims"][0]["quotes"] == ["enum OrderStatus"]
 
 
+def test_eval_run_holdout_without_confirm_is_refused() -> None:
+    result = runner.invoke(app, ["eval", "run", "--split", "holdout"])
+    assert result.exit_code == 1
+    assert "confirm-holdout" in result.output
+
+
+def test_eval_run_rejects_unknown_split_and_mode() -> None:
+    assert runner.invoke(app, ["eval", "run", "--split", "test"]).exit_code != 0
+    # 别名（vector/hybrid 等）不合法：mode 校验先于任何配置读取与评测执行
+    result = runner.invoke(app, ["eval", "run", "--split", "dev", "--mode", "vector"])
+    assert result.exit_code == 1
+    assert "INVALID_INPUT" in result.output
+
+
 def test_serve_defaults_to_loopback_bind(monkeypatch: Any) -> None:
     import uvicorn
 

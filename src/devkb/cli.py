@@ -23,6 +23,8 @@ from devkb.logging import configure_logging
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="devkb — 软件项目知识助手")
 runs_app = typer.Typer(no_args_is_help=True, help="查看历史 run")
 app.add_typer(runs_app, name="runs")
+eval_app = typer.Typer(no_args_is_help=True, help="Evaluation v1 评测（报告落盘，不覆盖历史）")
+app.add_typer(eval_app, name="eval")
 console = Console()
 
 
@@ -283,6 +285,57 @@ def _render_replay(payload: dict[str, Any]) -> None:
     console.print(
         f"[dim]总计 tokens={run['tokens_in']}+{run['tokens_out']} "
         f"cost={run['cost']} latency={run['latency_ms']}ms[/dim]"
+    )
+
+
+@eval_app.command("run")
+def eval_run(
+    split: str = typer.Option(..., "--split", help="dev | holdout"),
+    mode: str = typer.Option(
+        "all", "--mode", help="vector-exact|vector-hnsw|lexical|hybrid-rrf|agentic|all"
+    ),
+    project: str = typer.Option("mini-mall", "--project", help="项目 slug"),
+    confirm_holdout: bool = typer.Option(
+        False, "--confirm-holdout", help="holdout 只在最终验收运行一次，必须显式确认"
+    ),
+    output_dir: Path = typer.Option(Path("evalsets/reports"), "--output-dir"),
+) -> None:
+    """按 split/mode 运行 Evaluation v1 评测，产出 JSON + Markdown 时间戳报告。"""
+    if split not in ("dev", "holdout"):
+        raise typer.BadParameter("split 只支持 dev | holdout", param_hint="--split")
+    if split == "holdout" and not confirm_holdout:
+        console.print(
+            "[red]INVALID_INPUT[/red] holdout 只在最终验收运行一次：必须显式 --confirm-holdout"
+        )
+        raise typer.Exit(1)
+    try:
+        paths = asyncio.run(_run_eval(split, mode, project, confirm_holdout, output_dir))
+    except DevKbError as exc:
+        console.print(f"[red]{exc.code}[/red] {exc}")
+        raise typer.Exit(1) from exc
+    for json_path, markdown_path in paths:
+        console.print(str(json_path))
+        console.print(str(markdown_path))
+
+
+async def _run_eval(
+    split: str, mode: str, project: str, confirm_holdout: bool, output_dir: Path
+) -> list[tuple[Path, Path]]:
+    from devkb.config import get_settings
+    from devkb.evaluation import expand_modes, run_eval
+
+    modes = expand_modes(mode)
+    command = f"devkb eval run --split {split} --mode {mode} --project {project}" + (
+        " --confirm-holdout" if confirm_holdout else ""
+    )
+    return await run_eval(
+        get_settings(),
+        split=split,  # type: ignore[arg-type]
+        modes=modes,
+        project_slug=project,
+        output_dir=output_dir,
+        confirm_holdout=confirm_holdout,
+        command=command,
     )
 
 
