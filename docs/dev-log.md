@@ -633,3 +633,10 @@
 - §5.2 agentic 六过一败：正确拒答 3/4（u01–u03 refusal 全对；u04 期望 partial 实得 refusal）、误拒 0/17、最终 L0/L1 100%（21 题独立终检零违规）、预算内（总 87 调用、重试 2，单 run ≤6/轮次 ≤2）、终态完整 100%、P50/P95 延迟 26s/95s、总 tokens 152k+81k。**唯一未过：citation-to-anchor proxy 8/17=47% < 85%。**
 - 逐题归因（agentic 报告与同快照检索报告交叉比对）：9 个未命中题中 q02/04/07/08/15/22 六题的原问题在 vector-hnsw top-10 也无命中——是 445 文件语料上的检索天花板而非 agent 行为缺陷（85% 阈值冻结于 2026-07-16，早于 T13.5 全量摄取暴露的难度变化）；q03/05/12 三题检索名次 4/7/6 在窗口内，但 agent 计划查询与 claims 选证未覆盖人工 anchor。另注意 q02/q13/q22 mode=full 但 proxy 未命中——可能引用了同样支撑答案的 Java 实现块而非标注的 markdown 锚点，proxy 本就是代理指标（人工引用正确率抽查在 U2.2）。
 - 按勾选纪律不勾选 T20.4，偏差记录给出三个裁决选项（推荐：修订 proxy Gate 口径以匹配当前语料检索天花板；备选：dev 迭代后重跑，但天花板题预计无法达标；或挂起至 P2 检索改进）。不得自行改规格，等用户裁决。
+
+## 2026-07-19 · T20.4 · 裁决落地与按新口径重跑（勾选）
+
+- 用户裁决采纳推荐项：citation proxy 由 §5.2 硬 Gate 改为记录义务（Evaluation-v1 修订注记 + harness `citation_proxy_meets_frozen_threshold` 记录字段，不进 gate_passed），硬性引用质量兜底移交 U2.2 人工抽查；其余六项维持硬性。手算单测同步：补"其余全过 + 低 proxy → gate_passed=True"专项场景，原场景补 correct_unanswerable_gate 断言（发现该场景本就因 2<3 未过，与 proxy 无关——修订不是"放水全过"）。
+- 按新口径重跑 agentic（新报告 p1-dev-agentic-20260719T230855+0800，首跑报告原样保留）：21/21 成功、六项硬 Gate 全过——拒答 3/4（u01–03 对，u04 期望 partial 仍 refusal）、误拒 1/17（q02，首跑为 0，DeepSeek 输出波动在 Gate 容忍内）、L0/L1 独立终检双 100%、总 76 调用 0 重试全部预算内、终态完整；proxy 52.9% 如实落盘（较首跑 47% 自然波动，仍低于 85% 冻结阈值）。P50/P95 延迟 23s/60s，tokens 134k+58k。
+- 两次运行对照可见 temperature=0 下 DeepSeek 仍有逐题模式波动（full/partial/refusal 分布 7/10/4 → 8/8/5），Gate 阈值的容忍空间（≥3/4、≤1/17）正是为此预留；两份报告均留档不覆盖。
+- 质量门：`make ci` 261 passed + `make eval-ci` 13 passed（新报告过 schema 校验）。证据 commit：本提交。
