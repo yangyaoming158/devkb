@@ -566,3 +566,11 @@
 - 异常映射 `map_errors`：DevKbError 透传；SQLAlchemyError/OSError→DATABASE_ERROR；其余未预期异常→INTERNAL_ERROR 并生成 12 位 error_id（消息只含 error_id，异常细节与类型进 stderr 结构化日志）。设计点：用户可见消息只带异常类型名不带原始错误串——SQLAlchemy/asyncpg 的错误串可能含 DSN 主机/口令；单测断言注入的口令与主机不出现在 DevKbError 消息中。DB 不可达集成测试连 127.0.0.1:9（discard 端口，永拒绝）验证稳定错误码。
 - 踩坑：CLI 测试经 CliRunner 触发 configure_logging 时 structlog 以 cache_logger_on_first_use=True 缓存了 pytest 的临时 stderr，用例结束后该流被关闭，之后任何首次使用的 logger（本次是 service.py 的 map_errors 日志）都写已关闭文件抛 ValueError——单跑 test_service_errors 全绿、全量跑必挂的顺序依赖。修复：tests/conftest.py 增 autouse 夹具，每用例后 structlog.reset_defaults()（默认配置不缓存、写当前 stdout），隔离对后续测试的污染。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 222 passed（+5 单元映射/校验、+5 集成 AppService、+1 CLI 无 traceback 渲染）。证据 commit：本提交。
+
+## 2026-07-19 · T19.2 · POST /ask
+
+- 新建 `src/devkb/api.py`：create_app(service=None) 工厂——测试直接注入带 Fake 组件的 AppService（httpx ASGITransport 不发 lifespan 事件，注入路径不依赖 lifespan）；生产缺省时 lifespan 内按配置自建并在关闭时 aclose。路由函数只做"取 state.service → 调用 → 返回"，业务与校验语义全在 service 层（api.py 不放业务逻辑的规格约束由此落实）。
+- 输入校验：AskRequest 用 Annotated+StringConstraints 复用 MAX_QUESTION_CHARS/MAX_FINAL_TOP_K 常量（与 CLI/service 同源，不出现第二份数字）；project slug 收紧为 ^[a-z0-9][a-z0-9_-]*$ ≤64（规格 §13"严格校验"，CLI 侧历史 slug 不受影响——校验只在 API 入口）。
+- 错误契约：DevKbError 处理器输出 {error:{code,message,error_id}}；error_id 对 InternalError 沿用 map_errors 已生成并写入日志的那枚，其余错误现场生成并随 api_error 日志落 stderr，保证任何错误响应都可与日志关联。状态码映射表按 code 而非异常类型，子类（LLM_TIMEOUT→504）天然生效。
+- 测试中发现：原打算用"FakeLLM 抛 RuntimeError"制造 500，实际图节点把非 LLM 异常也吸收降级为 refusal（预算走完 4 调用），拿不到失败终态——改用 AppService 子类 stub 直接抛 InternalError 测 API 映射层，DB 不可达（127.0.0.1:9）测 503 与 DSN 口令不泄漏。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 227 passed（+5 API 集成）。证据 commit：本提交。
