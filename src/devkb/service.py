@@ -32,7 +32,7 @@ from devkb.errors import (
     NotFoundError,
 )
 from devkb.llm import LLMClient
-from devkb.repositories import ChunkRepo, ProjectRepo, RunRepo
+from devkb.repositories import ChunkRepo, ProjectRepo, RunRepo, get_alembic_version
 from devkb.retrieval import MAX_FINAL_TOP_K
 
 if TYPE_CHECKING:
@@ -213,6 +213,12 @@ class AppService:
                     count_tokens=count_tokens,
                     target_tokens=self._settings.chunk_target_tokens,
                 )
+
+    async def healthz(self) -> dict[str, Any]:
+        """健康探测：进程存活 + 数据库连通 + 迁移版本；不加载模型、不调用 LLM。"""
+        async with map_errors(), self._session_factory() as session:
+            migration = await get_alembic_version(session)
+        return {"status": "ok", "database": "ok", "migration": migration}
 
     async def backfill_search(self, project_slug: str) -> tuple[int, int]:
         async with map_errors(), self._session_factory() as session:

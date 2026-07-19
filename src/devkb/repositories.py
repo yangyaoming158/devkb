@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Literal
 
-from sqlalchemy import Select, delete, func, select, update
+from sqlalchemy import Select, delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.compiler import compiles
@@ -550,3 +550,9 @@ class ToolInvocationRepo:
             .order_by(AgentStep.seq, ToolInvocation.created_at, ToolInvocation.id)
         )
         return (await self._session.execute(stmt)).scalars().all()
+
+
+async def get_alembic_version(session: AsyncSession) -> str | None:
+    """healthz 探测用：当前迁移版本（alembic_version 单行表，无版本时 None）。"""
+    result = await session.execute(text("SELECT version_num FROM alembic_version"))
+    return result.scalar_one_or_none()

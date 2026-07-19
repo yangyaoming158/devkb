@@ -134,3 +134,91 @@ async def test_ask_database_unavailable_returns_503_without_leaking_dsn() -> Non
         assert "supersecretpw" not in response.text
     finally:
         await service.aclose()
+
+
+async def test_get_run_returns_steps_tools_and_answer(migrated_db_url: str) -> None:
+    slug = _slug()
+    service = _service(migrated_db_url, [PLAN, EVAL_OK, GEN])
+    try:
+        await service.ingest(slug, CORPUS_MD)
+        async with _client(service) as client:
+            asked = await client.post(
+                "/ask", json={"project": slug, "question": "库存怎么保证并发安全？"}
+            )
+            run_id = asked.json()["run_id"]
+            response = await client.get(f"/runs/{run_id}", params={"project": slug})
+        assert response.status_code == 200
+        payload = response.json()
+        run = payload["run"]
+        assert run["run_id"] == run_id and run["status"] == "succeeded"
+        assert run["answer"]["mode"] == "full"
+        nodes = [step["node"] for step in payload["steps"]]
+        assert "plan" in nodes and "retrieve" in nodes and "finalize" in nodes
+        assert any(step["tools"] for step in payload["steps"])  # 检索工具调用可见
+    finally:
+        await service.aclose()
+
+
+async def test_get_run_isolation_and_strict_params(migrated_db_url: str) -> None:
+    slug_a, slug_b = _slug(), _slug()
+    service = _service(migrated_db_url, [PLAN, EVAL_OK, GEN])
+    try:
+        await service.ingest(slug_a, CORPUS_MD)
+        await service.ingest(slug_b, CORPUS_MD)
+        async with _client(service) as client:
+            asked = await client.post(
+                "/ask", json={"project": slug_a, "question": "库存怎么保证并发安全？"}
+            )
+            run_id = asked.json()["run_id"]
+            cross = await client.get(f"/runs/{run_id}", params={"project": slug_b})
+            assert cross.status_code == 404  # 跨项目不可见，不泄漏存在性
+            assert cross.json()["error"]["code"] == "NOT_FOUND"
+
+            bad_uuid = await client.get("/runs/not-a-uuid", params={"project": slug_a})
+            assert bad_uuid.status_code == 422  # run_id 严格校验
+
+            no_project = await client.get(f"/runs/{run_id}")
+            assert no_project.status_code == 422  # project 必填
+
+            unknown = await client.get(f"/runs/{run_id}", params={"project": "no-such-project"})
+            assert unknown.status_code == 404
+    finally:
+        await service.aclose()
+
+
+class _NoModelService(AppService):
+    """healthz 判据：探测路径绝不加载模型/构造 LLM 客户端。"""
+
+    def _get_embedder(self) -> FakeEmbedder:
+        raise AssertionError("healthz 不得加载嵌入模型")
+
+    def _get_llm(self) -> FakeLLM:
+        raise AssertionError("healthz 不得构造 LLM 客户端")
+
+
+async def test_healthz_reports_migration_without_model_load(migrated_db_url: str) -> None:
+    settings = Settings(llm_api_key=SecretStr("healthz-secret-key"), database_url=migrated_db_url)
+    service = _NoModelService(settings)
+    try:
+        async with _client(service) as client:
+            response = await client.get("/healthz")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "ok" and payload["database"] == "ok"
+        assert payload["migration"]  # 迁移版本非空
+        assert "healthz-secret-key" not in response.text
+        assert "postgresql" not in response.text  # 不回显 DSN/配置
+    finally:
+        await service.aclose()
+
+
+async def test_healthz_database_down_returns_503(migrated_db_url: str) -> None:
+    service = _service("postgresql+asyncpg://devkb:supersecretpw@127.0.0.1:9/devkb", [])
+    try:
+        async with _client(service) as client:
+            response = await client.get("/healthz")
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "DATABASE_ERROR"
+        assert "supersecretpw" not in response.text
+    finally:
+        await service.aclose()

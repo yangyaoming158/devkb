@@ -574,3 +574,9 @@
 - 错误契约：DevKbError 处理器输出 {error:{code,message,error_id}}；error_id 对 InternalError 沿用 map_errors 已生成并写入日志的那枚，其余错误现场生成并随 api_error 日志落 stderr，保证任何错误响应都可与日志关联。状态码映射表按 code 而非异常类型，子类（LLM_TIMEOUT→504）天然生效。
 - 测试中发现：原打算用"FakeLLM 抛 RuntimeError"制造 500，实际图节点把非 LLM 异常也吸收降级为 refusal（预算走完 4 调用），拿不到失败终态——改用 AppService 子类 stub 直接抛 InternalError 测 API 映射层，DB 不可达（127.0.0.1:9）测 503 与 DSN 口令不泄漏。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 227 passed（+5 API 集成）。证据 commit：本提交。
+
+## 2026-07-19 · T19.3 · GET /runs 与 /healthz
+
+- `GET /runs/{run_id}?project=<slug>`：路由零新逻辑，直接经 AppService.run_trace 复用 T18.3 的只读装配（run+Answer+steps 含 llm_requests 明细+每步 tools）。run_id 声明为 uuid.UUID 路径类型——非法格式在 FastAPI 校验层 422，不进业务；project 查询参数复用 ProjectSlug 严格模式。跨项目与未知项目统一 404（Repository 按 project_id 实例化的 D7 语义在 API 层原样呈现，不泄漏 run 存在性）。
+- `/healthz`：迁移版本查询需要原生 SQL（alembic_version 非 ORM 模型），按 D7 把 `text("SELECT version_num FROM alembic_version")` 放进 repositories.py 新增模块函数 get_alembic_version，service.healthz 组装 {status,database,migration}。"不加载模型/不调用 LLM"的测法：AppService 子类把 _get_embedder/_get_llm 覆写为立即 AssertionError，healthz 200 即证明探测路径完全不触碰模型；另断言响应文本不含 API key、"postgresql"（DSN）与口令。DB 不可达（127.0.0.1:9）→ 503 DATABASE_ERROR。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 231 passed（+4 API 集成）。证据 commit：本提交。

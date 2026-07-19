@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints
 
@@ -97,5 +97,19 @@ def create_app(service: AppService | None = None) -> FastAPI:
     async def ask(request: Request, body: AskRequest) -> dict[str, Any]:
         service: AppService = request.app.state.service
         return await service.ask(body.project, body.question, top_k=body.top_k)
+
+    @app.get("/runs/{run_id}")
+    async def get_run(
+        request: Request,
+        run_id: uuid.UUID,
+        project: Annotated[ProjectSlug, Query()],
+    ) -> dict[str, Any]:
+        service: AppService = request.app.state.service
+        return await service.run_trace(project, str(run_id))
+
+    @app.get("/healthz")
+    async def healthz(request: Request) -> dict[str, Any]:
+        service: AppService = request.app.state.service
+        return await service.healthz()
 
     return app
