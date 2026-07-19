@@ -8,7 +8,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr, ValidationError
+from pydantic import Field, SecretStr, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from devkb.errors import ConfigError
@@ -39,7 +39,9 @@ class Settings(BaseSettings):
     embedding_batch_size: int = 32  # ADR-0002：batch 64 实测显存溢出致吞吐悬崖，勿调大
 
     chunk_target_tokens: int = 400  # 分块目标 300–500 区间的中值
-    retrieval_top_k: int = 8
+    # 上限须与 retrieval.MAX_FINAL_TOP_K 一致（config 不 import retrieval，
+    # 由 tests/unit/test_config.py 断言防漂移）
+    retrieval_top_k: int = Field(default=8, ge=1, le=12)
 
 
 @lru_cache

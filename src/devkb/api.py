@@ -18,6 +18,7 @@ from typing import Annotated, Any
 
 import structlog
 from fastapi import FastAPI, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StringConstraints
 
@@ -85,6 +86,26 @@ def create_app(service: AppService | None = None) -> FastAPI:
     @app.exception_handler(DevKbError)
     async def devkb_error_handler(request: Request, exc: DevKbError) -> JSONResponse:
         return _error_response(exc)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        # 覆盖 FastAPI 内置 422 detail：统一稳定错误体，且只报字段位置——
+        # 内置 detail 会回显 input（含完整问题正文），违反 §13 不回显/不泄漏纪律
+        error_id = uuid.uuid4().hex[:12]
+        fields = sorted({".".join(str(part) for part in err["loc"]) for err in exc.errors()})
+        logger.error("api_validation_error", error_id=error_id, fields=fields)
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "INVALID_INPUT",
+                    "message": f"请求参数校验失败：{'、'.join(fields)}",
+                    "error_id": error_id,
+                }
+            },
+        )
 
     @app.exception_handler(Exception)
     async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:

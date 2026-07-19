@@ -594,3 +594,11 @@
 - README 新增"本地 HTTP API（P1）"章节：serve/healthz/ask/runs 四条命令示例 + 加粗 ⚠️ 声明（完全无鉴权、任何能访问端口的人可读取知识库与历史 run、严禁绑定非回环或经端口转发/反代暴露公网）。
 - 验证：单测 monkeypatch uvicorn.run 断言缺省绑定与非回环警告；真实冒烟 `devkb serve --port 8765` 后 ss 确认 LISTEN 127.0.0.1:8765，healthz 返回 migration 0003（全程未加载嵌入模型，进程秒起），非法 run_id 得 422。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 235 passed（+2 CLI serve）。证据 commit：本提交。
+
+## 2026-07-19 · T19 复查修复（2 中 2 低）
+
+- 中①（T19.2 判据）：Pydantic 校验失败走的是 FastAPI 内置 RequestValidationError 处理器——422 的 detail 数组既无稳定 code/error_id，还会在 input 字段回显完整问题正文与非法 slug，双重违反 §13。修复：api.py 注册 RequestValidationError 专用处理器，422 统一 {error:{code:"INVALID_INPUT",message,error_id}}，message 只列字段位置（body.question 等）不含任何 input 值；测试对全部 6 种非法 /ask 输入与 /runs 非法 uuid/缺 project 断言错误体结构，并断言超长问题正文与 "Bad Slug!" 不出现在响应文本。
+- 中②（T19.4 判据）：首次 /ask 的 SentenceTransformer 模型加载在 async ask() 内同步执行（数秒级 GPU 初始化冻结事件循环）；此前并发测试预注入 Fake embedder，恰好绕开了真实懒加载路径——测试盲区教训。修复：_get_embedder 改 async，asyncio.to_thread 跑同步 _load_embedder，asyncio.Lock 双检避免并发首问重复加载模型（8GB 显存加载两份即溢出）。新增集成测试用未注入 embedder 的子类（_load_embedder 慢 0.5s 计数）：加载进行中 /healthz 0.25s 内响应、2 并发首问 load_calls==1。
+- 低③：Settings(retrieval_top_k=13) 可构造，service.ask 省略 top_k 时直接使用——agentic 路径深处 ValueError 变 500，fixed-rag 可能真超上限。修复：ask 校验最终生效值（显式传参与配置默认同一道闸）；Settings.retrieval_top_k 加 Field(ge=1, le=12)，上限数字与 retrieval.MAX_FINAL_TOP_K 的一致性由 test_config 用 annotated_types 元数据断言防漂移（config 不反向 import retrieval，避免把 sqlalchemy 链拖进配置模块）。
+- 低④：README 已知限制第 4 条"无 API 服务（FastAPI 在 P1）"与同文件新增的 API 章节自相矛盾——改为指向上文安全边界。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 237 passed（422 契约断言强化 +2 新测试）。证据 commit：本提交。

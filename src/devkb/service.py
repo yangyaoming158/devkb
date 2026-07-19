@@ -8,6 +8,7 @@ CLI 与 FastAPI 都经 AppService 调用摄取/检索/问答逻辑，不各自�
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -82,24 +83,35 @@ class AppService:
         self._engine = create_engine(settings.database_url)
         self._session_factory = create_session_factory(self._engine)
         self._embedder = embedder
+        self._embedder_init_lock = asyncio.Lock()
         self._llm = llm
         self._count_tokens = count_tokens
 
     async def aclose(self) -> None:
         await self._engine.dispose()
 
-    def _get_embedder(self) -> Embedder:
-        if self._embedder is None:
-            from devkb.embedding import SentenceTransformerEmbedder
+    def _load_embedder(self) -> Embedder:
+        """同步构造生产 Embedder（模型加载数秒级）；只经 _get_embedder 的线程调用。"""
+        from devkb.embedding import SentenceTransformerEmbedder
 
-            try:
-                self._embedder = SentenceTransformerEmbedder(
-                    self._settings.embedding_model_id,
-                    device=self._settings.embedding_device,
-                    batch_size=self._settings.embedding_batch_size,
-                )
-            except Exception as exc:
-                raise EmbeddingError(f"嵌入模型加载失败：{type(exc).__name__}") from exc
+        try:
+            return SentenceTransformerEmbedder(
+                self._settings.embedding_model_id,
+                device=self._settings.embedding_device,
+                batch_size=self._settings.embedding_batch_size,
+            )
+        except Exception as exc:
+            raise EmbeddingError(f"嵌入模型加载失败：{type(exc).__name__}") from exc
+
+    async def _get_embedder(self) -> Embedder:
+        """懒初始化移入线程（首问模型加载不阻塞事件循环，T19.4 复查修复）。
+
+        asyncio.Lock 保证并发首问只加载一次；后续命中缓存零开销。
+        """
+        if self._embedder is None:
+            async with self._embedder_init_lock:
+                if self._embedder is None:
+                    self._embedder = await asyncio.to_thread(self._load_embedder)
         return self._embedder
 
     def _get_llm(self) -> LLMClient:
@@ -140,15 +152,17 @@ class AppService:
         """问答入口（P1 默认 agentic，fixed-rag 为 P0 对照）；输入越限即拒。"""
         if pipeline not in PIPELINES:
             raise InvalidInputError(f"pipeline 只支持 {' | '.join(PIPELINES)}（当前 {pipeline}）")
-        if top_k is not None and not 1 <= top_k <= MAX_FINAL_TOP_K:
-            raise InvalidInputError(f"top_k 须在 1..{MAX_FINAL_TOP_K}（当前 {top_k}）")
+        # 校验最终生效值：显式传入与配置默认都不得越过检索硬上限
+        effective_top_k = top_k if top_k is not None else self._settings.retrieval_top_k
+        if not 1 <= effective_top_k <= MAX_FINAL_TOP_K:
+            raise InvalidInputError(f"top_k 须在 1..{MAX_FINAL_TOP_K}（当前 {effective_top_k}）")
         question = question.strip()
         if not question or len(question) > MAX_QUESTION_CHARS:
             raise InvalidInputError(
                 f"问题须为 1..{MAX_QUESTION_CHARS} 字符（当前 {len(question)}）"
             )
         async with map_errors():
-            embedder = self._get_embedder()
+            embedder = await self._get_embedder()
             llm = self._get_llm()
             async with self._session_factory() as session:
                 project = await self._resolve_project(session, project_slug)
@@ -159,7 +173,7 @@ class AppService:
                     question,
                     embedder=embedder,
                     llm=llm,
-                    top_k=top_k or self._settings.retrieval_top_k,
+                    top_k=effective_top_k,
                 )
 
     async def list_runs(self, project_slug: str, limit: int = 20) -> list[dict[str, Any]]:
@@ -198,7 +212,7 @@ class AppService:
 
         async with map_errors():
             count_tokens = self._get_count_tokens()
-            embedder = self._get_embedder()
+            embedder = await self._get_embedder()
             async with self._session_factory() as session:
                 repo = ProjectRepo(session)
                 project = await repo.get_by_slug(project_slug)

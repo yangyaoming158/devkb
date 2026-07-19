@@ -150,3 +150,47 @@ async def test_client_disconnect_still_reaches_terminal_run_state(migrated_db_ur
         assert terminal["status"] == "succeeded"
     finally:
         await service.aclose()
+
+
+class _SlowLoadService(AppService):
+    """未注入 embedder：走真实懒加载路径，_load_embedder 慢 0.5s 并计数。"""
+
+    load_calls = 0
+
+    def _load_embedder(self) -> FakeEmbedder:
+        type(self).load_calls += 1
+        time.sleep(EMBED_DELAY_S)
+        return FakeEmbedder()
+
+
+async def test_lazy_model_load_runs_in_thread_and_initializes_once(migrated_db_url: str) -> None:
+    slug = _slug()
+    seed = _service(migrated_db_url, _ProbeEmbedder(delay_s=0.0))
+    try:
+        await seed.ingest(slug, CORPUS_MD)
+    finally:
+        await seed.aclose()
+
+    settings = Settings(llm_api_key=SecretStr("integration-test"), database_url=migrated_db_url)
+    _SlowLoadService.load_calls = 0
+    service = _SlowLoadService(settings, llm=_RoutedLLM(), count_tokens=approx_token_counter)
+    try:
+        body = {"project": slug, "question": "库存怎么保证并发安全？"}
+        async with _client(service) as client:
+            ask_tasks = [asyncio.create_task(client.post("/ask", json=body)) for _ in range(2)]
+            await asyncio.sleep(0.1)  # 首问已进入线程中的模型加载
+
+            started = time.perf_counter()
+            health = await client.get("/healthz")
+            health_elapsed = time.perf_counter() - started
+            # 事件循环未被首问模型加载阻塞
+            assert health.status_code == 200
+            assert health_elapsed < EMBED_DELAY_S / 2
+            assert any(not task.done() for task in ask_tasks)
+
+            responses = await asyncio.gather(*ask_tasks)
+        assert [r.status_code for r in responses] == [200, 200]
+        # 并发首问只加载一次（asyncio.Lock 双检）
+        assert _SlowLoadService.load_calls == 1
+    finally:
+        await service.aclose()

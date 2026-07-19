@@ -82,6 +82,11 @@ async def test_ask_validates_inputs_with_422(migrated_db_url: str) -> None:
             for body in bad_bodies:
                 response = await client.post("/ask", json=body)
                 assert response.status_code == 422, body
+                # 稳定错误契约：422 也走 {error:{code,message,error_id}}，
+                # 且不回显 input（内置 detail 会带完整问题正文）
+                error = response.json()["error"]
+                assert error["code"] == "INVALID_INPUT" and error["error_id"], body
+                assert "长长长" not in response.text and "Bad Slug!" not in response.text, body
     finally:
         await service.aclose()
 
@@ -176,9 +181,11 @@ async def test_get_run_isolation_and_strict_params(migrated_db_url: str) -> None
 
             bad_uuid = await client.get("/runs/not-a-uuid", params={"project": slug_a})
             assert bad_uuid.status_code == 422  # run_id 严格校验
+            assert bad_uuid.json()["error"]["code"] == "INVALID_INPUT"
 
             no_project = await client.get(f"/runs/{run_id}")
             assert no_project.status_code == 422  # project 必填
+            assert no_project.json()["error"]["code"] == "INVALID_INPUT"
 
             unknown = await client.get(f"/runs/{run_id}", params={"project": "no-such-project"})
             assert unknown.status_code == 404
@@ -189,7 +196,7 @@ async def test_get_run_isolation_and_strict_params(migrated_db_url: str) -> None
 class _NoModelService(AppService):
     """healthz 判据：探测路径绝不加载模型/构造 LLM 客户端。"""
 
-    def _get_embedder(self) -> FakeEmbedder:
+    async def _get_embedder(self) -> FakeEmbedder:
         raise AssertionError("healthz 不得加载嵌入模型")
 
     def _get_llm(self) -> FakeLLM:
