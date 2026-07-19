@@ -439,8 +439,10 @@ def aggregate_agentic(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "false_refusal_gate": false_refusals <= 1 if answerable else None,
         "l0_pass": l0_pass,
         "l1_pass": l1_pass,
+        # 2026-07-19 修订（T20.4 偏差裁决）：proxy 为记录义务——值与对冻结阈值
+        # 85% 的对照必须落盘，但不进硬 Gate；硬性兜底改由 U2.2 人工抽查承担
         "citation_proxy": citation_proxy,
-        "citation_proxy_gate": (
+        "citation_proxy_meets_frozen_threshold": (
             citation_proxy >= CITATION_PROXY_GATE if citation_proxy is not None else None
         ),
         "within_budget": within_budget,
@@ -451,7 +453,6 @@ def aggregate_agentic(rows: list[dict[str, Any]]) -> dict[str, Any]:
         gates["false_refusal_gate"],
         l0_pass,
         l1_pass,
-        gates["citation_proxy_gate"],
         within_budget,
         terminal_complete,
     ]

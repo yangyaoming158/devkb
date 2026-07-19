@@ -119,6 +119,16 @@ CLI 的统一评测枚举为 `vector-exact|vector-hnsw|lexical|hybrid-rrf|agenti
 
 LLM 输出存在随机性：固定 model、temperature、Prompt 版本后运行一次完整 dev；失败题可用于开发，但每次改动必须新建报告，不覆盖旧结果。
 
+> **2026-07-19 修订（T20.4 偏差裁决，见《P1任务清单》偏差记录）**：citation-to-anchor
+> proxy ≥ 85% 由硬 Gate 改为**记录义务**——首次真实 dev 运行
+> （`p1-dev-agentic-20260719T224424+0800`）实测 47%，逐题归因 9 个未命中中 6 个
+> （q02/04/07/08/15/22）的原问题在同快照 vector-hnsw top-10 亦无命中，属 445 文件
+> 语料的检索天花板（85% 冻结于 2026-07-16，早于 T13.5 全量摄取暴露的难度变化），
+> 且 full 回答可能引用同样支撑答案的 Java 实现块而非标注的 markdown 锚点。
+> 用户裁决：proxy 值与逐题命中/归因必须如实落盘（含与冻结阈值 85% 的对照），
+> 不再作为 §5.2 硬 Gate；引用质量的硬性兜底改由 U2.2 人工引用正确率抽查承担。
+> 其余六项（拒答/误拒/L0/L1/预算/终态）维持硬性不变；不在 17 题 dev 上为 proxy 调参。
+
 ### 5.3 确定性 Graph/CI Gate
 
 使用 FakeLLM/FakeEmbedder/真实测试 PostgreSQL，至少覆盖：

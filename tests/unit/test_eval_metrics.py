@@ -210,15 +210,32 @@ def test_aggregate_agentic_hand_computed_gates() -> None:
     agg = aggregate_agentic(rows)
     gates = agg["gates"]
     assert gates["correct_unanswerable"] == 2  # u1(partial 对) + u2；u3 错
+    assert gates["correct_unanswerable_gate"] is False  # 2 < 3
     assert gates["false_refusals"] == 1 and gates["false_refusal_gate"] is True
-    # citation proxy 只对可答成功题：q1 命中 / q2 q3 未命中 = 1/3
+    # citation proxy 只对可答成功题：q1 命中 / q2 q3 未命中 = 1/3；
+    # 2026-07-19 裁决后 proxy 为记录义务：低于冻结阈值如实记录但不破硬 Gate
     assert gates["citation_proxy"] == pytest.approx(1 / 3)
-    assert gates["citation_proxy_gate"] is False
+    assert gates["citation_proxy_meets_frozen_threshold"] is False
     assert gates["l0_pass"] is True and gates["l1_pass"] is True
-    assert gates["gate_passed"] is False  # citation gate 未过
+    # 拒答 Gate（2<3）未过 → 总判定 False；proxy 低于阈值本身已不参与硬判定
+    assert gates["gate_passed"] is False
     assert agg["mode_counts"] == {"full": 3, "partial": 1, "refusal": 2}
     # tokens 求和 = 6×100 / 6×50
     assert agg["total_tokens_in"] == 600 and agg["total_tokens_out"] == 300
+
+
+def test_citation_proxy_below_threshold_recorded_but_not_hard_gate() -> None:
+    """2026-07-19 裁决：proxy 为记录义务——其余六项全过时低 proxy 不破 Gate。"""
+    rows = [
+        _row(id="q1", citation_hit=False),
+        _row(id="u1", answerable=False, expected_mode="refusal", mode="refusal", citation_hit=None),
+        _row(id="u2", answerable=False, expected_mode="refusal", mode="refusal", citation_hit=None),
+        _row(id="u3", answerable=False, expected_mode="partial", mode="partial", citation_hit=None),
+    ]
+    gates = aggregate_agentic(rows)["gates"]
+    assert gates["citation_proxy"] == 0.0
+    assert gates["citation_proxy_meets_frozen_threshold"] is False
+    assert gates["gate_passed"] is True
 
 
 def test_aggregate_agentic_budget_violation_and_failed_run() -> None:
