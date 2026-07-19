@@ -91,6 +91,28 @@ def test_ask_json_output_is_full_answer_v1(monkeypatch: Any) -> None:
     assert payload["claims"][0]["quotes"] == ["enum OrderStatus"]
 
 
+def test_serve_defaults_to_loopback_bind(monkeypatch: Any) -> None:
+    import uvicorn
+
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        uvicorn, "run", lambda app_obj, **kwargs: calls.append({"app": app_obj, **kwargs})
+    )
+    result = runner.invoke(app, ["serve"])
+    assert result.exit_code == 0
+    assert calls and calls[0]["host"] == "127.0.0.1" and calls[0]["port"] == 8000
+    assert "警告" not in result.output
+
+
+def test_serve_warns_on_non_loopback_host(monkeypatch: Any) -> None:
+    import uvicorn
+
+    monkeypatch.setattr(uvicorn, "run", lambda app_obj, **kwargs: None)
+    result = runner.invoke(app, ["serve", "--host", "0.0.0.0"])
+    assert result.exit_code == 0
+    assert "无鉴权" in result.output
+
+
 def test_ask_service_error_renders_stable_code_without_traceback(monkeypatch: Any) -> None:
     from devkb.errors import InternalError
 

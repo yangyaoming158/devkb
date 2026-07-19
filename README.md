@@ -20,6 +20,18 @@ uv run devkb runs list --project demo               # 历史 run（token/延迟/
 - **网络提示（WSL/代理环境实测）**：本地代理会干扰对 DeepSeek 的直连，而 unset 代理后 sentence-transformers 联网校验 huggingface.co 会因 DNS 污染挂死。模型首次下载后，运行时加 `HF_HUB_OFFLINE=1` 并 unset 代理最稳。
 - 嵌入模型要求宿主 GPU（ADR-0002：本模型 CPU 批量编码不可用；fp16 + batch≤32 为 8GB 显存实测约束）。
 
+## 本地 HTTP API（P1）
+
+```bash
+uv run devkb serve                    # 默认只监听 127.0.0.1:8000
+curl localhost:8000/healthz           # 进程/数据库/迁移版本探测（不加载模型）
+curl -X POST localhost:8000/ask -H 'content-type: application/json' \
+  -d '{"project":"demo","question":"订单状态机允许哪些状态流转？"}'
+curl "localhost:8000/runs/<run_id>?project=demo"   # run + steps + 工具调用 + Answer
+```
+
+> **⚠️ 安全边界：P1 API 完全无鉴权，仅限本机使用，严禁绑定非回环地址或经端口转发/反代暴露公网。** 任何能访问该端口的人都可读取知识库内容与全部历史 run。按范围冻结决策，P1 不加入 JWT/CORS/管理后台。
+
 ## 开发
 
 ```bash

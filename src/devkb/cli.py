@@ -76,6 +76,24 @@ def ingest(
         console.print(fail_table)
 
 
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="监听地址（默认仅本机回环）"),
+    port: int = typer.Option(8000, "--port", help="监听端口"),
+) -> None:
+    """启动本地 HTTP API（P1 无鉴权，默认只监听 127.0.0.1，不得直接暴露公网）。"""
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        console.print(
+            "[yellow]警告[/yellow] P1 API 无鉴权：监听非回环地址意味着"
+            "同网络任何人都能读取知识库与历史 run，请勿暴露公网"
+        )
+    import uvicorn
+
+    from devkb.api import create_app
+
+    uvicorn.run(create_app(), host=host, port=port)
+
+
 @app.command("backfill-search")
 def backfill_search(
     project: str = typer.Option(..., "--project", help="项目 slug"),

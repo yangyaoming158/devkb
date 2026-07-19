@@ -587,3 +587,10 @@
 - `/ask` 路由套 `asyncio.shield`：httpx/uvicorn 断开会取消处理协程，而 agentic 落库路径的 `except Exception` 接不住 CancelledError（BaseException），run 将永久 running——shield 让取消只打断响应，图执行与终态写库继续。shield 属传输语义，放路由层不违反"api.py 不放业务逻辑"。
 - 并发测试设计：FakeLLM 顺序脚本在并发下会串台（多 run 交错弹错响应），改用按 system prompt 关键词（查询规划器/充分性评估器/其余→generate）路由的 _RoutedLLM；探针 embedder 在线程内 sleep 0.5s 并用锁维护 active/max_active。断言：3 并发 /ask 全 200 且 max_active==1（上限可观察）；asks 在飞时 /healthz 0.25s 内返回、ask 任务仍 pending（循环未被阻塞）；cancel 请求后轮询 list_runs 至 succeeded（断开终态一致）。
 - 质量门：`make ci` ruff/pyright 零错误、pytest 233 passed（+2 并发集成）。证据 commit：本提交。
+
+## 2026-07-19 · T19.5 · 本地暴露边界
+
+- 新增 `devkb serve`（Typer 命令包 uvicorn）：默认 host=127.0.0.1、port=8000；host 不在回环白名单（127.0.0.1/localhost/::1）时打印无鉴权警告但不阻止——开发者可能确有容器内联调需求，边界靠显著告知而非硬禁止。未引入 JWT/CORS/管理后台/UI（范围冻结负向判据）。
+- README 新增"本地 HTTP API（P1）"章节：serve/healthz/ask/runs 四条命令示例 + 加粗 ⚠️ 声明（完全无鉴权、任何能访问端口的人可读取知识库与历史 run、严禁绑定非回环或经端口转发/反代暴露公网）。
+- 验证：单测 monkeypatch uvicorn.run 断言缺省绑定与非回环警告；真实冒烟 `devkb serve --port 8765` 后 ss 确认 LISTEN 127.0.0.1:8765，healthz 返回 migration 0003（全程未加载嵌入模型，进程秒起），非法 run_id 得 422。
+- 质量门：`make ci` ruff/pyright 零错误、pytest 235 passed（+2 CLI serve）。证据 commit：本提交。
