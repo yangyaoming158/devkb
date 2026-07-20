@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shlex
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -332,6 +333,29 @@ def eval_run(
         console.print(str(markdown_path))
 
 
+def _eval_command(
+    split: str,
+    mode: str,
+    project: str,
+    confirm_holdout: bool,
+    output_dir: Path,
+    acknowledge_rerun: str | None,
+) -> str:
+    """报告里的复现命令：shlex.join 保证含空格/引号/$ 的参数可原样粘贴重放。
+
+    裁决理由是自由文本、输出目录可含空格，直接插值会被 shell 拆参或展开。
+    """
+    argv = ["devkb", "eval", "run", "--split", split, "--mode", mode, "--project", project]
+    if confirm_holdout:
+        argv.append("--confirm-holdout")
+    if acknowledge_rerun:
+        argv += ["--acknowledge-rerun", acknowledge_rerun]
+    # 输出目录进复现命令：报告落在哪里必须可追溯（台账另有独立固定位置）
+    if output_dir != DEFAULT_REPORT_DIR:
+        argv += ["--output-dir", str(output_dir)]
+    return shlex.join(argv)
+
+
 async def _run_eval(
     split: str,
     mode: str,
@@ -344,13 +368,7 @@ async def _run_eval(
     from devkb.evaluation import expand_modes, run_eval
 
     modes = expand_modes(mode)
-    command = (
-        f"devkb eval run --split {split} --mode {mode} --project {project}"
-        + (" --confirm-holdout" if confirm_holdout else "")
-        + (f" --acknowledge-rerun {acknowledge_rerun!r}" if acknowledge_rerun else "")
-        # 输出目录进复现命令：报告落在哪里必须可追溯（台账另有独立固定位置）
-        + (f" --output-dir {output_dir}" if output_dir != DEFAULT_REPORT_DIR else "")
-    )
+    command = _eval_command(split, mode, project, confirm_holdout, output_dir, acknowledge_rerun)
     return await run_eval(
         get_settings(),
         split=split,  # type: ignore[arg-type]

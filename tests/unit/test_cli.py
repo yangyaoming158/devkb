@@ -97,6 +97,38 @@ def test_eval_run_holdout_without_confirm_is_refused() -> None:
     assert "confirm-holdout" in result.output
 
 
+def test_eval_command_is_shell_safe_and_round_trips() -> None:
+    """复现命令必须能原样粘回 shell：含空格/引号/$ 的参数不得被拆参或展开。"""
+    import shlex
+    from pathlib import Path
+
+    from devkb.cli import _eval_command
+
+    output_dir = Path("/tmp/eval reports/$USER's run")
+    reason = '用户裁决：修复 "L1 校验" 后重跑 $HOME; rm -rf /'
+    command = _eval_command("holdout", "all", "mini-mall", True, output_dir, reason)
+    argv = shlex.split(command)
+    assert argv == [
+        "devkb",
+        "eval",
+        "run",
+        "--split",
+        "holdout",
+        "--mode",
+        "all",
+        "--project",
+        "mini-mall",
+        "--confirm-holdout",
+        "--acknowledge-rerun",
+        reason,
+        "--output-dir",
+        str(output_dir),
+    ]
+    # 默认输出目录不写进命令；无理由/未确认时不留空标志
+    plain = _eval_command("dev", "agentic", "mini-mall", False, Path("evalsets/reports"), None)
+    assert plain == "devkb eval run --split dev --mode agentic --project mini-mall"
+
+
 def test_eval_run_holdout_partial_mode_is_refused() -> None:
     """§7：holdout 一次性访问必须 --mode all；确认了也不允许只跑部分模式。"""
     result = runner.invoke(

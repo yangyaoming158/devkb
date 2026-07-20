@@ -667,3 +667,10 @@
 - 空白理由：`not acknowledge_rerun` 会放过 `"   "`。修的时候先把 strip 写在 `run_eval` 里，结果新测试直接红了——因为规则应当由**执行判定的那一层**保证，而不是指望调用方先归一化。挪进 `claim_holdout_attempt` 后才对，这也让直接调用该函数的路径同样受保护。
 - 破坏性验证有一次自摆乌龙：我给"锚点"注入的第一版改成了另一个固定路径，测试照样绿——那不是复现缺陷，只是换了个位置放同一本台账。改成在调用点把 `evalsets_dir` 换成 `output_dir` 才真正复现探针场景并必红。注入没红时，先怀疑注入本身没复现缺陷。
 - 台账测试独立成 `tests/unit/test_holdout_ledger.py` 并接入 `make eval-ci`。质量门：`make ci` 280 passed、`make eval-ci` 65+19 全绿，holdout 未接触。证据 commit：本提交。
+
+## 2026-07-20 · T20 四轮复评 · 复现命令的 shell 安全
+
+- 最后一个缺陷在报告的 `run.command`：原来是 f-string 拼接，`--output-dir` 含空格会被拆成多个参数，裁决理由用 `!r` 也不对——Python 的 repr 引用规则和 shell 的不是一回事，`$HOME`、反斜杠、单引号都可能变味。这个字段的唯一用途就是原样粘回终端重放，拼错就等于不可复现，而 holdout 只能跑一次，复现命令写错没有第二次机会。
+- 改法很小但要点明确：抽出纯函数 `_eval_command` 构造 argv 列表，交给 `shlex.join`。测试直接验 round-trip——`shlex.split(command)` 必须还原出等值的 argv，用例里塞了空格路径、中文、双引号、`$USER`、`$HOME; rm -rf /`。这比断言字符串长相稳，也说明了意图：命令是给 shell 读的，判据就该用 shell 的解析器。
+- 破坏性验证：把 `shlex.join` 退回 `" ".join` 立刻红。
+- 质量门：`make ci` 281 passed、`make eval-ci` 65+19 全绿，holdout 未接触。证据 commit：本提交。
