@@ -73,11 +73,24 @@ PRE_ASSESSMENT = """\
    "生产环境 MySQL 连接池的最大连接数配置"；q02 两次 L0/L1 失败后移除 2 个未通过
    验证的 claim 并降级为 refusal——宁可拒答也不输出未经验证的引用，误拒是严格
    验证的代价而非缺陷。
-4. **发现一个待裁定的质量疑点（不影响任何硬 Gate）**：partial 的触发条件被低质量
-   not_found 污染——q07 的 not_found 是占位式的"未覆盖方面"、q05 是语义相反的
-   "无其他未覆盖的方面。"、q04 的 not_found 为空却仍判 partial。三者本可为 full。
-   这不影响 §5.2 任何硬项（partial 是合法终态），但会让 mode 分布偏向 partial。
-   建议：作为 backlog 记录，不在 P1 修（改判定逻辑等于在 dev 集上调参）。
+4. **发现一个待裁定的质量疑点（不影响任何硬 Gate）**：8 个 partial 中有 **2 个**
+   （q05、q07）是被无意义的 not_found 条目降级的，本可判 full——
+   `finalize` 要求 `not draft.not_found` 才给 full（保守设计，本身正确），
+   而 generate 在"没有未覆盖方面"时并没有返回空数组：q07 返回 `["未覆盖方面"]`，
+   **与 GENERATE_SYSTEM 的 Schema 示例 `"not_found":["未覆盖方面"]` 逐字相同——
+   模型把格式示例当成内容抄了下来**；q05 返回语义相反的"无其他未覆盖的方面。"。
+   根因同一个：Schema 示例给了唯一一个"经常合法为空"的字段一个可抄的占位值，
+   且 Prompt 从未说明"没有未覆盖方面时返回空数组"。
+   影响面：不破坏 §5.2/§7 任何硬项（partial 是合法终态，L0/L1/预算/终态/拒答全不受影响），
+   但 mode 分布偏保守（8 full/8 partial → 实际应为 10/6），且用户可见输出会多一行
+   无意义的 `not_found 未覆盖方面`。
+   修法明确（Schema 示例改 `"not_found":[]` + 补一句空数组指令），但属 Prompt 变更：
+   会使 PROMPT_VERSION 递增、冻结失效，须重跑 dev §5.2 Gate 后才能进 holdout。
+   建议：记入 backlog，P1 保持现状（见下方"更正"与提交说明中的取舍）。
+
+**更正（2026-07-20）**：本条初稿把 q04 也列为疑点，错误。q04 的 not_found 虽为空，
+但它是 1 个 claim 未通过 L1 验证被移除后按 `removed>0 → partial` 降级的，属完全正确的
+行为（warnings 与 limitations 均已如实记录移除）。疑点仅 q05、q07 两例。
 """
 
 
