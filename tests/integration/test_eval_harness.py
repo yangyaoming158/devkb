@@ -221,7 +221,7 @@ async def test_run_eval_holdout_requires_mode_all(tmp_path: Path) -> None:
                 confirm_holdout=True,
             )
     # 被模式校验挡下的尝试不写台账（未读题即未访问）
-    assert not (tmp_path / HOLDOUT_LEDGER_NAME).exists()
+    assert not (tmp_path / "evalsets" / HOLDOUT_LEDGER_NAME).exists()
 
 
 async def test_run_eval_holdout_full_run_uses_split_aware_gates(
@@ -290,7 +290,7 @@ async def test_run_eval_holdout_full_run_uses_split_aware_gates(
     assert "不作 P1 硬 Gate" in markdown
 
     # 一次性访问台账：started + completed 各一条
-    ledger = read_holdout_ledger(tmp_path / "reports")
+    ledger = read_holdout_ledger(evalsets_dir)
     assert [record["event"] for record in ledger] == ["started", "completed"]
     assert ledger[0]["attempt"] == 1 and ledger[0]["modes"] == list(EVAL_MODES)
     assert ledger[0]["devkb_commit"] and ledger[0]["acknowledge_rerun"] is None
@@ -340,7 +340,7 @@ async def test_run_eval_holdout_second_run_requires_acknowledged_rerun(
         await _run()
     # 报告名按秒取时间戳且同名拒绝覆盖：跨过秒边界才能验证被裁决允许的重跑
     await asyncio.sleep(1.05)
-    assert [record["event"] for record in read_holdout_ledger(output_dir)] == [
+    assert [record["event"] for record in read_holdout_ledger(evalsets_dir)] == [
         "started",
         "completed",
     ]  # 被拒的重跑不算一次访问
@@ -352,7 +352,7 @@ async def test_run_eval_holdout_second_run_requires_acknowledged_rerun(
     assert report["run"]["holdout_attempt"] == 2
     assert report["run"]["holdout_rerun_acknowledged"] == reason
     assert "本报告是第 2 次 holdout 运行" in markdown and reason in markdown
-    ledger = read_holdout_ledger(output_dir)
+    ledger = read_holdout_ledger(evalsets_dir)
     assert [record["event"] for record in ledger] == [
         "started",
         "completed",
@@ -360,6 +360,38 @@ async def test_run_eval_holdout_second_run_requires_acknowledged_rerun(
         "completed",
     ]
     assert ledger[2]["attempt"] == 2 and ledger[2]["acknowledge_rerun"] == reason
+
+
+async def test_run_eval_holdout_cannot_be_rerun_via_a_different_output_dir(
+    session: AsyncSession, migrated_db_url: str, tmp_path: Path
+) -> None:
+    """台账锚在题集目录：换 --output-dir 不能重开一本新台账（2026-07-20 复评探针）。"""
+    slug = f"t20o-{uuid.uuid4().hex[:8]}"
+    await _seed_project(session, slug)
+    evalsets_dir = _write_mini_evalsets(tmp_path / "evalsets")
+    settings = Settings(llm_api_key=SecretStr("eval-test"), database_url=migrated_db_url)
+
+    async def _run(output_dir: Path) -> list[tuple[Path, Path]]:
+        return await run_eval(
+            settings,
+            split="holdout",
+            modes=list(EVAL_MODES),
+            project_slug=slug,
+            output_dir=output_dir,
+            evalsets_dir=evalsets_dir,
+            embedder=FakeEmbedder(),
+            llm=_RoutedLLM(),
+            confirm_holdout=True,
+            enforce_counts=False,
+        )
+
+    await _run(tmp_path / "reports-a")
+    with pytest.raises(InvalidInputError, match="acknowledge-rerun"):
+        await _run(tmp_path / "reports-b")
+    ledger = read_holdout_ledger(evalsets_dir)
+    assert [record["event"] for record in ledger] == ["started", "completed"]
+    assert ledger[0]["output_dir"] == str(tmp_path / "reports-a")  # 输出目录随尝试留痕
+    assert not (tmp_path / "reports-b").exists()
 
 
 async def test_run_eval_holdout_failed_attempt_is_recorded_in_ledger(tmp_path: Path) -> None:
@@ -383,11 +415,11 @@ async def test_run_eval_holdout_failed_attempt_is_recorded_in_ledger(tmp_path: P
             confirm_holdout=True,
             enforce_counts=False,
         )
-    ledger = read_holdout_ledger(output_dir)
+    ledger = read_holdout_ledger(evalsets_dir)
     assert [record["event"] for record in ledger] == ["started", "failed"]
     assert ledger[1]["attempt"] == 1 and ledger[1]["error"]
     # 失败尝试同样占用一次性访问：下一次运行仍需裁决理由
-    assert (output_dir / HOLDOUT_LEDGER_NAME).is_file()
+    assert (evalsets_dir / HOLDOUT_LEDGER_NAME).is_file()
 
 
 async def test_run_eval_lexical_only_never_loads_real_embedder(

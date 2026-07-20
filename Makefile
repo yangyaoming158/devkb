@@ -28,5 +28,5 @@ ci: lint typecheck test
 eval-ci:
 	uv run pytest -q tests/unit/test_rrf.py tests/unit/test_fts_golden.py \
 		tests/unit/test_agent_graph.py tests/unit/test_eval_metrics.py \
-		tests/unit/test_eval_reports_schema.py
+		tests/unit/test_eval_reports_schema.py tests/unit/test_holdout_ledger.py
 	uv run pytest -q tests/integration/test_retrieval.py tests/integration/test_eval_harness.py

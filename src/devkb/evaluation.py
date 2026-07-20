@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import math
@@ -19,11 +20,12 @@ import re
 import subprocess
 import time
 import uuid as uuid_mod
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TextIO
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -653,22 +655,85 @@ def write_report(
     return json_path, markdown_path
 
 
-def read_holdout_ledger(output_dir: Path) -> list[dict[str, Any]]:
+def holdout_ledger_path(evalsets_dir: Path) -> Path:
+    """台账固定落在冻结题集目录内。
+
+    护栏保护的是"读 holdout 题集"这件事，锚点必须和题集绑定：挂在 --output-dir
+    下会被换一个输出目录绕过（2026-07-20 复评实测两次都记成 attempt=1）。
+    """
+    return evalsets_dir / HOLDOUT_LEDGER_NAME
+
+
+def _parse_ledger(text: str) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+
+def read_holdout_ledger(evalsets_dir: Path) -> list[dict[str, Any]]:
     """读取 holdout 一次性访问台账（不存在即空）。"""
-    path = output_dir / HOLDOUT_LEDGER_NAME
+    path = holdout_ledger_path(evalsets_dir)
     if not path.is_file():
         return []
-    lines = path.read_text(encoding="utf-8").splitlines()
-    return [json.loads(line) for line in lines if line.strip()]
+    return _parse_ledger(path.read_text(encoding="utf-8"))
 
 
-def append_holdout_ledger(output_dir: Path, record: dict[str, Any]) -> Path:
+@contextmanager
+def _locked_ledger(evalsets_dir: Path) -> Iterator[TextIO]:
+    """排他打开台账：读与追加之间不允许另一进程插入（flock，Linux/WSL2）。"""
+    path = holdout_ledger_path(evalsets_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield handle
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _write_record(handle: TextIO, record: dict[str, Any]) -> None:
+    # "a+" 打开即 O_APPEND：写入永远落到文件尾，与并发进程的追加互不覆盖
+    handle.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+    handle.flush()
+
+
+def append_holdout_ledger(evalsets_dir: Path, record: dict[str, Any]) -> Path:
     """追加一条访问事件；append-only，既有记录不可改写。"""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / HOLDOUT_LEDGER_NAME
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
-    return path
+    with _locked_ledger(evalsets_dir) as handle:
+        _write_record(handle, record)
+    return holdout_ledger_path(evalsets_dir)
+
+
+def claim_holdout_attempt(
+    evalsets_dir: Path, *, acknowledge_rerun: str | None, **details: Any
+) -> int:
+    """原子占用一次 holdout 访问序号，返回本次 attempt。
+
+    读台账与写 started 必须在同一把锁内：先读后写的两步会让并发进程都读到空台账、
+    都以 attempt=1 起跑（2026-07-20 复评指出的 check-then-append 竞争）。
+    空白理由不构成用户裁决，规则在此强制，不依赖调用方先行归一化。
+    """
+    acknowledge_rerun = (acknowledge_rerun or "").strip() or None
+    with _locked_ledger(evalsets_dir) as handle:
+        handle.seek(0)
+        prior = [r for r in _parse_ledger(handle.read()) if r.get("event") == "started"]
+        if prior and not acknowledge_rerun:
+            raise InvalidInputError(
+                f"holdout 此前已被访问 {len(prior)} 次"
+                f"（台账 {holdout_ledger_path(evalsets_dir)}，含中断/失败尝试）："
+                "§7 不得静默重跑挑最好成绩；再次运行须经用户裁决，"
+                "并以 --acknowledge-rerun '<非空裁决理由>' 显式标记"
+            )
+        attempt = len(prior) + 1
+        _write_record(
+            handle,
+            {
+                "event": "started",
+                "attempt": attempt,
+                "at": datetime.now(TIMEZONE).isoformat(timespec="seconds"),
+                "acknowledge_rerun": acknowledge_rerun,
+                **details,
+            },
+        )
+    return attempt
 
 
 def _fmt_rank(rank: int | None) -> str:
@@ -884,32 +949,21 @@ async def run_eval(
         )
     devkb_commit = _git_value(repo_root or Path(), "rev-parse", "HEAD")
     worktree_dirty = bool(_git_value(repo_root or Path(), "status", "--short"))
+    # 空白理由不构成用户裁决（"   " 曾可授权重跑）
+    acknowledge_rerun = (acknowledge_rerun or "").strip() or None
 
     holdout_attempt: int | None = None
     if split == "holdout":
-        prior_attempts = [r for r in read_holdout_ledger(output_dir) if r.get("event") == "started"]
-        if prior_attempts and not acknowledge_rerun:
-            raise InvalidInputError(
-                f"holdout 此前已被访问 {len(prior_attempts)} 次"
-                f"（台账 {output_dir / HOLDOUT_LEDGER_NAME}，含中断/失败尝试）："
-                "§7 不得静默重跑挑最好成绩；再次运行须经用户裁决，"
-                "并以 --acknowledge-rerun '<裁决理由>' 显式标记"
-            )
-        holdout_attempt = len(prior_attempts) + 1
-        # 读题即算一次访问：先落盘再动数据（进程被打断也留痕）
-        append_holdout_ledger(
-            output_dir,
-            {
-                "event": "started",
-                "attempt": holdout_attempt,
-                "at": datetime.now(TIMEZONE).isoformat(timespec="seconds"),
-                "devkb_commit": devkb_commit,
-                "devkb_worktree_dirty": worktree_dirty,
-                "project": project_slug,
-                "modes": list(modes),
-                "command": command,
-                "acknowledge_rerun": acknowledge_rerun,
-            },
+        # 读题即算一次访问：先原子占号落盘再动数据（进程被打断也留痕）
+        holdout_attempt = claim_holdout_attempt(
+            evalsets_dir,
+            acknowledge_rerun=acknowledge_rerun,
+            devkb_commit=devkb_commit,
+            devkb_worktree_dirty=worktree_dirty,
+            project=project_slug,
+            modes=list(modes),
+            command=command,
+            output_dir=str(output_dir),
         )
     try:
         written = await _run_eval_body(
@@ -931,7 +985,7 @@ async def run_eval(
     except Exception as exc:
         if holdout_attempt is not None:
             append_holdout_ledger(
-                output_dir,
+                evalsets_dir,
                 {
                     "event": "failed",
                     "attempt": holdout_attempt,
@@ -942,7 +996,7 @@ async def run_eval(
         raise
     if holdout_attempt is not None:
         append_holdout_ledger(
-            output_dir,
+            evalsets_dir,
             {
                 "event": "completed",
                 "attempt": holdout_attempt,

@@ -26,6 +26,7 @@ app.add_typer(runs_app, name="runs")
 eval_app = typer.Typer(no_args_is_help=True, help="Evaluation v1 评测（报告落盘，不覆盖历史）")
 app.add_typer(eval_app, name="eval")
 console = Console()
+DEFAULT_REPORT_DIR = Path("evalsets/reports")
 
 
 @app.callback(invoke_without_command=True)
@@ -303,7 +304,7 @@ def eval_run(
         "--acknowledge-rerun",
         help="holdout 已访问过时再次运行所需的用户裁决理由（报告中显著标记）",
     ),
-    output_dir: Path = typer.Option(Path("evalsets/reports"), "--output-dir"),
+    output_dir: Path = typer.Option(DEFAULT_REPORT_DIR, "--output-dir"),
 ) -> None:
     """按 split/mode 运行 Evaluation v1 评测，产出 JSON + Markdown 时间戳报告。"""
     if split not in ("dev", "holdout"):
@@ -347,6 +348,8 @@ async def _run_eval(
         f"devkb eval run --split {split} --mode {mode} --project {project}"
         + (" --confirm-holdout" if confirm_holdout else "")
         + (f" --acknowledge-rerun {acknowledge_rerun!r}" if acknowledge_rerun else "")
+        # 输出目录进复现命令：报告落在哪里必须可追溯（台账另有独立固定位置）
+        + (f" --output-dir {output_dir}" if output_dir != DEFAULT_REPORT_DIR else "")
     )
     return await run_eval(
         get_settings(),
