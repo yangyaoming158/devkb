@@ -61,22 +61,17 @@ async def main() -> None:
 
         ranks: dict[str, int | None] = {}
         for q in retrieval_qs:
-            rs = await retrieve(
-                session, project.id, q["question"], embedder=embedder, top_k=TOP_K
-            )
+            rs = await retrieve(session, project.id, q["question"], embedder=embedder, top_k=TOP_K)
             rank = hit_rank(rs, q["relevant"])
             ranks[q["id"]] = rank
             top = rs[0]
             print(
-                f"{q['id']} rank={rank} top1={top.score:.3f} "
-                f"{top.rel_path} · {top.title_path[:60]}"
+                f"{q['id']} rank={rank} top1={top.score:.3f} {top.rel_path} · {top.title_path[:60]}"
             )
 
         print("--- 不可答（记录 top-1 分数备档，P0 无拒答）")
         for q in unanswerable_qs:
-            rs = await retrieve(
-                session, project.id, q["question"], embedder=embedder, top_k=TOP_K
-            )
+            rs = await retrieve(session, project.id, q["question"], embedder=embedder, top_k=TOP_K)
             print(f"{q['id']} top1={rs[0].score:.3f} top3={[round(r.score, 3) for r in rs[:3]]}")
 
     await engine.dispose()

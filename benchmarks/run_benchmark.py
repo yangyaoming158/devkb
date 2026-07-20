@@ -156,7 +156,9 @@ def main() -> None:
             for r in q["relevant"]
         )
         hits += hit
-        per_query.append({"id": q["id"], "hit": hit, "top1": top5[0]["rel_path"] + " ➜ " + top5[0]["heading"]})
+        per_query.append(
+            {"id": q["id"], "hit": hit, "top1": top5[0]["rel_path"] + " ➜ " + top5[0]["heading"]}
+        )
     result["recall_at_5"] = round(hits / len(queries), 3)
     result["per_query"] = per_query
     _write(result, args)
@@ -171,14 +173,26 @@ def _write(result: dict, args) -> None:
         old.update(
             {
                 k: result[k]
-                for k in ("recall_at_5", "per_query", "full_corpus_encode_s", "dtype", "max_seq_length")
+                for k in (
+                    "recall_at_5",
+                    "per_query",
+                    "full_corpus_encode_s",
+                    "dtype",
+                    "max_seq_length",
+                )
                 if k in result
             }
         )
-        old["recall_note"] = "recall 基于 2026-07-12 修复后的语料（锚点全覆盖）重算；吞吐/延迟为修复前无争抢环境实测"
+        old["recall_note"] = (
+            "recall 基于 2026-07-12 修复后的语料（锚点全覆盖）重算；吞吐/延迟为修复前无争抢环境实测"
+        )
         result = old
     out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps({k: v for k, v in result.items() if k != "per_query"}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {k: v for k, v in result.items() if k != "per_query"}, ensure_ascii=False, indent=2
+        )
+    )
     print(f"-> {out}")
 
 
