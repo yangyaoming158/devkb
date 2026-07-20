@@ -14,7 +14,13 @@ import re
 from pathlib import Path
 from typing import Any
 
-from devkb.evaluation import REPORT_SCHEMA_VERSION, aggregate_agentic, retrieval_gates
+from devkb.evaluation import (
+    P0_HOLDOUT_BASELINE,
+    REPORT_SCHEMA_VERSION,
+    aggregate_agentic,
+    p0_baseline_comparison,
+    retrieval_gates,
+)
 
 REPORTS_DIR = Path(__file__).parents[2] / "evalsets" / "reports"
 COMMIT_RE = re.compile(r"[0-9a-f]{40}")
@@ -61,6 +67,13 @@ V1_1_AGENTIC_GATE_KEYS = _AGENTIC_COMMON_KEYS | {
     "citation_proxy_meets_frozen_threshold",
     "no_failed_runs",
 }
+V1_1_P0_BASELINE_KEYS = frozenset(
+    {"baseline", "current_vector_exact", "delta_vs_p0", "corpus_scale", "note"}
+)
+# §7 逐题原始结果：成功行必须带完整 Answer 原文（不可答题的"理由"即在其中）
+V1_1_ANSWER_KEYS = frozenset(
+    {"answer_text", "claims", "citations", "not_found", "limitations", "mode", "trace_summary"}
+)
 V1_1_RETRIEVAL_DEV_KEYS = V1_RETRIEVAL_GATE_KEYS
 V1_1_RETRIEVAL_HOLDOUT_KEYS = frozenset(
     {
@@ -132,6 +145,19 @@ def test_gate_reports_carry_complete_locked_gate_fields() -> None:
                 # §7：holdout 的拒答/误拒不是硬 Gate，只记录
                 assert agentic["correct_unanswerable_gate"] is None, path.name
                 assert agentic["false_refusal_gate"] is None, path.name
+        for row in (report.get("agentic") or {}).get("questions", []):
+            if row.get("status") == "succeeded":
+                assert set(row.get("answer") or {}) >= V1_1_ANSWER_KEYS, (
+                    f"{path.name} 的 {row['id']} 缺完整原始 Answer（§7 逐题原始结果）"
+                )
+        if holdout:
+            # §7 第 3 条：P0 历史基线对照与语料规模变化声明必须在报告内
+            baseline = report.get("p0_baseline")
+            assert baseline is not None, f"{path.name} 缺 P0 历史基线对照"
+            assert set(baseline) == V1_1_P0_BASELINE_KEYS, path.name
+            assert baseline["baseline"] == P0_HOLDOUT_BASELINE, path.name
+            assert "corpus_scale" in baseline and baseline["corpus_scale"]["p0"], path.name
+            assert report["run"].get("holdout_attempt"), f"{path.name} 缺一次性访问序号"
 
 
 def test_current_harness_emits_exactly_the_locked_v1_1_shapes() -> None:
@@ -151,3 +177,5 @@ def test_current_harness_emits_exactly_the_locked_v1_1_shapes() -> None:
         assert set(aggregate_agentic([row], split=split)["gates"]) == V1_1_AGENTIC_GATE_KEYS
     assert set(retrieval_gates(empty_retrieval, split="dev")) == V1_1_RETRIEVAL_DEV_KEYS
     assert set(retrieval_gates(empty_retrieval, split="holdout")) == V1_1_RETRIEVAL_HOLDOUT_KEYS
+    corpus = {"document_count": 445, "chunk_count": 5000}
+    assert set(p0_baseline_comparison(empty_retrieval, corpus)) == V1_1_P0_BASELINE_KEYS

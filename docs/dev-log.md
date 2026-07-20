@@ -648,3 +648,13 @@
 - holdout 一次性访问补 `--mode all` 强制（CLI+run_eval 双层，confirm 了也拒绝部分模式）；lexical-only 不再加载真实 embedding 模型（此前 `retrieval_modes or run_agentic` 对 ["lexical"] 也为真），回归测试用 monkeypatch 禁实例化锁死。
 - schema 教训：T20.4 裁决把 `citation_proxy_gate` 更名为 `citation_proxy_meets_frozen_threshold` 时没有 bump schema_version，两份同版本报告字段名漂移且校验测试只查"有 Gate 字段"。现 bump 到 p1-eval-v1.1：三份 v1 报告按文件名冻结为历史形状（报告不改写），v1.1 的 Gate 键集合按 split 精确锁定，并加一条"常量 ↔ harness 实际输出"双向互锁测试——以后改任何 Gate 键必须显式过这道闸。
 - 验证：新口径复算已提交 dev agentic 报告逐字段一致（21/21 无失败，gate_passed 不变）；`make ci` 271 passed、`make eval-ci` 59+16 全绿。证据 commit：本提交。
+
+## 2026-07-20 · T20 二轮复评 · holdout 前置能力补齐
+
+- 二轮审查指出 3 个 holdout 前置问题，共同点是"T21.3 只能跑一次，跑之前 harness 必须已经具备的能力"，都不是跑完能补的：报告没存原始回答、没有 P0 基线对照、一次性访问没有台账。
+- 逐题原始结果：`evaluate_agentic` 此前只留 mode/L0/L1/用量，answer_text/claims/quotes/not_found/limitations 全丢——而 §7 恰恰要求"2 个不可答题的 mode 和理由"和"逐题原始结果"，Markdown 里还写着"逐题完整原始结果见同名 JSON"，属于报告自我声称与实际内容不符。改为完整 Answer JSON 原样落盘，并加"不可答题判定与理由"表（表格单元格要压平换行、转义竖线，否则 refusal 文本会破表）。
+- P0 基线：§7 第 3 条要求与 39 文档/1370 chunks、R@10=0.875 同口径对照并标注规模变化，报告里完全没有这一节。数字从 `evalsets/reports/p0-holdout.md`（commit 7fdf540）抄进冻结常量并加单测锁死，避免日后凭记忆写错；对照做成纯函数输出三项差值 + 规模变化标记 + "不作硬 Gate"注记——差值必须和规模声明绑在一起出现，否则读者会把 445 文件语料的绝对下降误读成检索退化。
+- 一次性访问：此前只挡"缺 confirm"，第二次跑照样放行、失败的尝试不留任何痕迹，等于没有落实 §7 的"不得静默重跑挑最好成绩"。新增 append-only 台账 `holdout-access-log.jsonl`，关键是 started 记录写在读题之前——读 holdout 题文件本身就是访问，进程中途被打断也必须留痕。台账非空即拒跑，除非带 `--acknowledge-rerun '<裁决理由>'`，理由会进报告和 Markdown 横幅。`--mode all` 校验从 set 相等改严格列表相等（set 相等会放过重复模式）。
+- 踩的坑：重跑测试第一次红了——两次运行落在同一秒、报告名撞上"同名拒绝覆盖"。这是既有保护正常工作，不是 bug，测试跨过秒边界即可；真实两次 holdout 不可能同秒。
+- 破坏性验证五连（严格模式/原始 Answer/P0 基线/重跑护栏/失败留痕逐个反向注入）全部必红后还原。schema 仍为 p1-eval-v1.1：尚无 v1.1 报告落库，本轮新增字段直接并入，不制造版本碎片。
+- 质量门：`make ci` 275 passed、`make eval-ci` 61+18 全绿，holdout 全程未接触。证据 commit：本提交。

@@ -6,6 +6,7 @@ enforce_counts=False，冻结 31 问题量校验由 CLI 真实评测路径承担
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from pathlib import Path
@@ -18,7 +19,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from devkb.config import Settings
 from devkb.embedding import FakeEmbedder
 from devkb.errors import InvalidInputError
-from devkb.evaluation import EVAL_MODES, expand_modes, run_eval, write_report
+from devkb.evaluation import (
+    EVAL_MODES,
+    HOLDOUT_LEDGER_NAME,
+    expand_modes,
+    read_holdout_ledger,
+    run_eval,
+    write_report,
+)
 from devkb.ingest.markdown import approx_token_counter
 from devkb.ingest.pipeline import ingest_directory
 from devkb.llm import LLMResult
@@ -201,7 +209,8 @@ async def test_run_eval_holdout_requires_mode_all(tmp_path: Path) -> None:
         llm_api_key=SecretStr("eval-test"),
         database_url="postgresql+asyncpg://devkb:x@127.0.0.1:9/devkb",
     )
-    for partial in (["agentic"], ["lexical"], ["vector-exact", "vector-hnsw"]):
+    duplicated = [*EVAL_MODES, "agentic"]  # set 相等但列表不等：重复模式同样拒绝
+    for partial in (["agentic"], ["lexical"], ["vector-exact", "vector-hnsw"], duplicated):
         with pytest.raises(InvalidInputError, match="mode all"):
             await run_eval(
                 settings,
@@ -211,6 +220,8 @@ async def test_run_eval_holdout_requires_mode_all(tmp_path: Path) -> None:
                 output_dir=tmp_path,
                 confirm_holdout=True,
             )
+    # 被模式校验挡下的尝试不写台账（未读题即未访问）
+    assert not (tmp_path / HOLDOUT_LEDGER_NAME).exists()
 
 
 async def test_run_eval_holdout_full_run_uses_split_aware_gates(
@@ -235,11 +246,55 @@ async def test_run_eval_holdout_full_run_uses_split_aware_gates(
     )
 
     assert len(written) == 1  # holdout：单份合并报告
-    json_path, _ = written[0]
+    json_path, markdown_path = written[0]
     assert json_path.name.startswith("p1-holdout-")
     report = json.loads(json_path.read_text(encoding="utf-8"))
+    markdown = markdown_path.read_text(encoding="utf-8")
     assert report["schema_version"] == "p1-eval-v1.1"
     assert report["run"]["holdout_accessed"] is True
+    assert report["run"]["holdout_attempt"] == 1
+    assert report["run"]["holdout_rerun_acknowledged"] is None
+    assert "本报告是第" not in markdown  # 首次运行不打重跑标记
+
+    # §7 逐题原始结果：完整 Answer 落盘（含不可答题的判定理由）
+    rows = report["agentic"]["questions"]
+    for row in rows:
+        answer = row["answer"]
+        assert set(answer) >= {
+            "answer_text",
+            "claims",
+            "citations",
+            "not_found",
+            "limitations",
+            "mode",
+            "trace_summary",
+        }
+        assert answer["mode"] == row["mode"]
+    unanswerable = [row for row in rows if not row["answerable"]]
+    assert unanswerable and all(row["answer"]["answer_text"] for row in unanswerable)
+    assert "不可答题判定与理由" in markdown
+    assert all(row["id"] in markdown for row in unanswerable)
+
+    # §7 第 3 条：P0 历史基线对照 + 语料规模变化声明，且不产生 Gate 判定
+    baseline = report["p0_baseline"]
+    assert baseline["baseline"]["retrieval"]["recall_at_10"] == 0.875
+    assert baseline["baseline"]["corpus"] == {
+        "document_count": 39,
+        "chunk_count": 1370,
+        "scope": "P0 冻结 Markdown 范围",
+    }
+    assert baseline["current_vector_exact"] is not None
+    assert set(baseline["delta_vs_p0"]) == {"recall_at_5", "recall_at_10", "mrr_at_10"}
+    assert baseline["corpus_scale"]["changed"] is True  # fixture 语料 5 文档 ≠ P0 39
+    assert "与 P0 holdout 历史基线对照" in markdown and "0.875" in markdown
+    assert "不作 P1 硬 Gate" in markdown
+
+    # 一次性访问台账：started + completed 各一条
+    ledger = read_holdout_ledger(tmp_path / "reports")
+    assert [record["event"] for record in ledger] == ["started", "completed"]
+    assert ledger[0]["attempt"] == 1 and ledger[0]["modes"] == list(EVAL_MODES)
+    assert ledger[0]["devkb_commit"] and ledger[0]["acknowledge_rerun"] is None
+    assert ledger[1]["reports"] == [str(json_path)]
     retrieval_gate = report["gates"]["retrieval"]
     # §7 硬 Gate：vector-hnsw R@10 ≥ 同快照 vector-exact；overlap 只记录不判定
     assert isinstance(retrieval_gate["hnsw_recall_ge_exact"], bool)
@@ -252,6 +307,87 @@ async def test_run_eval_holdout_full_run_uses_split_aware_gates(
     assert agentic_gate["false_refusal_gate"] is None
     assert agentic_gate["no_failed_runs"] is True
     assert agentic_gate["gate_passed"] is True
+
+
+async def test_run_eval_holdout_second_run_requires_acknowledged_rerun(
+    session: AsyncSession, migrated_db_url: str, tmp_path: Path
+) -> None:
+    """§7：不得静默重跑挑最好成绩——重跑须带裁决理由，且报告显著标记。"""
+    slug = f"t20r-{uuid.uuid4().hex[:8]}"
+    await _seed_project(session, slug)
+    evalsets_dir = _write_mini_evalsets(tmp_path / "evalsets")
+    output_dir = tmp_path / "reports"
+    settings = Settings(llm_api_key=SecretStr("eval-test"), database_url=migrated_db_url)
+
+    async def _run(acknowledge: str | None = None) -> list[tuple[Path, Path]]:
+        return await run_eval(
+            settings,
+            split="holdout",
+            modes=list(EVAL_MODES),
+            project_slug=slug,
+            output_dir=output_dir,
+            evalsets_dir=evalsets_dir,
+            embedder=FakeEmbedder(),
+            llm=_RoutedLLM(),
+            confirm_holdout=True,
+            acknowledge_rerun=acknowledge,
+            enforce_counts=False,
+        )
+
+    await _run()
+    # 第二次：仅 --confirm-holdout 不够，必须带用户裁决理由
+    with pytest.raises(InvalidInputError, match="acknowledge-rerun"):
+        await _run()
+    # 报告名按秒取时间戳且同名拒绝覆盖：跨过秒边界才能验证被裁决允许的重跑
+    await asyncio.sleep(1.05)
+    assert [record["event"] for record in read_holdout_ledger(output_dir)] == [
+        "started",
+        "completed",
+    ]  # 被拒的重跑不算一次访问
+
+    reason = "用户裁决：机制缺陷修复后重跑，见偏差记录 2026-07-20"
+    written = await _run(reason)
+    report = json.loads(written[0][0].read_text(encoding="utf-8"))
+    markdown = written[0][1].read_text(encoding="utf-8")
+    assert report["run"]["holdout_attempt"] == 2
+    assert report["run"]["holdout_rerun_acknowledged"] == reason
+    assert "本报告是第 2 次 holdout 运行" in markdown and reason in markdown
+    ledger = read_holdout_ledger(output_dir)
+    assert [record["event"] for record in ledger] == [
+        "started",
+        "completed",
+        "started",
+        "completed",
+    ]
+    assert ledger[2]["attempt"] == 2 and ledger[2]["acknowledge_rerun"] == reason
+
+
+async def test_run_eval_holdout_failed_attempt_is_recorded_in_ledger(tmp_path: Path) -> None:
+    """中断/失败的尝试也必须留痕：读题前记 started，异常后记 failed。"""
+    evalsets_dir = _write_mini_evalsets(tmp_path / "evalsets")
+    output_dir = tmp_path / "reports"
+    settings = Settings(
+        llm_api_key=SecretStr("eval-test"),
+        database_url="postgresql+asyncpg://devkb:x@127.0.0.1:9/devkb",
+    )
+    with pytest.raises(Exception):  # noqa: B017 — 连接不上的具体异常类型不重要
+        await run_eval(
+            settings,
+            split="holdout",
+            modes=list(EVAL_MODES),
+            project_slug="missing",
+            output_dir=output_dir,
+            evalsets_dir=evalsets_dir,
+            embedder=FakeEmbedder(),
+            llm=_RoutedLLM(),
+            confirm_holdout=True,
+            enforce_counts=False,
+        )
+    ledger = read_holdout_ledger(output_dir)
+    assert [record["event"] for record in ledger] == ["started", "failed"]
+    assert ledger[1]["attempt"] == 1 and ledger[1]["error"]
+    # 失败尝试同样占用一次性访问：下一次运行仍需裁决理由
+    assert (output_dir / HOLDOUT_LEDGER_NAME).is_file()
 
 
 async def test_run_eval_lexical_only_never_loads_real_embedder(

@@ -56,7 +56,9 @@ EVAL_MODES: tuple[EvalMode, ...] = (*RETRIEVAL_MODES, "agentic")
 Split = Literal["dev", "holdout"]
 
 # v1 为 T20.4 期间历史 schema（citation Gate 字段名经 2026-07-19 裁决更名，三份已提交
-# 报告冻结不改写）；v1.1 起 Gate 键集合 split-aware 且固定，见 test_eval_reports_schema
+# 报告冻结不改写）；v1.1 起 Gate 键集合 split-aware 且固定、逐题带完整原始 Answer、
+# holdout 另带 P0 基线对照与访问序号，见 test_eval_reports_schema（尚无 v1.1 报告落库，
+# 故 2026-07-20 复评补充的字段直接并入 v1.1，不再另起版本）
 REPORT_SCHEMA_VERSION = "p1-eval-v1.1"
 EVAL_TOP_K = 10
 TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -71,6 +73,26 @@ _EVIDENCE_MARK_RE = re.compile(r"\[E(\d+)\]")
 MRR_MAX_DROP = 0.02
 HNSW_OVERLAP_GATE = 0.95
 CITATION_PROXY_GATE = 0.85
+
+# P0 holdout 历史基线（evalsets/reports/p0-holdout.md，p0 分支 commit 7fdf540，2026-07-15）：
+# §7 第 3 条要求 P1 holdout 与之同口径对照，同时明确标注语料规模已变化——只作历史参照，不作硬 Gate
+P0_HOLDOUT_BASELINE: dict[str, Any] = {
+    "source": "evalsets/reports/p0-holdout.md",
+    "devkb_commit": "7fdf540",
+    "run_date": "2026-07-15",
+    "corpus": {"document_count": 39, "chunk_count": 1370, "scope": "P0 冻结 Markdown 范围"},
+    "retrieval": {
+        "mode": "vector-exact",
+        "top_k": 10,
+        "question_count": 8,
+        "recall_at_5": 0.625,
+        "recall_at_10": 0.875,
+        "mrr_at_10": 0.440,
+    },
+}
+
+# holdout 一次性访问台账：每次尝试在读题前落盘，中断/失败也留痕（§7 不得静默重跑）
+HOLDOUT_LEDGER_NAME = "holdout-access-log.jsonl"
 
 
 # ---------------------------------------------------------------------------
@@ -397,6 +419,9 @@ async def evaluate_agentic(
             status="succeeded",
             run_id=answer["run_id"],
             mode=answer["mode"],
+            # §7 逐题原始结果：完整 Answer JSON 原样落盘（answer_text/claims/quotes/
+            # citations/not_found/limitations/trace_summary）；不可答题的"理由"即在其中
+            answer=answer,
             l0_errors=l0,
             l1_errors=l1,
             citation_hit=(
@@ -502,6 +527,45 @@ def aggregate_agentic(rows: list[dict[str, Any]], *, split: Split) -> dict[str, 
     }
 
 
+def p0_baseline_comparison(
+    retrieval: dict[str, Any] | None, corpus: dict[str, Any]
+) -> dict[str, Any]:
+    """§7 第 3 条：与 P0 39 文档/1370 chunks、R@10=0.875 的历史同口径对照。
+
+    同口径指同为 holdout 8 问、vector-exact、top-10；语料规模不同，故绝对差值
+    必须与"规模已变化"声明一起呈现，不得单独归因为检索退化，也不作硬 Gate。
+    """
+    baseline_retrieval = P0_HOLDOUT_BASELINE["retrieval"]
+    baseline_corpus = P0_HOLDOUT_BASELINE["corpus"]
+    metrics = ("recall_at_5", "recall_at_10", "mrr_at_10")
+    current = ((retrieval or {}).get("metrics") or {}).get("vector-exact")
+    return {
+        "baseline": P0_HOLDOUT_BASELINE,
+        "current_vector_exact": (
+            {metric: current[metric] for metric in metrics} if current is not None else None
+        ),
+        "delta_vs_p0": (
+            {metric: current[metric] - baseline_retrieval[metric] for metric in metrics}
+            if current is not None
+            else None
+        ),
+        "corpus_scale": {
+            "p0": f"{baseline_corpus['document_count']} 文档 / "
+            f"{baseline_corpus['chunk_count']} chunks",
+            "p1": f"{corpus['document_count']} 文档 / {corpus['chunk_count']} chunks",
+            "changed": (
+                corpus["document_count"] != baseline_corpus["document_count"]
+                or corpus["chunk_count"] != baseline_corpus["chunk_count"]
+            ),
+        },
+        "note": (
+            "P0 绝对值只作历史参照，不作 P1 硬 Gate（Evaluation-v1 §7）：P1 候选语料新增 "
+            "Java 与 config 文件后，候选 chunks 规模与干扰分布已经改变，"
+            "绝对召回下降不能单独归因为检索退化。"
+        ),
+    }
+
+
 def retrieval_gates(retrieval: dict[str, Any], *, split: Split) -> dict[str, Any]:
     """检索 Gate（纯函数）：dev 按 §5.1、holdout 按 §7（均为 2026-07-18 修订口径）。
 
@@ -589,12 +653,36 @@ def write_report(
     return json_path, markdown_path
 
 
+def read_holdout_ledger(output_dir: Path) -> list[dict[str, Any]]:
+    """读取 holdout 一次性访问台账（不存在即空）。"""
+    path = output_dir / HOLDOUT_LEDGER_NAME
+    if not path.is_file():
+        return []
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return [json.loads(line) for line in lines if line.strip()]
+
+
+def append_holdout_ledger(output_dir: Path, record: dict[str, Any]) -> Path:
+    """追加一条访问事件；append-only，既有记录不可改写。"""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / HOLDOUT_LEDGER_NAME
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+    return path
+
+
 def _fmt_rank(rank: int | None) -> str:
     return str(rank) if rank is not None else "未命中"
 
 
 def _fmt_hit(hit: bool | None) -> str:
     return "-" if hit is None else ("是" if hit else "否")
+
+
+def _fmt_cell(text: str, limit: int = 120) -> str:
+    """表格单元格：折行与竖线会破表，节选后转义；完整原文在同名 JSON。"""
+    flat = " ".join(text.split()).replace("|", "\\|")
+    return (flat[:limit] + "…") if len(flat) > limit else (flat or "-")
 
 
 def render_markdown(report: dict[str, Any]) -> str:
@@ -613,6 +701,43 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"ef_search={report['config']['ef_search']} top_k={report['config']['top_k']}",
         "",
     ]
+    attempt = run.get("holdout_attempt")
+    if attempt is not None and attempt > 1:
+        # §7：重跑必须经用户裁决并在报告中显著标记，不得静默重跑挑最好成绩
+        lines += [
+            f"> ⚠️ **本报告是第 {attempt} 次 holdout 运行**，不是首次一次性访问。",
+            f"> 重跑裁决理由：{run.get('holdout_rerun_acknowledged')}",
+            f"> 历次访问（含中断/失败尝试）见 `{HOLDOUT_LEDGER_NAME}`；"
+            "依《Evaluation-v1》§7 不得静默重跑挑最好成绩。",
+            "",
+        ]
+    baseline = report.get("p0_baseline")
+    if baseline:
+        current = baseline["current_vector_exact"]
+        delta = baseline["delta_vs_p0"]
+        base = baseline["baseline"]["retrieval"]
+        lines += [
+            "## 与 P0 holdout 历史基线对照（§7 第 3 条）",
+            "",
+            f"> P0 基线：`{baseline['baseline']['source']}`（commit "
+            f"`{baseline['baseline']['devkb_commit']}`，{baseline['baseline']['run_date']}）",
+            f"> 语料规模：P0 {baseline['corpus_scale']['p0']} → P1 "
+            f"{baseline['corpus_scale']['p1']}"
+            + ("（**已变化**）" if baseline["corpus_scale"]["changed"] else "（未变化）"),
+            "",
+            "| 指标 | P0 基线 | P1 本次 vector-exact | 差值 |",
+            "|---|---:|---:|---:|",
+        ]
+        for key, label in (
+            ("recall_at_5", "Recall@5"),
+            ("recall_at_10", "Recall@10"),
+            ("mrr_at_10", "MRR@10"),
+        ):
+            lines.append(
+                f"| {label} | {base[key]:.3f} | "
+                + (f"{current[key]:.3f} | {delta[key]:+.3f} |" if current else "- | - |")
+            )
+        lines += ["", baseline["note"], ""]
     retrieval = report.get("retrieval")
     if retrieval:
         lines += [
@@ -693,6 +818,24 @@ def render_markdown(report: dict[str, Any]) -> str:
                 f"{row.get('latency_ms', '-')} |"
             )
         lines.append("")
+        unanswerable = [row for row in agentic["questions"] if not row["answerable"]]
+        if unanswerable:
+            # §7：不可答题必须报告 mode 和理由（完整 Answer 原文见同名 JSON）
+            lines += [
+                f"### 不可答题判定与理由（{len(unanswerable)} 题）",
+                "",
+                "| ID | 期望 | 实际 | not_found | 回答/拒答理由（节选） |",
+                "|---|---|---|---|---|",
+            ]
+            for row in unanswerable:
+                answer = row.get("answer") or {}
+                not_found = "；".join(answer.get("not_found", [])) or "-"
+                lines.append(
+                    f"| {row['id']} | {row.get('expected_mode') or '-'} | "
+                    f"{row.get('mode') or row.get('status')} | {_fmt_cell(not_found)} | "
+                    f"{_fmt_cell(answer.get('answer_text', '') or row.get('error', ''))} |"
+                )
+            lines.append("")
     lines += ["逐题完整原始结果见同名 JSON。", "", "```bash", run["command"], "```", ""]
     return "\n".join(lines)
 
@@ -722,20 +865,112 @@ async def run_eval(
     embedder: Embedder | None = None,
     llm: LLMClient | None = None,
     confirm_holdout: bool = False,
+    acknowledge_rerun: str | None = None,
     enforce_counts: bool = True,
     command: str = "devkb eval run",
 ) -> list[tuple[Path, Path]]:
     """按 split/modes 运行评测并落盘报告；返回 (json, md) 路径列表。
 
-    holdout 只在 P1 最终验收运行一次：未显式 confirm 一律拒绝（§6），
-    且必须完整运行全部模式（§7）——部分模式会白白消耗一次性访问。
+    holdout 只在 P1 最终验收运行一次（§6/§7）：未显式 confirm 一律拒绝；必须完整
+    运行全部模式（部分模式会白白消耗一次性访问）；每次尝试在读题前写入访问台账，
+    中断/失败同样留痕；台账已有记录时必须带用户裁决理由才允许重跑，且报告显著标记。
     """
     if split == "holdout" and not confirm_holdout:
         raise InvalidInputError("holdout 只在最终验收运行一次：必须显式 --confirm-holdout")
-    if split == "holdout" and set(modes) != set(EVAL_MODES):
+    if split == "holdout" and modes != list(EVAL_MODES):
         raise InvalidInputError(
-            "holdout 一次性访问必须完整运行 --mode all（Evaluation-v1 §7），不得只跑部分模式"
+            "holdout 一次性访问必须完整运行 --mode all（Evaluation-v1 §7），"
+            f"不得只跑部分模式或重复模式（当前 {modes}）"
         )
+    devkb_commit = _git_value(repo_root or Path(), "rev-parse", "HEAD")
+    worktree_dirty = bool(_git_value(repo_root or Path(), "status", "--short"))
+
+    holdout_attempt: int | None = None
+    if split == "holdout":
+        prior_attempts = [r for r in read_holdout_ledger(output_dir) if r.get("event") == "started"]
+        if prior_attempts and not acknowledge_rerun:
+            raise InvalidInputError(
+                f"holdout 此前已被访问 {len(prior_attempts)} 次"
+                f"（台账 {output_dir / HOLDOUT_LEDGER_NAME}，含中断/失败尝试）："
+                "§7 不得静默重跑挑最好成绩；再次运行须经用户裁决，"
+                "并以 --acknowledge-rerun '<裁决理由>' 显式标记"
+            )
+        holdout_attempt = len(prior_attempts) + 1
+        # 读题即算一次访问：先落盘再动数据（进程被打断也留痕）
+        append_holdout_ledger(
+            output_dir,
+            {
+                "event": "started",
+                "attempt": holdout_attempt,
+                "at": datetime.now(TIMEZONE).isoformat(timespec="seconds"),
+                "devkb_commit": devkb_commit,
+                "devkb_worktree_dirty": worktree_dirty,
+                "project": project_slug,
+                "modes": list(modes),
+                "command": command,
+                "acknowledge_rerun": acknowledge_rerun,
+            },
+        )
+    try:
+        written = await _run_eval_body(
+            settings,
+            split=split,
+            modes=modes,
+            project_slug=project_slug,
+            output_dir=output_dir,
+            evalsets_dir=evalsets_dir,
+            embedder=embedder,
+            llm=llm,
+            enforce_counts=enforce_counts,
+            command=command,
+            devkb_commit=devkb_commit,
+            worktree_dirty=worktree_dirty,
+            holdout_attempt=holdout_attempt,
+            acknowledge_rerun=acknowledge_rerun,
+        )
+    except Exception as exc:
+        if holdout_attempt is not None:
+            append_holdout_ledger(
+                output_dir,
+                {
+                    "event": "failed",
+                    "attempt": holdout_attempt,
+                    "at": datetime.now(TIMEZONE).isoformat(timespec="seconds"),
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+            )
+        raise
+    if holdout_attempt is not None:
+        append_holdout_ledger(
+            output_dir,
+            {
+                "event": "completed",
+                "attempt": holdout_attempt,
+                "at": datetime.now(TIMEZONE).isoformat(timespec="seconds"),
+                "reports": [str(json_path) for json_path, _ in written],
+            },
+        )
+    return written
+
+
+async def _run_eval_body(
+    settings: Settings,
+    *,
+    split: Split,
+    modes: list[EvalMode],
+    project_slug: str,
+    output_dir: Path,
+    evalsets_dir: Path,
+    embedder: Embedder | None,
+    llm: LLMClient | None,
+    enforce_counts: bool,
+    command: str,
+    devkb_commit: str,
+    worktree_dirty: bool,
+    holdout_attempt: int | None,
+    acknowledge_rerun: str | None,
+) -> list[tuple[Path, Path]]:
+    """实际评测与报告装配；holdout 的一次性访问护栏由 run_eval 负责。"""
     questions = load_questions(evalsets_dir, split, enforce_counts=enforce_counts)
     retrieval_modes: list[EvalMode] = [m for m in modes if m != "agentic"]
     run_agentic = "agentic" in modes
@@ -802,24 +1037,27 @@ async def run_eval(
 
     now = datetime.now(TIMEZONE)
     snapshot = sorted((doc.rel_path, doc.content_hash) for doc in documents)
+    corpus = {
+        "project": project_slug,
+        "document_count": len(snapshot),
+        "chunk_count": chunk_count,
+        "sha256": corpus_hash(snapshot),
+        "manifest": [{"rel_path": p, "content_hash": h} for p, h in snapshot],
+    }
     base_report = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "run": {
             "started_at": now.isoformat(timespec="seconds"),
             "split": split,
             "modes": modes,
-            "devkb_commit": _git_value(repo_root or Path(), "rev-parse", "HEAD"),
-            "devkb_worktree_dirty": bool(_git_value(repo_root or Path(), "status", "--short")),
+            "devkb_commit": devkb_commit,
+            "devkb_worktree_dirty": worktree_dirty,
             "command": command,
             "holdout_accessed": split == "holdout",
+            "holdout_attempt": holdout_attempt,
+            "holdout_rerun_acknowledged": acknowledge_rerun,
         },
-        "corpus": {
-            "project": project_slug,
-            "document_count": len(snapshot),
-            "chunk_count": chunk_count,
-            "sha256": corpus_hash(snapshot),
-            "manifest": [{"rel_path": p, "content_hash": h} for p, h in snapshot],
-        },
+        "corpus": corpus,
         "dataset": {
             "answerable": len(questions.answerable),
             "unanswerable": len(questions.unanswerable),
@@ -847,6 +1085,8 @@ async def run_eval(
             **base_report,
             "retrieval": retrieval_result,
             "agentic": agentic_result,
+            # §7 第 3 条：与 P0 历史基线同口径对照 + 语料规模变化声明（非硬 Gate）
+            "p0_baseline": p0_baseline_comparison(retrieval_result, corpus),
             "gates": {
                 "retrieval": (
                     retrieval_gates(retrieval_result, split="holdout") if retrieval_result else None

@@ -298,6 +298,11 @@ def eval_run(
     confirm_holdout: bool = typer.Option(
         False, "--confirm-holdout", help="holdout 只在最终验收运行一次，必须显式确认"
     ),
+    acknowledge_rerun: str | None = typer.Option(
+        None,
+        "--acknowledge-rerun",
+        help="holdout 已访问过时再次运行所需的用户裁决理由（报告中显著标记）",
+    ),
     output_dir: Path = typer.Option(Path("evalsets/reports"), "--output-dir"),
 ) -> None:
     """按 split/mode 运行 Evaluation v1 评测，产出 JSON + Markdown 时间戳报告。"""
@@ -315,7 +320,9 @@ def eval_run(
         )
         raise typer.Exit(1)
     try:
-        paths = asyncio.run(_run_eval(split, mode, project, confirm_holdout, output_dir))
+        paths = asyncio.run(
+            _run_eval(split, mode, project, confirm_holdout, output_dir, acknowledge_rerun)
+        )
     except DevKbError as exc:
         console.print(f"[red]{exc.code}[/red] {exc}")
         raise typer.Exit(1) from exc
@@ -325,14 +332,21 @@ def eval_run(
 
 
 async def _run_eval(
-    split: str, mode: str, project: str, confirm_holdout: bool, output_dir: Path
+    split: str,
+    mode: str,
+    project: str,
+    confirm_holdout: bool,
+    output_dir: Path,
+    acknowledge_rerun: str | None = None,
 ) -> list[tuple[Path, Path]]:
     from devkb.config import get_settings
     from devkb.evaluation import expand_modes, run_eval
 
     modes = expand_modes(mode)
-    command = f"devkb eval run --split {split} --mode {mode} --project {project}" + (
-        " --confirm-holdout" if confirm_holdout else ""
+    command = (
+        f"devkb eval run --split {split} --mode {mode} --project {project}"
+        + (" --confirm-holdout" if confirm_holdout else "")
+        + (f" --acknowledge-rerun {acknowledge_rerun!r}" if acknowledge_rerun else "")
     )
     return await run_eval(
         get_settings(),
@@ -341,6 +355,7 @@ async def _run_eval(
         project_slug=project,
         output_dir=output_dir,
         confirm_holdout=confirm_holdout,
+        acknowledge_rerun=acknowledge_rerun,
         command=command,
     )
 

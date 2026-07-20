@@ -12,12 +12,14 @@ from typing import Any
 import pytest
 
 from devkb.evaluation import (
+    P0_HOLDOUT_BASELINE,
     aggregate_agentic,
     citation_hits_anchor,
     hit_rank,
     l0_final_errors,
     l1_final_errors,
     mrr_at,
+    p0_baseline_comparison,
     percentile,
     question_group,
     rank_improved,
@@ -392,6 +394,41 @@ def test_retrieval_gates_holdout_requires_hnsw_recall_not_below_exact() -> None:
         _retrieval_payload(equal, overlap={"per_question": [0.5], "mean": 0.5}), split="holdout"
     )
     assert gates["hnsw_recall_ge_exact"] is True and gates["gate_passed"] is True
+
+
+def test_p0_baseline_frozen_values_match_committed_p0_report() -> None:
+    """基线数字冻结于 evalsets/reports/p0-holdout.md（commit 7fdf540），不得被静默改写。"""
+    assert P0_HOLDOUT_BASELINE["corpus"]["document_count"] == 39
+    assert P0_HOLDOUT_BASELINE["corpus"]["chunk_count"] == 1370
+    assert P0_HOLDOUT_BASELINE["retrieval"]["recall_at_5"] == 0.625
+    assert P0_HOLDOUT_BASELINE["retrieval"]["recall_at_10"] == 0.875
+    assert P0_HOLDOUT_BASELINE["retrieval"]["mrr_at_10"] == 0.440
+    assert P0_HOLDOUT_BASELINE["retrieval"]["mode"] == "vector-exact"
+
+
+def test_p0_baseline_comparison_hand_computed_deltas_and_scale_flag() -> None:
+    """§7 第 3 条：同口径差值 + 语料规模变化声明，且不产生任何 Gate 判定。"""
+    retrieval = _retrieval_payload(
+        {"vector-exact": {"recall_at_5": 0.500, "recall_at_10": 0.625, "mrr_at_10": 0.340}}
+    )
+    corpus = {"document_count": 445, "chunk_count": 5000}
+    comparison = p0_baseline_comparison(retrieval, corpus)
+    # 手算：0.500-0.625=-0.125；0.625-0.875=-0.250；0.340-0.440=-0.100
+    assert comparison["delta_vs_p0"]["recall_at_5"] == pytest.approx(-0.125)
+    assert comparison["delta_vs_p0"]["recall_at_10"] == pytest.approx(-0.250)
+    assert comparison["delta_vs_p0"]["mrr_at_10"] == pytest.approx(-0.100)
+    assert comparison["corpus_scale"]["changed"] is True
+    assert comparison["corpus_scale"]["p0"] == "39 文档 / 1370 chunks"
+    assert comparison["corpus_scale"]["p1"] == "445 文档 / 5000 chunks"
+    assert "不作 P1 硬 Gate" in comparison["note"]
+    assert "gate_passed" not in comparison  # 历史对照永不产生 Gate 判定
+    # 同规模语料（假想）：changed 为假
+    same = p0_baseline_comparison(retrieval, {"document_count": 39, "chunk_count": 1370})
+    assert same["corpus_scale"]["changed"] is False
+    # 无 vector-exact（不该发生于 --mode all，防御口径）：值为 None 而非崩溃
+    empty = p0_baseline_comparison(_retrieval_payload({"lexical": {}}), corpus)
+    assert empty["current_vector_exact"] is None and empty["delta_vs_p0"] is None
+    assert p0_baseline_comparison(None, corpus)["delta_vs_p0"] is None
 
 
 def test_retrieval_gates_missing_modes_yield_none_verdict_with_stable_keys() -> None:
