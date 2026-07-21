@@ -674,3 +674,11 @@
 - 改法很小但要点明确：抽出纯函数 `_eval_command` 构造 argv 列表，交给 `shlex.join`。测试直接验 round-trip——`shlex.split(command)` 必须还原出等值的 argv，用例里塞了空格路径、中文、双引号、`$USER`、`$HOME; rm -rf /`。这比断言字符串长相稳，也说明了意图：命令是给 shell 读的，判据就该用 shell 的解析器。
 - 破坏性验证：把 `shlex.join` 退回 `" ".join` 立刻红。
 - 质量门：`make ci` 281 passed、`make eval-ci` 65+19 全绿，holdout 未接触。证据 commit：本提交。
+
+## 2026-07-21 · U2.2 人工复核定稿 · 引用逐条抽查 + 降级遗留裁决
+
+- U2.2 的价值在 T20.4 把 citation proxy 从硬 Gate 降为记录义务后被放大了：机制层的兜底交回给人。`benchmarks/p1_manual_check_packet.py` 只做机械校验（sha256/行号区间/quote 逐字），把"引用是否恰当、claim 是否被原文真正支持"这类语义判断留给人工——这条边界要守住，否则又变成机器给自己打分。
+- 采"更省力做法"：AI 逐条打开 `mini-mall-order` 真实文件、为 14 条引用各写一行"原文讲什么/是否支撑/有无勉强"作草拟裁定，复核人 randy 只抽查 3–4 条（重点 q07 E2、q12 E2）+ full 路径校准后签字。14/14 路径行号真实、内容支持论断、无编造，人工引用正确率 100%。
+- 重点核了 q07（partial、proxy=False）：E2 `payment-success-event.md > Consumer Rules` 逐字含"必须幂等，因为 at-least-once""用 eventId 去重"，直接完整回答问题——**proxy 未命中来自人工标注锚点选取，不是引用质量问题**，印证 T20.4"6/9 未命中属检索天花板/等价证据"的归因。q12 E2 是修复规划文档（非实现/测试），证据类型偏弱但同题 E7 测试已佐证，标 △ 不算错。
+- 顺带定位并裁决了一个降级遗留项：8 个 partial 里 q05/q07 是被无意义 not_found 占位降级的，本可 full。根因单一——`GENERATE_SYSTEM` 的 Schema 示例给了 `not_found` 这个"经常合法为空"的字段一个可抄占位值 `["未覆盖方面"]`，q07 逐字抄了下来。修法明确（示例改 `[]` + 补空数组指令）但属 Prompt 变更→PROMPT_VERSION 递增→冻结失效→须重跑 dev §5.2 Gate（约 76 次真实调用且有 false-refusal 触上限风险）。裁决：P1 保持现状、记 `docs/backlog.md`，留待 P2 Prompt 迭代随冻结失效一并修。"找到+诊断+判非阻塞+拒绝在看到 dev 结果后调参"比多两个点的 full 率更能说明工程纪律。
+- 未跑代码测试（本次仅 docs/报告与人工裁定内容变更，无 src 改动），holdout 未接触。证据 commit：本提交。

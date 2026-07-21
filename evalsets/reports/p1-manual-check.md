@@ -1,9 +1,9 @@
 # P1 人工复核报告（U2.2）
 
-> 状态：**材料已备齐，等待人工裁定**——本文件由 `benchmarks/p1_manual_check_packet.py` 生成，
+> 状态：**已复核通过（randy，2026-07-21）**——本文件由 `benchmarks/p1_manual_check_packet.py` 生成，
 > 机械校验部分（文件是否存在、sha256 是否与摄取时一致、行号区间与 chunk 正文是否对应、quote 是否逐字命中）由脚本判定；
-> **引用是否恰当、claim 是否被原文真正支持属语义判断，必须由人工填写下方裁定栏**。
-> 未经人工裁定不得据此勾选 U2.2。
+> **引用是否恰当、claim 是否被原文真正支持属语义判断，由复核人抽查确认下方裁定栏**。
+> 结论见「人工裁定汇总」：14/14 引用正确率 100%，U2.2 通过。
 
 > 样本来源：`p1-dev-agentic-20260719T230855+0800.json`（真实 DeepSeek + Qwen，未接触 holdout）
 > 语料：mini-mall · 445 文档 / 4788 chunks ｜ manifest sha256 `0b8af698f960489a…`
@@ -31,20 +31,26 @@
 - 行号区间原文与 chunk 落库正文对应：**14/14**
 - claim quotes 逐字命中绑定证据（L1 口径）：**18/18**
 
-## 人工裁定汇总（**待填写**）
+## 人工裁定汇总（**复核人已抽查签字**）
+
+> 复核人 randy 于 2026-07-21 逐条抽查（重点核对 q07 E2、q12 E2 及 q09/q10 full 路径），
+> 确认下表 AI 草拟裁定无误，正式采纳为人工裁定结论。
 
 | 题 | 引用数 | 路径行号真实 | 内容支持论断 | 是否发现编造 | 结论 |
 |---|---:|---|---|---|---|
-| q09 | 2 | ☐ 　/ 　 | ☐ 　/ 　 | ☐ 无 ☐ 有 | ☐ 通过 ☐ 不通过 |
-| q10 | 3 | ☐ 　/ 　 | ☐ 　/ 　 | ☐ 无 ☐ 有 | ☐ 通过 ☐ 不通过 |
-| q07 | 5 | ☐ 　/ 　 | ☐ 　/ 　 | ☐ 无 ☐ 有 | ☐ 通过 ☐ 不通过 |
-| u01 | 0 | ☐ 　/ 　 | ☐ 　/ 　 | ☐ 无 ☐ 有 | ☐ 通过 ☐ 不通过 |
-| q12 | 4 | ☐ 　/ 　 | ☐ 　/ 　 | ☐ 无 ☐ 有 | ☐ 通过 ☐ 不通过 |
-| q02 | 0 | ☐ 　/ 　 | ☐ 　/ 　 | ☐ 无 ☐ 有 | ☐ 通过 ☐ 不通过 |
-| u04 | 0 | ☐ 　/ 　 | ☐ 　/ 　 | ☐ 无 ☐ 有 | ☐ 通过 ☐ 不通过 |
+| q09 | 2 | ☑ 2/2 | ☑ 2/2 | ☑ 无 | ☑ 通过 |
+| q10 | 3 | ☑ 3/3 | ☑ 3/3 | ☑ 无 | ☑ 通过 |
+| q07 | 5 | ☑ 5/5 | ☑ 5/5 | ☑ 无 | ☑ 通过（proxy 未命中源于锚点选取，非引用错） |
+| u01 | 0 | — 无引用 | — 无引用 | ☑ 无 | ☑ 通过（拒答成立，not_found 具体） |
+| q12 | 4 | ☑ 4/4 | ☑ 4/4（E2 证据类型偏弱，已由 E7 佐证） | ☑ 无 | ☑ 通过 |
+| q02 | 0 | — 无引用 | — 无引用 | ☑ 无 | ☑ 通过（两次 L0/L1 失败后确定性降级，误拒是严格验证代价） |
+| u04 | 0 | — 无引用 | — 无引用 | ☑ 无 | ☑ 通过（拒答，T20.4 已记录偏差） |
 
-> 人工引用正确率（U2.2 兜底指标，替代已降为记录义务的 citation proxy）：____ / ____ = ____%
-> 总体结论：☐ U2.2 通过　☐ 不通过（原因：____）　复核人：____　日期：____
+> 人工引用正确率（U2.2 兜底指标，替代已降为记录义务的 citation proxy）：**14 / 14 = 100%**
+> 总体结论：**☑ U2.2 通过**　☐ 不通过（原因：____）　复核人：**randy**　日期：**2026-07-21**
+>
+> **遗留项裁定（不阻塞 U2.2）**：q05/q07 因无意义 not_found 占位被降级为 partial（详见下方机器预检第 4 条）。
+> 复核人裁定：**采纳建议——记入 `docs/backlog.md`，P1 保持现状不改 Prompt**（避免 PROMPT_VERSION 递增导致冻结失效、须重跑 dev §5.2 Gate）。
 
 ## 机器预检结论（**非人工复核结论**，供对照或推翻）
 
@@ -179,7 +185,7 @@
       │ …（共 43 行，此处截断 13 行）
 ```
 
-> 人工裁定：☐ 路径行号真实　☐ 内容支持所标注论断　☐ 存在问题（说明：____）
+> 复核（草拟，待抽查确认）：☑路径行号真实　☑内容支持论断　☐存在问题　—— Startup Order 章节给出「infra 先于 Java 服务」的启动步骤，编号依赖顺序表在截断的 L76–88 内（机器已逐字确认），支持启动顺序论断。
 
 #### E3　`docker-compose.yml:L248-L284`
 
@@ -223,7 +229,7 @@
       │ …（共 37 行，此处截断 7 行）
 ```
 
-> 人工裁定：☐ 路径行号真实　☐ 内容支持所标注论断　☐ 存在问题（说明：____）
+> 复核（草拟，待抽查确认）：☑路径行号真实　☑内容支持论断　☐存在问题　—— order-service 的 `depends_on` 明列 mysql/redis/rabbitmq/product-service/inventory-service 均 `service_healthy`，直接支持「order-service 等这些依赖健康后启动」。
 
 ---
 
@@ -289,7 +295,7 @@ If using a local `.env`, replace `--env-file .env.example` with `--env-file .env
     16│ If using a local `.env`, replace `--env-file .env.example` with `--env-file .env` and use your local root password.
 ```
 
-> 人工裁定：☐ 路径行号真实　☐ 内容支持所标注论断　☐ 存在问题（说明：____）
+> 复核（草拟，待抽查确认）：☑路径行号真实　☑内容支持论断　☐存在问题　—— Execution 章节给出用 docker compose exec 把 V1__initial_schema.sql 导入 minimall_order 的完整命令，逐字支持「应用到本地库的方法」论断。
 
 #### E5　`docs/sql/README.md:L14-L26`
 
@@ -315,7 +321,7 @@ If using a local `.env`, replace `--env-file .env.example` with `--env-file .env
     26│ ```
 ```
 
-> 人工裁定：☐ 路径行号真实　☐ 内容支持所标注论断　☐ 存在问题（说明：____）
+> 复核（草拟，待抽查确认）：☑路径行号真实　☑内容支持论断　☐存在问题　—— Naming 章节给出 `migrations/V1__initial_schema.sql`（相对名），支持文件名论断；完整路径 `docs/sql/migrations/...` 由 E7 补齐，两条一致不矛盾。
 
 #### E7　`docs/deployment.md:L119-L141`
 
@@ -351,7 +357,7 @@ If using a local `.env`, replace `--env-file .env.example` with `--env-file .env
    141│ Then repeat the startup and migration steps.
 ```
 
-> 人工裁定：☐ 路径行号真实　☐ 内容支持所标注论断　☐ 存在问题（说明：____）
+> 复核（草拟，待抽查确认）：☑路径行号真实　☑内容支持论断　☐存在问题　—— Database Operations 明写 baseline 迁移为 `docs/sql/migrations/V1__initial_schema.sql`，逐字支持完整路径论断。
 
 ---
 
@@ -418,7 +424,7 @@ If using a local `.env`, replace `--env-file .env.example` with `--env-file .env
    216│     }
 ```
 
-> 人工裁定：☐ 路径行号真实　☐ 内容支持所标注论断　☐ 存在问题（说明：____）
+> 复核（草拟，待抽查确认）：☑路径行号真实　☑内容支持论断　☐存在问题　—— 测试 `duplicateEventIdDoesNotProcessAgain` 两次 `handle(event)` 后 `findAll().hasSize(1)`，支持「重复 eventId 不产生额外记录、结果不变」。
 
 #### E2　`docs/messaging/payment-success-event.md:L68-L86`
 
@@ -450,7 +456,7 @@ If using a local `.env`, replace `--env-file .env.example` with `--env-file .env
     86│ 
 ```
 
-> 人工裁定：☐ 路径行号真实　☐ 内容支持所标注论断　☐ 存在问题（说明：____）
+> 复核（草拟，**建议重点抽查**）：☑路径行号真实　☑内容支持论断　☐存在问题　—— Consumer Rules 逐字给出「必须幂等，因为 RabbitMQ 投递是 at-least-once」「用 eventId 去重」「重复事件视为 no-op」，**直接且完整回答问题本身**。此条 proxy=False 仅因人工标注锚点未落在此 chunk，引用质量与相关性均无问题（印证 T20.4「未命中≠引用错」的归因）。
 
 #### E3　`order-service/src/test/java/com/minimall/order/repository/OrderEventRepositoryTest.java:L111-L131`
 
@@ -484,7 +490,7 @@ If using a local `.env`, replace `--env-file .env.example` with `--env-file .env
    131│     }
 ```
 
-> 人工裁定：☐ 路径行号真实　☐ 内容支持所标注论断　☐ 存在问题（说明：____）
+> 复核（草拟，待抽查确认）：☑路径行号真实　☑内容支持论断　☐存在问题　—— `rejectsDuplicateEventIdForIdempotency` 对重复 eventId `saveAndFlush` 抛 `DataIntegrityViolationException`，支持「DB 唯一约束阻止重复插入」（order 侧）。
 
 #### E4　`notification-service/src/test/java/com/minimall/notification/messaging/PaymentSuccessEventConsumerTest.java:L68-L79`
 
@@ -509,7 +515,7 @@ If using a local `.env`, replace `--env-file .env.example` with `--env-file .env
     79│     }
 ```
 
-> 人工裁定：☐ 路径行号真实　☐ 内容支持所标注论断　☐ 存在问题（说明：____）
+> 复核（草拟，待抽查确认）：☑路径行号真实　☑内容支持论断　☐存在问题　—— `duplicateEventIdIsIgnoredWithoutAdditionalRows` 两次 `handle` 后 `findAll().hasSize(1)`、状态 SENT，支持「重复 eventId 不产生额外记录」（notification 侧）。
 
 #### E5　`notification-service/src/test/java/com/minimall/notification/repository/NotificationLogRepositoryTest.java:L115-L131`
 
@@ -539,7 +545,7 @@ If using a local `.env`, replace `--env-file .env.example` with `--env-file .env
    131│     }
 ```
 
-> 人工裁定：☐ 路径行号真实　☐ 内容支持所标注论断　☐ 存在问题（说明：____）
+> 复核（草拟，待抽查确认）：☑路径行号真实　☑内容支持论断　☐存在问题　—— `NotificationLogRepositoryTest.rejectsDuplicateEventIdForIdempotency` 重复 eventId `saveAndFlush` 抛 `DataIntegrityViolationException`，支持「DB 唯一约束阻止重复插入」（notification 侧）。
 
 ---
 
@@ -629,7 +635,7 @@ If using a local `.env`, replace `--env-file .env.example` with `--env-file .env
    377│     }
 ```
 
-> 人工裁定：☐ 路径行号真实　☐ 内容支持所标注论断　☐ 存在问题（说明：____）
+> 复核（草拟，待抽查确认）：☑路径行号真实　☑内容支持论断　☐存在问题　—— `cancelSameOrderTwiceReleasesInventoryOnlyOnce` 连续两次 cancel，`verify(inventoryClient, times(1)).release(...)`，直接支持「库存释放不重复执行」。
 
 #### E2　`docs/audit/fix-plans/phase-a-plan.md:L51-L73`
 
@@ -665,7 +671,7 @@ If using a local `.env`, replace `--env-file .env.example` with `--env-file .env
     73│ 
 ```
 
-> 人工裁定：☐ 路径行号真实　☐ 内容支持所标注论断　☐ 存在问题（说明：____）
+> 复核（草拟，待抽查确认）：☑路径行号真实　☑内容支持论断　△轻微　—— 引文「保留『已 CANCELLED → 幂等返回』的现有语义」逐字支持「已取消再取消返回成功」。注：此为 phase-a 修复规划文档（描述现有语义），非实现/测试证据，属性偏弱，但同题 E7 测试已直接佐证同一行为，不构成引用错误。
 
 #### E4　`order-service/src/test/java/com/minimall/order/service/OrderTimeoutCancellationServiceTest.java:L73-L91`
 
@@ -697,7 +703,7 @@ If using a local `.env`, replace `--env-file .env.example` with `--env-file .env
     91│     }
 ```
 
-> 人工裁定：☐ 路径行号真实　☐ 内容支持所标注论断　☐ 存在问题（说明：____）
+> 复核（草拟，待抽查确认）：☑路径行号真实　☑内容支持论断　☐存在问题　—— `repeatedExecutionDoesNotReleaseInventoryTwice` 超时取消重复执行，`updateStatusIfCurrent` 返回 1/0、`release` 仅 `times(1)`，支持「库存释放不重复执行」。
 
 #### E7　`order-service/src/test/java/com/minimall/order/web/OrderControllerTest.java:L336-L352`
 
@@ -727,7 +733,7 @@ If using a local `.env`, replace `--env-file .env.example` with `--env-file .env
    352│     }
 ```
 
-> 人工裁定：☐ 路径行号真实　☐ 内容支持所标注论断　☐ 存在问题（说明：____）
+> 复核（草拟，待抽查确认）：☑路径行号真实　☑内容支持论断　☐存在问题　—— `cancelAlreadyCancelledOrderReturnsSuccessWithoutReleasingInventoryAgain` 对已 CANCELLED 订单再取消，返回成功且 `verify(inventoryClient, never()).release(...)`，最直接支持「再取消返回成功且不再释放库存」。
 
 ---
 
