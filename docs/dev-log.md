@@ -682,3 +682,12 @@
 - 重点核了 q07（partial、proxy=False）：E2 `payment-success-event.md > Consumer Rules` 逐字含"必须幂等，因为 at-least-once""用 eventId 去重"，直接完整回答问题——**proxy 未命中来自人工标注锚点选取，不是引用质量问题**，印证 T20.4"6/9 未命中属检索天花板/等价证据"的归因。q12 E2 是修复规划文档（非实现/测试），证据类型偏弱但同题 E7 测试已佐证，标 △ 不算错。
 - 顺带定位并裁决了一个降级遗留项：8 个 partial 里 q05/q07 是被无意义 not_found 占位降级的，本可 full。根因单一——`GENERATE_SYSTEM` 的 Schema 示例给了 `not_found` 这个"经常合法为空"的字段一个可抄占位值 `["未覆盖方面"]`，q07 逐字抄了下来。修法明确（示例改 `[]` + 补空数组指令）但属 Prompt 变更→PROMPT_VERSION 递增→冻结失效→须重跑 dev §5.2 Gate（约 76 次真实调用且有 false-refusal 触上限风险）。裁决：P1 保持现状、记 `docs/backlog.md`，留待 P2 Prompt 迭代随冻结失效一并修。"找到+诊断+判非阻塞+拒绝在看到 dev 结果后调参"比多两个点的 full 率更能说明工程纪律。
 - 未跑代码测试（本次仅 docs/报告与人工裁定内容变更，无 src 改动），holdout 未接触。证据 commit：本提交。
+
+## 2026-07-21 · T21.1 README 重写为 P1 口径
+
+- README 一直停在 P0 基线口径（标题「P0 可运行基线」、把 Agentic 说成"是 P1 内容"），与实际已过 dev §5.2 的 P1 现状脱节。这份文件是求职展示门面，口径错等于自减分。
+- 重写方式：先把事实对着代码逐条核，再写。核过的点——LangGraph 节点序列与条件边（`graph.py`）、三态 finalize 判据（`nodes.py` full 需 sufficient+kept+no not_found+L0/L1）、在线检索器（`make_pg_retriever` 只用 hnsw、多子查询 RRF 融合、**不启用 lexical channel**）、支持文件类型（`.md/.txt/.java` + `.yml/.yaml/.properties`）、HNSW 建索引（migration 0002）、Java tree-sitter 按方法/类切、API 三端点（`/ask` `/runs/{id}` `/healthz`）、Makefile 目标、语料 445 文档/4788 chunks。目的是让"无未实现能力措辞"这条判据可核，而不是凭印象写。
+- 三处诚实点没有回避：① Hybrid 在线不启用——`nodes.py:223` 注释就是这么写的，且 T15.4 是负结果，README 若暗示 Hybrid 上线就是虚标；② 引用可溯源≠回答为真，L0/L1 都不校验语义；③ partial 偏保守遗留项写进已知限制并指向 backlog。CLAUDE.md 要求已知限制写进 README 而非掩盖，这三条正是。
+- 两张 mermaid 图：离线摄取链路 + LangGraph 状态图。踩的小坑——状态图边标签里的 `轮次<2`/`generate<2` 的裸 `<` 会被 mermaid 当 HTML 标签起始误解析，改写成"轮次未达上限""重生成未用尽"规避。另修正一处：初稿把在线融合写成"取 top-10"，但在线检索器默认 `top_k=8`（EVAL_TOP_K=10 是评测口径），改为"取前若干条"不锁死数字。
+- Agentic ≠ Multi-Agent 单列强调：一个 agent、一张确定性状态图、所有分支由确定性代码依结构化信号+预算判定、LLM 只在 plan/evaluate/refine/generate 四处且不能返回控制流。
+- scope 说明：「从干净环境可启动」做到命令/指令级准确（每条命令与参数都存在且核过），字面冷启动实跑归 T21.2。本次仅 README 文本变更，无 src 改动、holdout 未接触。证据 commit：本提交。
