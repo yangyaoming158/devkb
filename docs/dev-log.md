@@ -700,3 +700,9 @@
 - 手工演示挑了三条**没在评测集里**的新问题，实时调 DeepSeek：D1 订单状态机（partial，同时引 `dev-log.md` 与 Java `OrderStateMachineTest`，跨类型引用）；D2 云厂商/K8s（语料确实没有，agent 先 refine 补检一轮仍无证据，确定性拒答且 not_found 具体，未编造）；D3 网关限流（partial，命中 Java 方法级 chunk `GatewayRateLimitFilter`/`RedisGatewayRateLimiter`/`GatewayRateLimitProperties`，答出 Redis 令牌桶+429）。三条都落库可回放。
 - 诚实记录：三条现场演示都没跑出 full，两条 partial 属已诊断的 not_found 占位偏保守倾向（backlog 有裁决）；full 路径的现场证据由第 2 节 q09/q10/q12 三条 dev run 覆盖，演示文档里写明了这一点，不含糊。
 - 全程 unset 代理 + `HF_HUB_OFFLINE=1`，无一次静默挂死；未接触 holdout。证据：`evalsets/reports/p1-manual-demo.md` 与本提交。
+
+## 2026-07-21 · U2.3 holdout 运行授权
+
+- U2.3 是整个 P1 的一次性闸门：holdout 只跑一次，跑完这份报告就是最终答卷。所以授权前把三件事摆成可核事实而不是口头确认——① `p1_freeze_check.py` 逐字段核对 9 个冻结参数（prompt/rrf_k/ef_search/阈值/模型）零漂移；② 被测系统（agent/retrieval/ingest/contracts/embedding/llm/repositories）自 dev Gate `f240e85` 起 `git diff` 零变更，T21.1/T21.2 只动了 README 与报告、不碰被测代码；③ 台账 0 记录、工作树干净。前置 U2.2/T21.1/T21.2 全绿。
+- 授权是人的决定，代码只负责证明「冻结」成立。randy 在冻结核对 §5 签字、清单 U2.3 勾选后，才执行一次 `eval run --split holdout --mode all --confirm-holdout`。规矩上不据 holdout 结果调参——这份报告是用来验收的，不是用来迭代的。
+- 证据 commit：本提交（授权记录），holdout 实跑与报告见下一条。
