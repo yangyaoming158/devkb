@@ -691,3 +691,12 @@
 - 两张 mermaid 图：离线摄取链路 + LangGraph 状态图。踩的小坑——状态图边标签里的 `轮次<2`/`generate<2` 的裸 `<` 会被 mermaid 当 HTML 标签起始误解析，改写成"轮次未达上限""重生成未用尽"规避。另修正一处：初稿把在线融合写成"取 top-10"，但在线检索器默认 `top_k=8`（EVAL_TOP_K=10 是评测口径），改为"取前若干条"不锁死数字。
 - Agentic ≠ Multi-Agent 单列强调：一个 agent、一张确定性状态图、所有分支由确定性代码依结构化信号+预算判定、LLM 只在 plan/evaluate/refine/generate 四处且不能返回控制流。
 - scope 说明：「从干净环境可启动」做到命令/指令级准确（每条命令与参数都存在且核过），字面冷启动实跑归 T21.2。本次仅 README 文本变更，无 src 改动、holdout 未接触。证据 commit：本提交。
+
+## 2026-07-21 · T21.2 真语料最终实跑与手工演示
+
+- 先确认「最终实跑」不必从零重嵌：pg 命名卷 `pythonagenticrag_devkb-pgdata` 持久化，`make up` 后 mini-mall 的 445 docs/4788 chunks 与 56 条 agent_runs 都还在。所以策略是——用已审计视图核对语料同一性 + 幂等验证 + 回放已有五路径 + 现场跑几条真实新提问，而不是白烧一遍 GPU 与 API。
+- 语料同一性用逐文件 sha256 核，比"跑一遍看数字对不对"硬：新建视图的 445 个 rel_path→sha256 与 dev Gate 报告内嵌 manifest（字段名是 `content_hash`，视图侧是 `sha256`，对上了）**0 处不符**，证明源仓库自 dev Gate 未变、这就是同一份语料。踩的小坑：视图 manifest 顶层是 `{version,source,files:[...]}`，不是裸 list，第一版比对脚本按裸 list 取 `content_hash` 直接 KeyError。
+- 幂等：对同一视图二次 ingest → 成功 0/跳过 445/失败 0，落库计数不变。模型仍会加载（SentenceTransformer 初始化），但 content_hash 命中即跳过、不重嵌——这正是期望：幂等是"内容没变就不重做"，不是"跳过整个进程"。
+- 手工演示挑了三条**没在评测集里**的新问题，实时调 DeepSeek：D1 订单状态机（partial，同时引 `dev-log.md` 与 Java `OrderStateMachineTest`，跨类型引用）；D2 云厂商/K8s（语料确实没有，agent 先 refine 补检一轮仍无证据，确定性拒答且 not_found 具体，未编造）；D3 网关限流（partial，命中 Java 方法级 chunk `GatewayRateLimitFilter`/`RedisGatewayRateLimiter`/`GatewayRateLimitProperties`，答出 Redis 令牌桶+429）。三条都落库可回放。
+- 诚实记录：三条现场演示都没跑出 full，两条 partial 属已诊断的 not_found 占位偏保守倾向（backlog 有裁决）；full 路径的现场证据由第 2 节 q09/q10/q12 三条 dev run 覆盖，演示文档里写明了这一点，不含糊。
+- 全程 unset 代理 + `HF_HUB_OFFLINE=1`，无一次静默挂死；未接触 holdout。证据：`evalsets/reports/p1-manual-demo.md` 与本提交。
