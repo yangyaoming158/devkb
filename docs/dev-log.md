@@ -719,3 +719,9 @@
 - 把《P1实现规格》§15 十条验收标准逐条对到硬证据（测试文件 / 报告 / run_id / 命令输出），落成 `evalsets/reports/p1-acceptance.md`，而不是凭印象打勾。核过：迁移可逆(`test_migrations.py`)+backfill 无损；语料视图幂等与 Java 行号真实(`p1-manual-demo.md`+`p1-manual-check.md`)；dev §5.1/§5.2 受控对照；LangGraph 路径矩阵测试+预算硬上限；dev 拒答/误拒 Gate；轨迹可回放；三端点集成测试+D7 越权隔离；本地 `make ci` 281+`make eval-ci` 65+19 全绿；holdout 一次性两 Gate 全绿；README/演示一致。
 - 九项已满足，仅第 8 项的远端 GitHub Actions 头提交绿灯归 T21.5。三处偏差都摆进裁决表：u04 拒答偏差、citation proxy 降记录义务（U2.2 人工兜底）、q05/q07 not_found 偏保守（保持现状记 backlog）——判据要求"所有偏差有用户裁决"，逐条都指到出处。
 - 没勾 T21.4：它依赖 T21.5 远端 CI，且是用户签署的最终验收，材料备齐等裁定。证据 commit：本提交。
+
+## 2026-07-21 · T21.5 修复 CI 红：本地缓存假绿
+
+- 推送后 GitHub Actions 在 `ruff check src tests` 红了，但本地 `make ci` 明明 281 passed。根因是**本地 `.ruff_cache` 假绿**：`ruff check --no-cache` 立刻暴露 5 个 I001（import 未排序），CI 全新环境无缓存故如实报错。教训——CI 关键校验不能信本地缓存的绿，验收类检查要 `--no-cache` 或先 `rm -rf .ruff_cache`。
+- 5 个都在老测试文件（test_fts_golden/test_java_chunker/test_markdown_chunker{,_ml}/test_rrf）：ruff 0.15.21 把 `from conftest import ...` 归类为 first-party，要与 `pytest` 那组分开、和 `devkb` 同组。`ruff check --fix` 一键修正，纯 import 分组、无逻辑改动。
+- 清缓存重验：`ruff format --check` ✓、`ruff check --no-cache` All passed、pyright 0 错、pytest 281 passed、`make eval-ci` 65+19 全绿。证据 commit：本提交；待重新推送触发 CI 复验。

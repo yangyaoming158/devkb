@@ -7,6 +7,7 @@ CI 不装 ml 依赖组，`importorskip("transformers")` 使本文件在 CI 自�
 from __future__ import annotations
 
 import pytest
+
 from conftest import CORPUS_MD_DIR, FIXTURES_DIR, GoldenCheck, chunks_to_jsonable
 
 pytest.importorskip("transformers")

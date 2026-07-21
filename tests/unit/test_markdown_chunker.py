@@ -10,8 +10,8 @@ import hashlib
 import itertools
 
 import pytest
-from conftest import CORPUS_MD_DIR, FIXTURES_DIR, GoldenCheck, chunks_to_jsonable
 
+from conftest import CORPUS_MD_DIR, FIXTURES_DIR, GoldenCheck, chunks_to_jsonable
 from devkb.ingest.markdown import MdChunk, approx_token_counter, chunk_markdown
 
 GOLDEN_DIR = FIXTURES_DIR / "golden"

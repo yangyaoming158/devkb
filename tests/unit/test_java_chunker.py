@@ -10,8 +10,8 @@ import hashlib
 import itertools
 
 import pytest
-from conftest import FIXTURES_DIR, GoldenCheck, chunks_to_jsonable
 
+from conftest import FIXTURES_DIR, GoldenCheck, chunks_to_jsonable
 from devkb.errors import ParseError
 from devkb.ingest.java import JavaChunk, chunk_java
 from devkb.ingest.markdown import approx_token_counter

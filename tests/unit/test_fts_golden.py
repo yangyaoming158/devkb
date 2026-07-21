@@ -10,8 +10,8 @@ RabbitMQ 名称、URL/路径、错误码）及混合真实查询的**完整 toke
 from __future__ import annotations
 
 import pytest
-from conftest import FIXTURES_DIR, GoldenCheck
 
+from conftest import FIXTURES_DIR, GoldenCheck
 from devkb.fts import MAX_TOKEN_LENGTH, tokenize_for_search
 
 GOLDEN_PATH = FIXTURES_DIR / "golden_fts" / "tokenize_cases.json"

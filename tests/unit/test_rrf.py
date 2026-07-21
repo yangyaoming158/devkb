@@ -12,8 +12,8 @@ import itertools
 import uuid
 
 import pytest
-from conftest import FIXTURES_DIR, GoldenCheck
 
+from conftest import FIXTURES_DIR, GoldenCheck
 from devkb.retrieval import RRF_K_DEFAULT, ChannelRanking, FusedChunk, rrf_fuse
 
 GOLDEN_PATH = FIXTURES_DIR / "golden_rrf" / "fuse_cases.json"
