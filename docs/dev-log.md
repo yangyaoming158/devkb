@@ -706,3 +706,10 @@
 - U2.3 是整个 P1 的一次性闸门：holdout 只跑一次，跑完这份报告就是最终答卷。所以授权前把三件事摆成可核事实而不是口头确认——① `p1_freeze_check.py` 逐字段核对 9 个冻结参数（prompt/rrf_k/ef_search/阈值/模型）零漂移；② 被测系统（agent/retrieval/ingest/contracts/embedding/llm/repositories）自 dev Gate `f240e85` 起 `git diff` 零变更，T21.1/T21.2 只动了 README 与报告、不碰被测代码；③ 台账 0 记录、工作树干净。前置 U2.2/T21.1/T21.2 全绿。
 - 授权是人的决定，代码只负责证明「冻结」成立。randy 在冻结核对 §5 签字、清单 U2.3 勾选后，才执行一次 `eval run --split holdout --mode all --confirm-holdout`。规矩上不据 holdout 结果调参——这份报告是用来验收的，不是用来迭代的。
 - 证据 commit：本提交（授权记录），holdout 实跑与报告见下一条。
+
+## 2026-07-21 · T21.3 P1 holdout 一次性运行
+
+- 授权后带 `unset 代理 + HF_HUB_OFFLINE=1` 跑了唯一一次 `eval run --split holdout --mode all --confirm-holdout`。5.7 分钟完成，台账原子占号正常：started(attempt=1, commit 087c73e, worktree_dirty=false) + completed 恰两条，再跑必须 `--acknowledge-rerun` 并留理由。
+- 两个 §7 硬 Gate 都过：① 检索——`vector-hnsw R@10=0.75 ≥ vector-exact R@10=0.75`，exact↔hnsw top-10 overlap=1.000，说明 HNSW 在这个规模上对 vector-exact 是无损近似（这正是把 overlap 从硬 Gate 改成"hnsw≥exact"口径后要证明的事）；② agentic——L0/L1 全过、预算内（39 调用/10 run、单 run ≤6、0 重试）、终态完整、无失败 run。10 题全 succeeded：5 full/4 partial/1 refusal，误拒 0。
+- 记录义务如实落盘，不因难看而修：hybrid-rrf 在 holdout 上仍比纯向量差（R@10 0.5 vs 0.75、ΔMRR −0.103），和 T15.4 的 dev 负结果一致——lexical 通道（R@10 仅 0.25）把融合拖下水；citation proxy 0.5 < 冻结 0.85，与 dev 同因（检索天花板 + anchor 选取），硬性兜底已由 U2.2 人工 100% 承担；P0 历史绝对值 R@10 0.875→0.75，但语料从 39 文档/1370 chunks 变成 445/4788，§7 早已预声明规模变化下绝对召回不可单独归因为退化。q20/q23 四种模式全未命中，是 445 文件语料的检索天花板。
+- 全程未据 holdout 结果调任何参数——这份报告是验收答卷，不是迭代输入。这条纪律比多几个点的召回更重要：holdout 一旦用来调参就不再是 holdout。证据：`evalsets/reports/p1-holdout-20260721T223756+0800.{json,md}`、台账与本提交。

@@ -1,0 +1,2 @@
+{"event":"started","attempt":1,"at":"2026-07-21T22:32:16+08:00","acknowledge_rerun":null,"devkb_commit":"087c73ec417968a44559f62f1a675039c4a1dc36","devkb_worktree_dirty":false,"project":"mini-mall","modes":["vector-exact","vector-hnsw","lexical","hybrid-rrf","agentic"],"command":"devkb eval run --split holdout --mode all --project mini-mall --confirm-holdout","output_dir":"evalsets/reports"}
+{"event":"completed","attempt":1,"at":"2026-07-21T22:37:56+08:00","reports":["evalsets/reports/p1-holdout-20260721T223756+0800.json"]}
