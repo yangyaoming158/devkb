@@ -713,3 +713,9 @@
 - 两个 §7 硬 Gate 都过：① 检索——`vector-hnsw R@10=0.75 ≥ vector-exact R@10=0.75`，exact↔hnsw top-10 overlap=1.000，说明 HNSW 在这个规模上对 vector-exact 是无损近似（这正是把 overlap 从硬 Gate 改成"hnsw≥exact"口径后要证明的事）；② agentic——L0/L1 全过、预算内（39 调用/10 run、单 run ≤6、0 重试）、终态完整、无失败 run。10 题全 succeeded：5 full/4 partial/1 refusal，误拒 0。
 - 记录义务如实落盘，不因难看而修：hybrid-rrf 在 holdout 上仍比纯向量差（R@10 0.5 vs 0.75、ΔMRR −0.103），和 T15.4 的 dev 负结果一致——lexical 通道（R@10 仅 0.25）把融合拖下水；citation proxy 0.5 < 冻结 0.85，与 dev 同因（检索天花板 + anchor 选取），硬性兜底已由 U2.2 人工 100% 承担；P0 历史绝对值 R@10 0.875→0.75，但语料从 39 文档/1370 chunks 变成 445/4788，§7 早已预声明规模变化下绝对召回不可单独归因为退化。q20/q23 四种模式全未命中，是 445 文件语料的检索天花板。
 - 全程未据 holdout 结果调任何参数——这份报告是验收答卷，不是迭代输入。这条纪律比多几个点的召回更重要：holdout 一旦用来调参就不再是 holdout。证据：`evalsets/reports/p1-holdout-20260721T223756+0800.{json,md}`、台账与本提交。
+
+## 2026-07-21 · T21.4 P1 验收总清单
+
+- 把《P1实现规格》§15 十条验收标准逐条对到硬证据（测试文件 / 报告 / run_id / 命令输出），落成 `evalsets/reports/p1-acceptance.md`，而不是凭印象打勾。核过：迁移可逆(`test_migrations.py`)+backfill 无损；语料视图幂等与 Java 行号真实(`p1-manual-demo.md`+`p1-manual-check.md`)；dev §5.1/§5.2 受控对照；LangGraph 路径矩阵测试+预算硬上限；dev 拒答/误拒 Gate；轨迹可回放；三端点集成测试+D7 越权隔离；本地 `make ci` 281+`make eval-ci` 65+19 全绿；holdout 一次性两 Gate 全绿；README/演示一致。
+- 九项已满足，仅第 8 项的远端 GitHub Actions 头提交绿灯归 T21.5。三处偏差都摆进裁决表：u04 拒答偏差、citation proxy 降记录义务（U2.2 人工兜底）、q05/q07 not_found 偏保守（保持现状记 backlog）——判据要求"所有偏差有用户裁决"，逐条都指到出处。
+- 没勾 T21.4：它依赖 T21.5 远端 CI，且是用户签署的最终验收，材料备齐等裁定。证据 commit：本提交。
