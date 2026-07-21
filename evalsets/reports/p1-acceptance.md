@@ -14,7 +14,7 @@
 | 5 | 4 个 dev 不可答题达拒答/边界 Gate；可答题误拒率达标 | dev §5.2：correct_unanswerable 3/4（u04 期望 partial 实得 refusal，T20.4 已记录偏差并裁决）、false_refusal 1/17（q02，§5.2 允许 ≤1）。holdout 记录：正确拒答 2、误拒 0 | ✅（u04 偏差已裁决） |
 | 6 | agent_steps/tool_invocations 可按 run_id 回放；失败 run 也有完整终态和故障位置 | `devkb runs replay <run_id>` 实测可回放完整节点轨迹（本会话回放 q07 partial run 成功）；`tests/unit/test_trace.py` + `test_datalayer.py` 覆盖失败 run 终态落库。T18 轨迹一致性 | ✅ |
 | 7 | CLI、`POST /ask`、`GET /runs/{id}`、`GET /healthz` 集成测试；双项目数据不可越权 | `tests/integration/test_api.py`（三端点）、`test_api_concurrency.py`；`test_isolation.py` 验证 Repository 以 project_id 实例化、跨项目不可读（D7：查询构造只在 `repositories.py`，查询方法不接受外部 project_id） | ✅ |
-| 8 | 本地 `make ci && make eval-ci` 全绿；当前头提交 GitHub Actions 全绿 | 本地 2026-07-21：`make ci` 281 passed（ruff ✓/pyright 0 错/pytest ✓）、`make eval-ci` 65+19 passed。**GitHub Actions 头提交全绿 = T21.5，待推送验证** | ◑ 本地✅ / 远端 CI 见 T21.5 |
+| 8 | 本地 `make ci && make eval-ci` 全绿；当前头提交 GitHub Actions 全绿 | 本地 2026-07-21：`make ci` 281 passed（ruff ✓/pyright 0 错/pytest ✓）、`make eval-ci` 65+19 passed；远端头提交 `1a4bb0c` GitHub Actions `ci.yml` 全绿（首推 ruff 假绿修复后重推，详见 T21.5 与 dev-log） | ✅ |
 | 9 | holdout 只运行一次并留档；不据结果回改 Prompt/阈值/权重/标注 | `p1-holdout-20260721T223756+0800.{json,md}` + 台账 `holdout-access-log.jsonl`（attempt=1 started+completed 恰一条）；U2.3 授权 `p1-holdout-freeze-check.md`（randy 签字）。两硬 Gate 全绿，dev-log 明确记「未据结果调参」 | ✅ |
 | 10 | README、架构图、状态图、评测报告、演示步骤与实现一致 | `README.md`（T21.1 重写：两 mermaid 图 + 三态表 + 一页起步，所有措辞对代码核过）；`p1-manual-demo.md`（真实演示三条 + 五路径可回放 run）；`p1-dev/holdout` 报告 | ✅ |
 
@@ -34,6 +34,6 @@ P1 通过只证明**单 Agent Agentic workflow**。不对外宣称 Multi-Agent�
 
 ## 结论（**待用户裁定**）
 
-§15 十项中 **9 项已满足、第 8 项本地全绿仅差远端 CI（T21.5）**；三处偏差均有裁决。建议：T21.5 推送确认 GitHub Actions 头提交全绿后，由用户签署 P1 验收通过。
+§15 **十项全部满足**（含第 8 项远端 CI 头提交 `1a4bb0c` 全绿）；三处偏差均有用户裁决，无「计划中/待补」被勾选。P1 单 Agent Agentic workflow 具备验收条件，等待用户签署。
 
 复核人：______　日期：______　☐ P1 验收通过　☐ 退回（原因：____）
