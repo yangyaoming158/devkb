@@ -735,3 +735,12 @@
 - `p1-holdout-freeze-check.md` 只**追加**「验收复核注记」，不改历史冻结数值/用户签字/holdout 前事实：解释①报告第 7 行的 dirty 是 shell 重定向覆盖这份 Git 跟踪报告时脚本把自身输出当成工作树改动（被测系统 diff 为空）；②第 4 节 T21.1/T21.2「未完成」是生成模板陈旧态、以第 5 节用户签字为准；③第 3 节台账 0 条是 holdout 前快照、不改写以免伪装 holdout 后状态；④台账 `started` 记录 `devkb_commit=087c73e`/`worktree_dirty=false` 反证实跑时工作树干净；⑤dev Gate→holdout 间被测系统零变更。
 - T21.4/T21.6 保持未勾；第 10 项在 README 与验收材料修正后维持勾选。澄清任务口径：T21.4=技术验收清单完成（清单逐条属实、无计划中/待补、偏差有裁决），用户对 P1 的最终确认属 T21.6，不作为 T21.4 前置——原叙述把二者混淆，已改。
 - 2026-07-22 本地验证全绿：`ruff check --no-cache` 通过；`make ci` 为 Ruff format/check 通过、Pyright 0 错、pytest 281 passed；`make eval-ci` 为 unit 65 + integration 19 passed。证据 commit：本提交。推送后的当前头提交 CI 结果留待 T21.5 按实际 GitHub Actions 状态补齐。
+
+## 2026-07-22 · P1 验收关闭（T21.4/T21.5/T21.6）
+
+- **T21.5 精确头提交远端 CI 已通过**：验收证据基准提交 `13f8f008c0f310aa12a3d5db273f1ba8d1274624`（`docs: reconcile P1 acceptance evidence`）已推送。**本地 `HEAD`、`origin/p1`、Actions head_sha 三者一致**，均指向该完整 SHA，工作区干净。对应 GitHub Actions Run **29922618713**（https://github.com/yangyaoming158/devkb/actions/runs/29922618713）最终 completed / success，checks 中 pytest、`make eval-ci` 等全部成功。这次是「当前头提交自身的绿」，不再用较早 `1a4bb0c` 的绿灯替代——正是上一条复查要纠正的判据违规点，现已按判据补齐。
+- 本地 2026-07-22 复核：`uv run ruff check --no-cache src tests` 通过；`make ci` = Ruff format/check 通过 + Pyright 0 错 + pytest **281 passed**；`make eval-ci` = unit **65** + integration **19** passed。
+- **§15 从 9/10 补齐为 10/10**：唯一悬挂的第 8 项（当前头提交远端 CI 全绿）随 `13f8f008` 的 Run 29922618713 success 而满足，故 **T21.4 技术验收清单完成**。三处偏差（u04 拒答 / citation proxy 记录义务 / q05·q07 not_found 偏保守）均已有用户裁决，无「计划中/待补」被勾选。
+- **T21.6 满足**：用户 randy 于 2026-07-22 明确确认「P1 Agentic RAG MVP 验收通过（验收人：randy，日期：2026-07-22）」，P1 Gate 关闭。
+- 本任务性质：**只做验收文档收尾**。未运行 holdout、未调用 Qwen/DeepSeek 或任何真实模型、未修改被测系统或冻结参数（Prompt/阈值/RRF/标注）、未改任何 evalsets JSON 原始报告与 `holdout-access-log.jsonl`、未创建或修改任何 P2 文档。仅改 `docs/P1任务清单.md`、`evalsets/reports/p1-acceptance.md`、`docs/dev-log.md` 三份文档。
+- **诚实边界**：本条由一个包含上述三份文档改动的**纯文档验收关闭提交**承载。该提交推送后须通过自身 GitHub Actions，才可依 ADR-009 开始 P2；通过前不得声称关闭提交已通过 CI，也不得启动 P2。由于提交无法在自身内容中预记自身 SHA，最终状态以远端分支 CI 为准。
