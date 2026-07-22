@@ -724,4 +724,14 @@
 
 - 推送后 GitHub Actions 在 `ruff check src tests` 红了，但本地 `make ci` 明明 281 passed。根因是**本地 `.ruff_cache` 假绿**：`ruff check --no-cache` 立刻暴露 5 个 I001（import 未排序），CI 全新环境无缓存故如实报错。教训——CI 关键校验不能信本地缓存的绿，验收类检查要 `--no-cache` 或先 `rm -rf .ruff_cache`。
 - 5 个都在老测试文件（test_fts_golden/test_java_chunker/test_markdown_chunker{,_ml}/test_rrf）：ruff 0.15.21 把 `from conftest import ...` 归类为 first-party，要与 `pytest` 那组分开、和 `devkb` 同组。`ruff check --fix` 一键修正，纯 import 分组、无逻辑改动。
-- 清缓存重验：`ruff format --check` ✓、`ruff check --no-cache` All passed、pyright 0 错、pytest 281 passed、`make eval-ci` 65+19 全绿。证据 commit：本提交；待重新推送触发 CI 复验。
+- 清缓存重验：`ruff format --check` ✓、`ruff check --no-cache` All passed、pyright 0 错、pytest 281 passed、`make eval-ci` 65+19 全绿。证据 commit：本提交；待重新推送触发 CI 复验。（后续更正：`1a4bb0c` 已推送且 GitHub Actions 全绿；但其上又叠加了 `565b4a1` 与本次验收修复提交，故**当前头提交仍需重新过 CI**，详见下条「T21.4 验收复查修复」。）
+
+## 2026-07-22 · T21.4 前验收证据复查修复（只改文档，不动被测系统）
+
+- 本次是**验收证据修复**，不是功能开发：不重跑 holdout、不调用真实 Qwen/DeepSeek、不改 Prompt/阈值/RRF/标注、不动 evalsets 下 JSON 原始报告与 holdout 台账。只修 README、`p1-acceptance.md`、`p1-holdout-freeze-check.md`（追加注记）、`P1任务清单.md`、`dev-log.md` 五份文档证据。
+- 最关键的修正是 **CI 头提交口径**：`1a4bb0c` 确实推送并过了远端 CI，但其后本地又叠加了 `565b4a1`（关闭 T21.5 的那次提交）以及本次验收修复提交——**当前头提交已不是 `1a4bb0c`，尚未推送、未过 CI**。判据明写「当前头提交全绿，不以较早提交绿灯替代」，所以 T21.5 与「验收总清单第 8 项」从已勾**回退为未完成/待复验**，`p1-acceptance.md` 结论由「十项全满足」改为「9/10，等待当前头提交 CI」。先前把它标绿是我用较早提交的绿灯替代了当前头提交，属判据违规，已纠正。
+- README 两处准确性修复：① 「每个回答都附引用」是绝对表述——拒答（证据不足）本就不产出引用，改为限定「完整/部分回答里的每条事实性论断」附引用+L0/L1 校验，拒答只说明缺什么；② 把 HNSW exact↔hnsw overlap 从「§5.2 六项回答 Gate」里移出——它是 **§5.1 检索 Gate** 第 4 条（Evaluation-v1 line 90/106/130 为据：§5.2 六项=拒答/误拒/L0/L1/预算/终态）。Agentic≠Multi-Agent、Hybrid 负结果、L0/L1 不保证语义正确等诚实边界保留不动。
+- `p1-acceptance.md` 证据链修正：迁移证据按 0001（建 agent_runs）/0002（search_text+search_tsv+GIN+HNSW+agent_steps/tool_invocations）/0003（轨迹表复合 FK，D7 跨项目归属）如实拆分——原文误把 agent_runs 记在 0002、且漏了 0003；§5.1 检索 Gate 改引 `p1-dev-retrieval-20260719T224424+0800`、§5.2 回答 Gate 引 `p1-dev-agentic-20260719T230855+0800`（原文把二者混在同一份 agentic 报告）；「失败 run 终态落库」改引 `test_agent_service.py::test_unexpected_node_failure_persists_failed_run_and_failed_last_step`（`test_trace.py`/`test_datalayer.py` 只证轨迹行为，不足以单独证明失败 run 终态）；补齐文末「提交序列」（原文引用了不存在的段落）。
+- `p1-holdout-freeze-check.md` 只**追加**「验收复核注记」，不改历史冻结数值/用户签字/holdout 前事实：解释①报告第 7 行的 dirty 是 shell 重定向覆盖这份 Git 跟踪报告时脚本把自身输出当成工作树改动（被测系统 diff 为空）；②第 4 节 T21.1/T21.2「未完成」是生成模板陈旧态、以第 5 节用户签字为准；③第 3 节台账 0 条是 holdout 前快照、不改写以免伪装 holdout 后状态；④台账 `started` 记录 `devkb_commit=087c73e`/`worktree_dirty=false` 反证实跑时工作树干净；⑤dev Gate→holdout 间被测系统零变更。
+- T21.4/T21.6 保持未勾；第 10 项在 README 与验收材料修正后维持勾选。澄清任务口径：T21.4=技术验收清单完成（清单逐条属实、无计划中/待补、偏差有裁决），用户对 P1 的最终确认属 T21.6，不作为 T21.4 前置——原叙述把二者混淆，已改。
+- 2026-07-22 本地验证全绿：`ruff check --no-cache` 通过；`make ci` 为 Ruff format/check 通过、Pyright 0 错、pytest 281 passed；`make eval-ci` 为 unit 65 + integration 19 passed。证据 commit：本提交。推送后的当前头提交 CI 结果留待 T21.5 按实际 GitHub Actions 状态补齐。

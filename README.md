@@ -1,6 +1,6 @@
 # devkb — Agentic RAG 软件项目知识助手（P1）
 
-把一个软件项目的**文档 + Java 源码 + 配置**摄取为向量知识库，用一个 **LangGraph 单智能体**回答问题：自主规划检索 → 判断证据是否充分 → 不足则补检一次 → 生成 → 逐条校验引用 → 三态收尾（**完整 / 部分 / 拒答**）。**每个回答都附可溯源的真实引用（文件路径 + 行号 + 标题路径），并对每条论断做引用编号与逐字引文校验**。
+把一个软件项目的**文档 + Java 源码 + 配置**摄取为向量知识库，用一个 **LangGraph 单智能体**回答问题：自主规划检索 → 判断证据是否充分 → 不足则补检一次 → 生成 → 逐条校验引用 → 三态收尾（**完整 / 部分 / 拒答**）。**完整/部分回答里的每条事实性论断都附可溯源的真实引用（文件路径 + 行号 + 标题路径），并做引用编号（L0）与逐字引文（L1）校验；拒答（证据不足）不产出引用，只说明缺什么**。
 
 当前阶段 **P1 Agentic RAG MVP**（已过 dev §5.2 六项硬 Gate）。P0 固定单管道对照路径仍保留（`--pipeline fixed-rag`）。阶段边界见 `docs/范围冻结与架构决策.md`。
 
@@ -111,7 +111,7 @@ make eval-ci                                         # 评测层单测（FakeEmb
 uv run devkb eval run --split dev --mode all --project mini-mall   # 真实模型 dev 全量（报告落盘，不覆盖历史）
 ```
 
-- dev §5.2 六项硬 Gate（正确拒答、误拒 ≤1/17、最终 L0/L1=100%、预算内、终态完整、检索 overlap）已全过；citation-to-anchor proxy 按**记录义务**落盘（当前 52.9%，逐题归因见报告），硬性兜底由 **U2.2 人工引用抽查**承担（`evalsets/reports/p1-manual-check.md`，14/14=100%）。
+- dev §5.2 六项回答硬 Gate（正确拒答、误拒 ≤1/17、最终 L0=100%、最终 L1=100%、预算内、终态完整）已全过；HNSW exact↔hnsw overlap 是 §5.1 检索 Gate（另行核对，overlap=1.0），不在此六项内。citation-to-anchor proxy 按**记录义务**落盘（当前 52.9%，逐题归因见报告），硬性兜底由 **U2.2 人工引用抽查**承担（`evalsets/reports/p1-manual-check.md`，14/14=100%）。
 - **holdout 只运行一次**，须先通过冻结核对与用户授权（`benchmarks/p1_freeze_check.py`）。评测数据纪律见 `docs/Evaluation-v1.md`。
 
 ## 已知限制（P1 如实声明）

@@ -74,3 +74,16 @@ unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
 HF_HUB_OFFLINE=1 uv run devkb eval run --split holdout --mode all --confirm-holdout
 ```
 
+## 验收复核注记（2026-07-22，T21.4 前）
+
+> 本节为**人工复核注记**，不改写上方由 `p1_freeze_check.py` 生成的历史数值、用户签字与 holdout 前事实（§1–§5 一律保留原样）。仅澄清几处会引起误读的生成态遗留：
+
+1. **第 7 行「⚠️ 工作树有未提交改动」不代表被测系统脏**：本报告是 Git 跟踪文件，脚本用 shell 重定向（`… > p1-holdout-freeze-check.md`）覆盖自身时，`git status --short` 会把这份正在被覆盖的报告本身识别为工作树改动。真正的判定看第 2 节——被测系统 `git diff` 为「（无任何变更）」；脏标来自报告文件自身，与冻结无关。
+
+2. **第 4 节 T21.1/T21.2「☐ 未完成」是生成模板的陈旧静态状态**：该表由脚本以固定模板输出，不随任务进度自动更新。二者实际均已在授权前完成——T21.1 见 `README.md` 重写、T21.2 见 `evalsets/reports/p1-manual-demo.md`。第 5 节用户签字第二项「☑ 我确认 U2.2 已通过、T21.1/T21.2 已完成」即对此的明确确认，签字晚于模板行、以签字为准。
+
+3. **第 3 节台账「0 条（从未访问）」是 holdout 前的历史快照，不是当前状态**：本报告生成于 holdout 之前，故当时台账为空、如实记 0。holdout 已于其后一次性运行，**当前** `evalsets/holdout-access-log.jsonl` 有 `started` + `completed` 两条 `attempt=1` 记录（不在此改写第 3 节以免伪装 holdout 后状态为 holdout 前状态）。
+
+4. **台账 `started` 记录反证实跑时工作树干净**：该记录 `devkb_commit=087c73e`、`devkb_worktree_dirty=false`——即真正运行 holdout 的那次提交工作树是干净的，与第 1 点「报告文件自身导致的脏标」是两回事。
+
+5. **dev Gate → holdout 之间被测系统代码零变更**：基准 dev Gate 报告落盘于 `f240e85`；第 2 节 `git diff f240e85..HEAD -- <被测系统>` 为空，T21.1/T21.2 只改 README 与报告、未触被测链路。冻结成立，holdout 结果可采信。
