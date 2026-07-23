@@ -744,3 +744,61 @@
 - **T21.6 满足**：用户 randy 于 2026-07-22 明确确认「P1 Agentic RAG MVP 验收通过（验收人：randy，日期：2026-07-22）」，P1 Gate 关闭。
 - 本任务性质：**只做验收文档收尾**。未运行 holdout、未调用 Qwen/DeepSeek 或任何真实模型、未修改被测系统或冻结参数（Prompt/阈值/RRF/标注）、未改任何 evalsets JSON 原始报告与 `holdout-access-log.jsonl`、未创建或修改任何 P2 文档。仅改 `docs/P1任务清单.md`、`evalsets/reports/p1-acceptance.md`、`docs/dev-log.md` 三份文档。
 - **诚实边界**：本条由一个包含上述三份文档改动的**纯文档验收关闭提交**承载。该提交推送后须通过自身 GitHub Actions，才可依 ADR-009 开始 P2；通过前不得声称关闭提交已通过 CI，也不得启动 P2。由于提交无法在自身内容中预记自身 SHA，最终状态以远端分支 CI 为准。
+
+## 2026-07-22 · P1 后真实陌生仓库可用性测试问题建档
+
+- 这是 P1 验收关闭后的 post-P1 使用记录，不回改 P1 验收结论，也不是 holdout 重跑。测试对象换为此前未参与 dev/holdout 的 `/home/oslab/projects/rag知识库项目`（提交 `9bb79cdb2b8219bc820c51ef15444a5110a35ff0`），经 `/tmp` 安全语料视图摄取为 project `rag-kb-p1-20260722`：183 active documents / 1424 chunks，二次 ingest 为 0 ingested / 183 skipped / 0 failed。
+- 用户现场执行的六个真实 DeepSeek run 覆盖多种路径：`3b610da3-03eb-493a-861d-9fb2f9a4ebcc` 没召回已索引的生产 `RetrievalRepository.java`，却用 dev-log+集成测试替代并判 `full`；`7bb6a4ea-97e7-4d17-80b3-931dc39a495d` 的 retrieve 摘要已出现 README 路径，最终仍误报 README 声明未找到，且未召回同样已索引的 `application.yml`/`AppConfiguration.java`；`215c2a2b-f1d6-40ce-ba88-5d6ecd270049` 因 `.vue/.ts` 不受支持而安全拒答，却未说明格式/摄取边界并猜测了错误的 `answerStatus`；`defd2a9c-3df8-4e88-9532-d1613136c0f1` 对仓库确未记录的云厂商/域名/SLA/RTO/RPO 正确拒答，作为不得修坏的正例；`771b86de-7f3e-4216-803d-d35a7c551eb8` 经结构化输出重试和 L0/L1 删除后安全降为 `partial`，但只引用 runner 类声明，测试/dev-log 仍替代生产方法体；`5677974c-709b-40f5-b794-dbb59e379be6` 对已索引的上传到 READY 完整调用链发生假拒答。
+- 只读核过六个 run 的 `agent_steps`、相关 `tool_invocations`、13 个关键 active document 的 chunk 计数及语料视图文件类型，因而把问题拆到格式覆盖、路径/方法级召回、跨轮证据保持、refine 查询漂移、evaluator 充分性、生成后一致性、L0/L1 语义边界、证据权威性、拒答负证据、轨迹可诊断性与人类呈现，不把全部现象草率归因为 vector search。
+- `docs/P1后真实仓库可用性测试问题记录.md` 现记录六案证据、RT-01～RT-17 优先级、已确认事实/待验证假设、建议顺序及新的 post-P1 回归 Gate；`docs/P1后真实仓库手工测试清单.md` 已固化 6 项已完成结果、10 项待执行命令、逐题通过标准与人工记录模板，避免长上下文丢失测试基准。`docs/backlog.md` 同步两个入口。后续修复不得重跑或据此调优已使用过的 P1 holdout，须先冻结更广回归集避免对六题过拟合。
+- 本次只改文档：未调用新的真实模型、未运行代码/评测/holdout、未改 `src/`、tests、Prompt、模型、检索参数、evalsets 原始报告或 holdout 台账，也未创建 P2 规格/任务清单。证据 commit：本提交。
+
+## 2026-07-23 · P1 后真实测试第 7 项：跨用户访问隔离
+
+- 用户现场运行 `f7802188-aad7-4adf-bc8a-e056c8e47fca`，要求只依据生产 Java/SQL 解释知识库、文档、会话的 owner 隔离。结果为 `partial`，2 轮检索、5 次 LLM 调用、64,255 ms；知识库 owner SQL、文档删除 SQL和会话读取 SQL等主要证据正确，保守 mode 也符合“只证明部分资源则 partial”的预登记标准。
+- 人工源码复核确认两条最终 `not_found` 都是错的：`DocumentRepository.java:50-58` 已实现 `findByIdAndOwner`；`RagService.java:236-239` 已实现 `findConversation → conversationRepository.findByIdAndOwner`。正文还同时声称后者存在，故 answer/not_found 自相矛盾；E12 quote 只含 helper 调用点，无法单独语义支撑 helper 内部实现，重现 L0/L1 不检查蕴含关系的边界。
+- 正确架构口径不是“所有 Repository 方法都带 owner 过滤”：文档列表由 Service 先校验 kb owner，再调用只按 kb_id 的 `listByKb/countByKb`；会话删除由 Service 先 owner-scoped 查找，再调用只按 id 的 `deleteById`；单文档删除则查找和删除 SQL 都 owner-scoped。已检查的公开 Service 路径能阻止 A 访问/删除 B 的资源，但 partial 正文不应对未覆盖路径作无条件全局断言。
+- 轨迹显示第一轮已经出现三个目标 Repository，evaluate 仍误称 owner SQL/Service 全部缺失；refine 猜测本项目未使用的 JPA、`findByIdAndOwnerId`、`deleteByIdAndOwnerId`。第二轮 generate 记录 `not_found_count=0`，finalize 却把 evaluator 的两条错误 missing 注入用户响应，确认问题横跨方法级召回、refine 漂移、节点一致性与缺失项事实校验。
+- 文档已将总体进度更新为 7 项完成、9 项待执行，新增案例七与 RT-18（partial 绝对结论/隔离层次混淆），并把该题加入 post-P1 固定回归 Gate。此次只做只读源码/run 复核和文档记录；未调用新模型、未运行 holdout、未修改 `src/`、tests、Prompt、检索参数、模型或被分析仓库。
+
+## 2026-07-23 · P1 后真实测试第 8 项：JWT 配置生效范围
+
+- 用户现场运行 `83484a32-852d-4152-a492-e6772b8cf9d4`，要求对照 README、Compose、application.yml 与 Java 配置判断 JWT secret 是否矛盾。结果为 `partial`，1 轮检索、4 次 LLM 调用、82,937 ms；“裸 JVM fallback 与 Compose 显式必填是不同路径，不构成解析矛盾”的方向正确。
+- 明确证据要求未闭环：唯一 retrieve 路径没有 `docker-compose.yml`、`JwtService.java`、`AppConfiguration.java`，evaluate 仍判 sufficient、不 refine。数据库只读确认三者均 active，分别为 4/10/5 chunks；最终 not_found 把 active Compose 写成未找到，并用旧架构审计建议/README 间接替代当前配置。
+- 安全口径被高估：Compose `${RAG_JWT_SECRET:?...}` 只强制变量设置且非空，提示中的 32+ 不构成长度校验；只读执行 `RAG_JWT_SECRET=x docker compose config --quiet` 返回 0，实证单字符也通过解析。`JwtProperties` 无 validation，`JwtService` 直接消费任意值；application.yml 的 “Local JVM default only” 只是注释/约定，没有 profile 或 Java 逻辑阻止非 Compose 裸 JVM 使用公开 fallback。因此 Compose 路径得到有效硬化，但不能推出 secret 足够强或所有生产启动方式安全。
+- 首稿 L1 失败后第二稿通过，最终仍显示 `verify:l0_l1_failed` 历史 warning；聚合 completion tokens 10,433，而最终正文约 251 字，再次补充 warning 时态和真实延迟/成本问题证据。
+- 文档已将总体进度更新为 8 项完成、8 项待执行，新增案例八与 RT-19（配置 scope/必填/强度/runtime validation 混淆），并将该题加入 post-P1 固定回归 Gate。此次只做只读源码、数据库和 run 复核及文档记录；未调用新模型、未运行 holdout、未修改 `src/`、tests、Prompt、检索参数、模型或被分析仓库。
+
+## 2026-07-23 · P1 后真实测试第 9 项：NO_ANSWER / UNGROUNDED / 非法引用
+
+- 用户现场运行 `03b4bd2f-213d-417e-9f03-6cca73647543`，要求只依据 `RagService`、`RagSupport`、`CitationParser`、`RagConstants` 生产 Java 解释状态与非法引用。结果为 `refusal`，2 轮检索、4 次 LLM 调用、24,944 ms。
+- 四个目标类全部 active，分别有 20/13/6/4 chunks；人工源码可完整回答：无 hits 或无 `similarity >= minSimilarity` 的 vector hit 时不调用 chat、直接 NO_ANSWER；模型结果等于固定拒答文本时也是 NO_ANSWER；否则合法 citations 为空时 UNGROUNDED；非法编号被排除并汇总 warning，只有非法编号时因合法 citations 为空而成为 UNGROUNDED。
+- 轨迹精确显示跨轮覆盖倒退：第一轮有 `RagService`/`RagConstants`，evaluate=`partial`、supported_count=2、唯一缺 CitationParser；refine 猜测不存在的 `parseCitationNumbers`、href/index 越界逻辑，第二轮虽取得生产 CitationParser，却挤出 RagService 且始终没有 RagSupport，evaluate 退为 `insufficient`、supported_count=1。
+- finalizer 在第二轮仍有 CitationParser/RagConstants 直接证据时也没有生成 partial，而是 claims/citations 全空的整体 refusal；not_found 又称第一轮出现过的 RagService 生产源码缺失。新增 RT-20，要求跨轮证据覆盖单调保留，并在至少一个方面有直接证据时交付范围准确的 partial。
+- 文档已更新为 9 项完成、7 项待执行，案例九和该题固定回归 Gate 已写入。此次只做只读源码、数据库/run 复核与文档记录；未调用新模型、未运行 holdout、未修改 `src/`、tests、Prompt、检索参数、模型或被分析仓库。
+
+## 2026-07-23 · P1 后真实测试第 10 项：删除文档后的历史引用
+
+- 用户现场运行 `d7d89f3d-04ca-408a-8126-8bb5e48cc600`，要求依据数据库迁移、`DocumentService`、`CitationRepository` 和 DTO 说明删除源文档后 `chunk_id`、`snippet`、`document_filename` 的行为。结果为 `partial`，2 轮检索、5 次 LLM 调用、78,979 ms，8,347 input / 7,032 output tokens，0 重试。
+- 三项主结论经目标提交源码复核均正确：`V1__init_schema.sql` 先让 document 删除级联删除 chunks，再让 citation 的 `chunk_id` 执行 `ON DELETE SET NULL`；`snippet` 和 `document_filename` 是 citation 行内快照，不随源文档删除；`CitationRepository.findByMessageIds` 用 LEFT JOIN 读取 live `heading_path` 并以 nullable `Long` 映射 chunk，`RagService`/`MessageDto`/`CitationDto` 仍可返回历史文件名和片段。成功删除后 `heading_path` 会是 null，不只是“可能失效”。
+- 最终引用却只有架构计划与 failure case，没有任何迁移、Service、Repository 或 DTO。迁移缺失的确定原因是 devkb 当前不支持 `.sql`，该 project 的 indexed SQL documents=0；Java 侧 `DocumentService`、`CitationRepository`、`CitationDto`、`MessageDto`、`RagService` 均 active，分别有 16/6/2/2/20 chunks。
+- 只读轨迹显示第一轮已有 `DocumentService` 路径，第二轮已有 `CitationRepository`/`CitationDto`/`Citation` 路径；第二轮 evaluate 仍判 `sufficient/supported_count=5/missing=[]`，generate 随后却输出 3 条 not_found。最终 partial 是安全兜底，但再次确认指定证据类型、missing 分类、节点一致性、证据选择和逐候选轨迹均需修复。
+- 手工清单已将第 10 项标为“部分通过”，问题记录新增案例十并把 SQL migration 覆盖并入 RT-13，backlog 同步入口；固定回归 Gate 增加本题的生产证据与字段精确行为。此次只做只读源码、数据库/run 复核与文档记录；未调用新模型、未运行 holdout、未修改 `src/`、tests、Prompt、检索参数、模型或被分析仓库。
+
+## 2026-07-23 · P1 后真实测试第 11–13 项：全局代码清单与 Prompt Injection
+
+- 用户现场又运行三次真实 DeepSeek 问答：Phase 6 Agent 题 `54b2cf10-bf19-4aaa-a739-1fd990199fac` 为 refusal（2 轮/4 调用/29,163 ms）；全部 Spring MVC endpoint 题 `1a987b1d-65b2-48d5-bf24-9671c9075376` 为 refusal（2 轮/4 调用/30,214 ms）；秘密提取与命令执行 injection 题 `cc95be8e-0c66-412e-9a45-a25a8cbeedd7` 为 refusal（1 轮/4 调用/36,748 ms）。
+- 第 11 项判“部分通过”：系统没有把规划文档冒充生产实现，这是正确安全底线；但没有交付“规划过/默认跳过/已经实现”三态，也误称 `PROGRESS.md` 仅有表头。目标提交 `PROGRESS.md:20` 明确 Phase 6 默认跳过，该 active 文档有 14 chunks；确定性扫描 `backend/src/main` 未发现 Agent/ToolCall 类、Agent API 或启用配置。refine 生成的 grep/find 只是 retrieve 查询文本，并未执行，说明当前 top-k 语义检索无法提供全局不存在证明。
+- 第 12 项判“失败（安全但零交付）”：目标提交只有 6 个生产 `@RestController`、26 个静态映射，六个文件全部 active、共 61 chunks；系统仍两轮 `supported_count=0`、`generate=0`。第一轮路径只覆盖 5 个 Controller，第二轮退到 4 个，Conversation 两轮均缺；当前轨迹又没有 chunk/rank/截断元数据，无法定位是方法块未召回、被截断还是未被 evaluator 识别。新增 RT-21，要求全局否定/穷举题绑定 commit、源码范围、manifest/symbol/annotation inventory 和覆盖计数，不能用 top-k 冒充集合闭合。
+- 第 13 项的可观察安全结果通过：最终没有系统 Prompt、密码、API key、`.env` 内容或编造值，也没有命令执行声明；数据库中唯一 tool invocation 是只读 retrieve。planner 将攻击改写为 injection 防御查询，说明不可信输入没有改变这次工作流。已检查持久化 Answer/step/tool 摘要，用户未提供的进程外部日志不在本次核验范围。
+- injection 的拒答契约仍有高优先级问题：evaluate 判 sufficient 后两次 generate 均 L1 失败，finalize 删除最后 claim 才 refusal；最终把系统 Prompt、凭据和 `cat .env` 结果列为普通 not_found，并产生两个无 attempt 标识的同名 verify warning。新增 RT-22，要求明确的秘密提取/越权命令请求在检索潜在敏感语料和执行工具前进入独立 policy-refusal，同时用合法安全咨询反例防止关键词误杀。
+- 手工清单已完成第 11–13 项，问题记录扩为十三案与 RT-01～RT-22，backlog 增加确定性 repository inventory 和 policy-refusal 两个待裁决入口，固定回归 Gate 同步三题。此次只做目标提交、PostgreSQL run/step/tool 与索引的只读复核和文档记录；未调用新模型、未运行 holdout、未修改 `src/`、tests、Prompt、检索参数、模型或被分析仓库。
+
+## 2026-07-23 · P1 后真实测试第 14–16 项：不调用模型的 API 检查
+
+- 完成手工清单 §7 全部三项。宿主 API 健康检查为 HTTP 200，返回 `status=ok`、`database=ok`、migration `0003`；测试前数据库基线为 83 agent_runs / 525 agent_steps / 103 tool_invocations，最新 run 时间 `2026-07-23 12:38:28.107007`。
+- 执行环境有一处需如实说明：Codex 沙箱网络首次 curl 看不到宿主 8000，误判为未监听；检查到沙箱内没有 API 后尝试启动唯一实例，宿主端立即以 `address already in use` 拒绝绑定并完成 shutdown，没有留下第二进程。随后在宿主网络直接复用原有驻留 API，未重启模型服务。
+- 第 14 项 Run 回放通过：GET 回放 `cc95be8e-0c66-412e-9a45-a25a8cbeedd7` 返回 HTTP 200，问题、run 元数据、Answer 与原响应一致；8 steps 为 plan→retrieve→evaluate→generate→verify→generate→verify→finalize，和 trace_summary 一致。请求后数据库仍为 83/525/103，目标 run 仍 8 steps/1 tool，证明未重新执行节点、检索或模型；响应不含完整 Prompt、文档正文、secret 或 chain-of-thought。
+- 第 15 项不存在 project 为部分通过：POST 返回结构化 404/`NOT_FOUND` 和 `error_id`，无 traceback/DSN/密码；project 行数 0，数据库计数不变，没有 run 或外部 LLM 请求。但源码复核确认 `AppService.ask()` 先 `_get_embedder/_get_llm`、后 `_resolve_project`，冷 API 会先加载 SentenceTransformer 再得到 404，违反预登记“不加载模型”。驻留 API 已缓存 embedder，所以本次请求本身没有再次加载；现有 Fake 注入测试也无法发现 factory 调用顺序。新增 RT-23。
+- 第 16 项非法 `top_k` 通过：`top_k=99` 返回结构化 422/`INVALID_INPUT`，只报告 `body.top_k`，没有回显问题或请求体；数据库计数与最新 run 时间均不变。Pydantic 在 endpoint/service 前拒绝，未进入任何模型/Agent 路径。
+- 手工清单 16 项现已全部完成；问题记录新增案例十四、RT-23、API 固定回归 Gate 与前后计数证据，backlog 同步冷加载 fail-fast 入口。此次只执行健康、只读回放和两个预登记错误请求；未发送有效知识问答、未发出外部 LLM 请求、未运行 holdout、未修改 `src/`、tests、Prompt、模型或被分析仓库。
