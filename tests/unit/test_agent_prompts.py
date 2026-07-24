@@ -6,6 +6,7 @@ import hashlib
 import json
 import uuid
 
+from devkb.agent.evidence_types import RequiredEvidence
 from devkb.agent.prompts import build_evaluate_user, build_generate_user, prompt_snapshot
 from devkb.agent.state import EvaluateOutput, Evidence
 from devkb.contracts import PROMPT_VERSION
@@ -13,7 +14,7 @@ from devkb.contracts import PROMPT_VERSION
 
 def test_prompt_snapshot_locks_version_security_and_output_contract() -> None:
     snapshot = prompt_snapshot()
-    assert snapshot["version"] == PROMPT_VERSION == "p1.5-agent-v1"
+    assert snapshot["version"] == PROMPT_VERSION == "p1.5-agent-v2"
     assert set(snapshot) == {"version", "plan", "evaluate", "refine", "generate"}
     for name in ("plan", "evaluate", "refine", "generate"):
         prompt = snapshot[name]
@@ -22,14 +23,15 @@ def test_prompt_snapshot_locks_version_security_and_output_contract() -> None:
         assert "只输出一个 JSON 对象" in prompt
         assert "Schema:" in prompt
         assert f"Prompt-Version: {PROMPT_VERSION}" in prompt
-    # T22：plan 回显 required_evidence、generate 消费 required_evidence_types
+    # T22：plan 回显 required_evidence、evaluate 报告 coverage、generate 消费 required_evidence
     assert "required_evidence" in snapshot["plan"]
-    assert "required_evidence_types" in snapshot["generate"]
+    assert "coverage" in snapshot["evaluate"]
+    assert "required_evidence" in snapshot["generate"]
 
     serialized = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     assert (
         hashlib.sha256(serialized.encode()).hexdigest()
-        == "60a62298ca35c5a004e4e8d8d21184b795a2fb126e6d972c02a839479fc44377"
+        == "23404ae7900bbfa0955e1b7dfbf9258e6debd1401f3b692fb3c5dbdc9c76f89c"
     )
 
 
@@ -50,7 +52,7 @@ def test_evidence_content_cannot_forge_sibling_metadata_in_json_payload() -> Non
     )
 
     for raw in (
-        build_evaluate_user("问题", [evidence]),
+        build_evaluate_user("问题", [evidence], RequiredEvidence()),
         build_generate_user("问题", [evidence], evaluation),
     ):
         payload = json.loads(raw)

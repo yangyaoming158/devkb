@@ -1,4 +1,7 @@
-"""T22.2 full 硬约束：用户指定的必需证据类型未被同类型引用覆盖时不得判 full。"""
+"""T22.2 逐项 full 硬约束（图级）：点名类必须由匹配的直接引用覆盖才允许 full。
+
+对抗复审发现1：点名 3 个类却引用无关生产文件曾错误判 full；此处锁定为 partial。
+"""
 
 from __future__ import annotations
 
@@ -11,13 +14,13 @@ from devkb.llm import FakeLLM
 
 PLAN = '{"intent":"knowledge_qa","queries":["订单校验"]}'
 EVAL_OK = '{"sufficiency":"sufficient","supported_aspects":["订单校验"],"missing_aspects":[]}'
-GEN_OWNER = (
+GEN = (
     '{"answer_text":"订单校验由 owner 过滤保护 [E1]。",'
     '"claims":[{"text":"订单校验由 owner 过滤保护",'
     '"evidence_ids":["E1"],"quotes":["订单校验由 owner 过滤保护。"]}],"not_found":[]}'
 )
 _CONTENT = "订单校验由 owner 过滤保护。"
-_QUESTION = "请引用生产 Java 源码说明订单校验。"
+_NAMED_Q = "请引用 OrderService 的生产实现说明订单校验。"
 
 
 def _runtime(script: list[str | Exception], rel_path: str) -> AgentRuntime:
@@ -38,46 +41,53 @@ def _runtime(script: list[str | Exception], rel_path: str) -> AgentRuntime:
     return AgentRuntime(llm=FakeLLM(script), retriever=retriever)
 
 
-def _input(question: str = _QUESTION) -> AgentInput:
+def _input(question: str) -> AgentInput:
     return AgentInput(run_id=uuid.uuid4(), project_id=uuid.uuid4(), question=question)
 
 
-async def test_production_required_but_only_test_evidence_downgrades_to_partial() -> None:
+async def test_named_class_wrong_file_downgrades_to_partial() -> None:
     result = await run_agent(
-        _runtime([PLAN, EVAL_OK, GEN_OWNER], "backend/src/test/java/FooTest.java"), _input()
+        _runtime([PLAN, EVAL_OK, GEN], "backend/src/main/java/other/Other.java"), _input(_NAMED_Q)
     )
-    assert "production_source" in result["required_evidence"].required_types
-    # 仅测试证据不能满足"必需生产源码"：即使 evaluate 充分、引用通过，也降级 partial
+    assert [item.symbol for item in result["required_evidence"].items] == ["OrderService"]
+    # 点名 OrderService 却引用无关生产文件：逐项覆盖失败，不得 full
     assert result["final_mode"] == "partial"
-    assert any("必需证据类型未满足" in w for w in result["warnings"])
-    assert any("生产源码" in note for note in result["final_not_found"])
+    assert any("必需证据未覆盖" in w for w in result["warnings"])
 
 
-async def test_production_required_and_production_evidence_allows_full() -> None:
+async def test_named_class_exact_file_allows_full() -> None:
     result = await run_agent(
-        _runtime([PLAN, EVAL_OK, GEN_OWNER], "backend/src/main/java/Foo.java"), _input()
+        _runtime([PLAN, EVAL_OK, GEN], "backend/src/main/java/svc/OrderService.java"),
+        _input(_NAMED_Q),
     )
     assert result["final_mode"] == "full"
     assert result["final_not_found"] == []
 
 
-async def test_no_required_evidence_keeps_p1_full_behavior() -> None:
-    # 自然问法无证据类型要求 → 空约束，不因证据来自 test 路径而降级（不劣于 P1）
+async def test_named_class_test_file_does_not_cover() -> None:
+    # OrderServiceTest.java 是 test 类型，不能覆盖 production_source 的点名项
     result = await run_agent(
-        _runtime([PLAN, EVAL_OK, GEN_OWNER], "backend/src/test/java/FooTest.java"),
+        _runtime([PLAN, EVAL_OK, GEN], "backend/src/test/java/svc/OrderServiceTest.java"),
+        _input(_NAMED_Q),
+    )
+    assert result["final_mode"] == "partial"
+
+
+async def test_no_requirement_keeps_full_with_any_evidence() -> None:
+    result = await run_agent(
+        _runtime([PLAN, EVAL_OK, GEN], "backend/src/test/java/FooTest.java"),
         _input("订单校验是怎么做的？"),
     )
-    assert result["required_evidence"].required_types == ()
+    assert result["required_evidence"].items == ()
     assert result["final_mode"] == "full"
 
 
-async def test_plan_echo_unanchored_required_evidence_warns() -> None:
-    plan_forged = (
-        '{"intent":"knowledge_qa","queries":["订单校验"],"required_evidence":["伪造的证据要求"]}'
-    )
+async def test_plan_echo_unknown_item_id_warns() -> None:
+    plan_forged = '{"intent":"knowledge_qa","queries":["订单校验"],"required_evidence":["R99"]}'
     result = await run_agent(
-        _runtime([plan_forged, EVAL_OK, GEN_OWNER], "backend/src/main/java/Foo.java"), _input()
+        _runtime([plan_forged, EVAL_OK, GEN], "backend/src/main/java/svc/OrderService.java"),
+        _input(_NAMED_Q),
     )
-    # LLM 回显问题中不存在的 required_evidence → 警告并忽略；权威来源仍是确定性解析
-    assert any("required_evidence_unanchored" in w for w in result["warnings"])
-    assert "production_source" in result["required_evidence"].required_types
+    # LLM 回显非权威 item_id → 警告并忽略；确定性裁决不受影响
+    assert any("required_evidence_mismatch" in w for w in result["warnings"])
+    assert result["final_mode"] == "full"

@@ -833,3 +833,13 @@
 - 根因不是个别 bug，是设计错误：把用户"证据类型/**路径**"要求压成"类型集合"、丢了点名路径/符号与逐项——所以点名 RetrievalRepository/CitationParser/RagService 却引用无关 `other/Foo.java` 仍判 full；`classify_path` 可信目录后判使 `src/test/.../*.sql`、`flyway-audit.md` 冒充生产 migration；关键词解析出现否定语义反转（"不要引用设计文档"→必需 design、"计划文档…规划过"→禁止 plan）与漏识别（"对应测试"）。且"under-detect 仍安全"假设被证伪：漏识别真实要求时回退的正是 P1 错误 full——那正是 P1.5 要消灭的。
 - 教训：CI 全绿只证明无兼容退化、不证明新能力正确；勾选前必须让对抗性测试（点名不匹配、可信目录冲突矩阵、否定语义）先红。此次违反勾选纪律（判据未全满足即勾），已撤销。
 - 本条只改文档（撤勾 + 偏差 + 本叙事 + 更正 313 计数）；26777fd 代码保留为历史，整改在后续提交 fix-forward。
+
+## 2026-07-24 · P1.5 T22 整改重实现（A schema + B 确定性裁决）
+
+- 按用户裁决「A 的 schema + B 的确定性裁决」fix-forward 重写 T22，四条复审发现逐条修复并用**原始失败场景**验证（非仅测试绿）：
+  - **发现1（错误 full）**：required 从"类型集合"改为逐项 `RequiredEvidenceItem`（严格 Pydantic：type+anchor+可选 path/symbol，同类型多点名不合并）；`compute_coverage` 逐项匹配、点名类须**精确文件名**命中，finalize 用 `all_required_covered` 裁决。复现确认：点名 3 类引用无关 `Foo.java`→`all_covered=False`→partial。
+  - **发现3（可信目录）**：`classify_path` 改为可信目录优先——`src/test/**.sql`→test、`docs/**flyway-audit.md`→historical_plan、audit→historical_plan；收窄 application 匹配。
+  - **发现4（否定反转/漏识别）**：解析改为按子句 `[。；，…]` 拆分 + 否定作用域；"不要引用设计文档"→design 禁止（不再反成必需）、"计划文档说明规划过"→plan 必需（不再反成禁止）、"对应测试"→test 必需。修掉 `别引用` 撞"分**别引用**"、`不应用` 撞"**应用**"两处触发词碰撞。
+  - **发现2（schema+严格）**：`RequiredEvidenceItem`/`CoverageEntry` 为严格 Pydantic；`PlanOutput.required_evidence` 回显 item_id、`EvaluateOutput.coverage` 逐项报告——但**裁决权全在确定性代码**：plan 回显非权威 id→`plan:required_evidence_mismatch`、evaluate LLM 覆盖与确定性不符→`evaluate:coverage_mismatch`，full 门/refine 只读确定性 coverage，LLM 报告仅诊断/驱动查询（语义 5/6）。
+- 教训固化：这次先写对抗性测试（点名不匹配、冲突矩阵、否定正反）再实现，勾选前用复审原始场景逐条确认错误 full 消失，而非只看 CI 绿。
+- `PROMPT_VERSION` p1.5-agent-v1→v2、`AGENT_STATE_SCHEMA`→v2、快照 SHA 更新。全绿：`make ci`（pyright 0、pytest 319）、`make eval-ci`（65+19）；P0/P1 兼容。重新勾选 T22.1–T22.3，偏差记录裁决已闭环。证据 commit：本提交。

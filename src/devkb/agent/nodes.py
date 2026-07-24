@@ -14,7 +14,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from devkb.agent import prompts
-from devkb.agent.evidence_types import TYPE_LABELS, unmet_required_types
+from devkb.agent.evidence_types import (
+    TYPE_LABELS,
+    all_required_covered,
+    compute_coverage,
+    uncovered_items,
+)
 from devkb.agent.state import (
     MAX_GENERATE_CALLS,
     MAX_LLM_REQUESTS,
@@ -277,16 +282,17 @@ class AgentNodes:
             llm=self._runtime.llm,
             call_key="plan",
             system=prompts.PLAN_SYSTEM,
-            user=prompts.build_plan_user(state["question"]),
+            user=prompts.build_plan_user(state["question"], state["required_evidence"]),
             schema=PlanOutput,
             default=default,
             recorder=self._recorder,
         )
-        # plan 只回显确认 required_evidence：未锚定问题原文的一律警告并忽略，
+        # plan 只回显确认 required_evidence 的 item_id：出现非权威 id 即警告并忽略。
         # 权威来源是 state["required_evidence"]（确定性解析），LLM 不得新增/伪造。
         warnings = list(call.warnings)
-        if any(item not in state["question"] for item in call.value.required_evidence):
-            warnings.append("plan:required_evidence_unanchored")
+        authoritative_ids = state["required_evidence"].item_ids
+        if any(item_id not in authoritative_ids for item_id in call.value.required_evidence):
+            warnings.append("plan:required_evidence_mismatch")
         return {
             **call.updates,
             "plan": call.value,
@@ -358,16 +364,29 @@ class AgentNodes:
             llm=self._runtime.llm,
             call_key=f"evaluate:{state['retrieval_round']}",
             system=prompts.EVALUATE_SYSTEM,
-            user=prompts.build_evaluate_user(state["question"], state["evidences"]),
+            user=prompts.build_evaluate_user(
+                state["question"], state["evidences"], state["required_evidence"]
+            ),
             schema=EvaluateOutput,
             default=default,
             recorder=self._recorder,
         )
+        # 确定性覆盖矩阵（按当前证据可用性）：权威，驱动 refine；LLM 覆盖报告只作诊断
+        cited = [(ev.evidence_id, ev.rel_path) for ev in state["evidences"]]
+        coverage = compute_coverage(state["required_evidence"], cited)
+        deterministic = {entry.item_id: entry.covered for entry in coverage}
+        warnings = list(call.warnings)
+        if any(
+            report.item_id not in deterministic or report.covered != deterministic[report.item_id]
+            for report in call.value.coverage
+        ):
+            warnings.append("evaluate:coverage_mismatch")
         return {
             **call.updates,
             "evaluation": call.value,
+            "coverage": coverage,
             "node_history": ["evaluate"],
-            "warnings": call.warnings,
+            "warnings": warnings,
         }
 
     async def refine(self, state: AgentState) -> dict[str, Any]:
@@ -380,7 +399,15 @@ class AgentNodes:
             llm=self._runtime.llm,
             call_key="refine",
             system=prompts.REFINE_SYSTEM,
-            user=prompts.build_refine_user(state["question"], state["queries"], evaluation),
+            user=prompts.build_refine_user(
+                state["question"],
+                state["queries"],
+                evaluation,
+                uncovered_hints=[
+                    item.symbol or item.path or item.anchor
+                    for item in uncovered_items(state["required_evidence"], state["coverage"])
+                ],
+            ),
             schema=RefineOutput,
             default=default,
             recorder=self._recorder,
@@ -415,7 +442,11 @@ class AgentNodes:
                 state["evidences"],
                 evaluation,
                 verification_errors=state["verification_feedback"] or None,
-                required_types=list(state["required_evidence"].required_types) or None,
+                required_hints=[
+                    f"{TYPE_LABELS[item.type]}:{item.symbol or item.path or item.anchor}"
+                    for item in state["required_evidence"].items
+                ]
+                or None,
             ),
             schema=GenerateOutput,
             default=default,
@@ -503,36 +534,42 @@ class AgentNodes:
         else:
             answer, _, l0_warnings = apply_l0(draft.answer_text, len(state["evidences"]))
             warnings.extend(l0_warnings)
-            # T22.2 full 硬约束：用户明确要求的每类证据都须有同类型直接引用；
-            # 测试/设计/历史材料因类型不同天然无法覆盖必需生产证据。
+            # T22.2 full 硬约束：逐项确定性覆盖——每条必需证据（含点名类/路径）都须有
+            # 匹配的直接引用；测试/设计/历史材料因类型不同无法替代必需生产证据。
             evidence_by_id = {ev.evidence_id: ev for ev in state["evidences"]}
-            cited_paths = [
-                evidence_by_id[evidence_id].rel_path
+            cited = [
+                (evidence_id, evidence_by_id[evidence_id].rel_path)
                 for claim in kept
                 for evidence_id in claim.evidence_ids
                 if evidence_id in evidence_by_id
             ]
-            unmet = unmet_required_types(state["required_evidence"], cited_paths)
+            final_coverage = compute_coverage(state["required_evidence"], cited)
+            uncovered = uncovered_items(state["required_evidence"], final_coverage)
             if (
                 evaluation is not None
                 and evaluation.sufficiency == "sufficient"
                 and kept
                 and not draft.not_found
                 and verification_ok
-                and not unmet
+                and all_required_covered(final_coverage)
             ):
                 mode = "full"
             else:
                 mode = "partial"
                 if evaluation is not None and evaluation.sufficiency == "sufficient" and not kept:
                     warnings.append("finalize: 充分判定但无结构化 claim，降级 partial")
-                if unmet:
-                    labels = "、".join(TYPE_LABELS.get(t, t) for t in unmet)
-                    note = f"未取得用户要求的必需证据类型（{labels}）；测试/设计/历史材料不能替代"
+                if uncovered:
+                    labels = "、".join(
+                        f"{TYPE_LABELS[item.type]}:{item.symbol or item.path or item.anchor}"
+                        for item in uncovered
+                    )
+                    note = f"未取得用户要求的必需证据（{labels}）；测试/设计/历史材料不能替代"
                     if note not in not_found:
                         not_found = [*not_found, note]
                     warnings.append(
-                        "finalize: 必需证据类型未满足，降级 partial（" + ",".join(unmet) + "）"
+                        "finalize: 必需证据未覆盖，降级 partial（"
+                        + ",".join(item.item_id for item in uncovered)
+                        + "）"
                     )
         if mode == "refusal":
             answer = _refusal_text(not_found)

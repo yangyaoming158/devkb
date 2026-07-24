@@ -1,26 +1,27 @@
-"""P1.5 T22：证据类型分层与用户指定必需证据的确定性解析（RT-01/05）。
+"""P1.5 T22：证据类型分层、逐项 required-evidence 解析与确定性 coverage（RT-01/05）。
 
-三件事，全部零 LLM、可单测、仓库无关：
+裁决语义（用户 2026-07-24 冻结）：A 的 schema + B 的确定性裁决。
 
-- ``classify_path``：rel_path → 证据类型启发式（生产源码/配置/迁移/设计/当前文档/
-  测试/历史计划/dev-log/前端/其他）。用于权威性分层与 full 硬约束。
-- ``parse_required_evidence``：从用户问题**确定性**提取被明确要求的证据类型、
-  "不要用 X 代替 Y"式的禁止替代类型，以及点名的符号。这是权威来源；plan 的 LLM
-  回显只作确认，不得新增/伪造（见 ``nodes.AgentNodes.plan``）。
-- ``unmet_required_types``：full 硬约束——每个必需类型都须有同类型直接引用；
-  测试/设计/历史计划/dev-log 不能替代必需的生产证据（它们是不同类型）。
+- ``classify_path``：rel_path → 证据类型。**可信目录优先**（test/design/plans/
+  review·audit/dev-log 先判），再在生产目录内识别 source/config/migration；
+  避免 ``src/test/**.sql``、``docs/**flyway*.md`` 冒充生产 migration。
+- ``parse_required_evidence``：按**子句 + 否定作用域**确定性解析出权威
+  ``RequiredEvidenceItem[]``（type + 原文 anchor + 可选 path/symbol，同类型多个点名
+  各自成项、不合并）与禁止替代类型。这是唯一权威来源。
+- ``compute_coverage``：确定性 matcher，按真实引用逐项算覆盖矩阵。full 门、refine
+  缺口、finalize 只读这里的结果；LLM 的覆盖报告只作诊断（见 nodes）。
 
-设计取向：解析对显式、通用的证据类型词汇生效，对自然问法优雅降级为空约束
-（宁可回退到 P1 行为，不过度约束）。over-detect 使 full 更保守（诚实方向），
-under-detect 不劣于 P1，两侧都安全。不为回归集单句写关键词特判。
+全部零 LLM、仓库无关、可单测。
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass
+from itertools import count
 from typing import Literal
+
+from pydantic import BaseModel, ConfigDict
 
 EvidenceType = Literal[
     "production_source",
@@ -35,8 +36,7 @@ EvidenceType = Literal[
     "other",
 ]
 
-# 生产证据类型：这些才能满足"必需生产证据"；其余（测试/设计/历史计划/dev-log）
-# 只能作补充，不能替代（权威性分层，RT-05）。
+# 可满足"必需生产证据"的类型；测试/设计/历史计划/dev-log 不在其中（权威性分层）。
 PRODUCTION_TYPES: frozenset[EvidenceType] = frozenset(
     {"production_source", "production_config", "migration"}
 )
@@ -54,214 +54,316 @@ TYPE_LABELS: dict[EvidenceType, str] = {
     "other": "其他",
 }
 
-_MIGRATION_VERSION = re.compile(r"/v\d+__", re.IGNORECASE)
-_SYMBOL = re.compile(r"[A-Z][A-Za-z0-9]{2,}")
+_SOURCE_EXTS = (
+    ".java",
+    ".py",
+    ".go",
+    ".kt",
+    ".kts",
+    ".rb",
+    ".js",
+    ".rs",
+    ".cs",
+    ".cpp",
+    ".c",
+    ".h",
+    ".php",
+    ".scala",
+)
+_CONFIG_EXTS = (".yml", ".yaml", ".properties", ".toml")
+_FRONTEND_EXTS = (".vue", ".ts", ".tsx", ".jsx")
 
 
 def classify_path(rel_path: str) -> EvidenceType:
-    """rel_path → 证据类型。顺序敏感：test 先于 production_source。"""
+    """rel_path → 证据类型。可信目录优先，再在生产目录内识别。"""
     lower = rel_path.lower()
-    base = lower.rsplit("/", 1)[-1]
+    segs = lower.strip("/").split("/")
+    base = segs[-1] if segs else lower
 
+    # 1) 可信（非生产）目录/命名优先——先于 .sql/config 关键词
     if (
-        lower.endswith(".sql")
-        or "/migration/" in lower
-        or "flyway" in lower
-        or _MIGRATION_VERSION.search(lower)
-    ):
-        return "migration"
-    if (
-        "/test/" in lower
-        or "/tests/" in lower
-        or base.endswith("test.java")
-        or base.endswith("tests.java")
+        "test" in segs
+        or "tests" in segs
+        or base.endswith(("test.java", "tests.java"))
         or base.startswith("test_")
         or ".test." in base
         or ".spec." in base
         or "_test." in base
     ):
         return "test"
-    if lower.endswith((".vue", ".ts", ".tsx", ".jsx")):
-        return "frontend_source"
-    if (
-        lower.endswith((".yml", ".yaml", ".properties", ".toml"))
-        or "docker-compose" in base
-        or base == ".env"
-        or base.startswith(".env.")
-        or "application" in base
-    ):
-        return "production_config"
     if "dev-log" in lower or "devlog" in lower or base.startswith("changelog"):
         return "dev_log"
-    if "/design/" in lower or (base.startswith("design") and lower.endswith(".md")):
+    if "design" in segs:
         return "design_doc"
     if (
-        "/plans/" in lower
-        or "/plan/" in lower
-        or "phase-" in base
+        "plans" in segs
+        or "plan" in segs
         or base.startswith("roadmap")
+        or "phase-" in base
         or "规划" in rel_path
         or "计划" in rel_path
         or "路线图" in rel_path
     ):
         return "historical_plan"
+    if "review" in segs or "audit" in segs or "audits" in base or base.startswith("audit"):
+        return "historical_plan"
+    if "docs" in segs and lower.endswith(".md"):
+        return "current_doc"
+
+    # 2) 生产目录内识别
+    if lower.endswith(".sql") or "/migration/" in lower or "flyway" in segs:
+        return "migration"
+    if lower.endswith(_FRONTEND_EXTS):
+        return "frontend_source"
+    if (
+        lower.endswith(_CONFIG_EXTS)
+        or "docker-compose" in base
+        or base == ".env"
+        or base.startswith(".env.")
+        or base.startswith("application.")
+    ):
+        return "production_config"
     if base.startswith("readme") or base.startswith("progress"):
         return "current_doc"
-    if (
-        lower.endswith(
-            (
-                ".java",
-                ".py",
-                ".go",
-                ".kt",
-                ".kts",
-                ".rb",
-                ".js",
-                ".rs",
-                ".cs",
-                ".cpp",
-                ".c",
-                ".h",
-                ".php",
-                ".scala",
-            )
-        )
-        or "/src/main/" in lower
-    ):
+    if lower.endswith(_SOURCE_EXTS) or "/src/main/" in lower:
         return "production_source"
     if lower.endswith(".md"):
         return "current_doc"
     return "other"
 
 
-def covered_types(rel_paths: Iterable[str]) -> set[EvidenceType]:
-    return {classify_path(path) for path in rel_paths}
+class RequiredEvidenceItem(BaseModel):
+    """一条权威的必需证据要求（确定性解析产出，不由 LLM 覆盖）。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    item_id: str
+    type: EvidenceType
+    anchor: str
+    path: str | None = None
+    symbol: str | None = None
 
 
-@dataclass(frozen=True)
-class RequiredEvidence:
-    """确定性解析出的用户明确要求（权威来源，不由 LLM 覆盖）。"""
+class RequiredEvidence(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
-    required_types: tuple[EvidenceType, ...] = ()
+    items: tuple[RequiredEvidenceItem, ...] = ()
     forbidden_substitute_types: tuple[EvidenceType, ...] = ()
-    named_symbols: tuple[str, ...] = ()
 
     @property
     def has_requirements(self) -> bool:
-        return bool(self.required_types)
+        return bool(self.items)
+
+    @property
+    def item_ids(self) -> frozenset[str]:
+        return frozenset(item.item_id for item in self.items)
 
 
-def _any(text: str, needles: tuple[str, ...]) -> bool:
-    return any(n in text for n in needles)
+class CoverageEntry(BaseModel):
+    """某条 required item 的确定性覆盖结果。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    item_id: str
+    covered: bool
+    matched_evidence_ids: tuple[str, ...] = ()
+
+
+# ---- 解析 ----------------------------------------------------------------
+
+_CLAUSE_SPLIT = re.compile(r"[。；;.!？?！\n，,]")
+_NEG_TRIGGERS = ("不要", "请勿", "不得", "禁止", "勿使用", "勿引用")
+# 注意不加"别用/别引用"（撞"分别引用"）、"不应用"（撞"应用/application"）
+_NEG_SOFT = ("不能用", "不能引用", "不应引用")
+_SUPPLEMENT = ("只能作为补充", "仅作补充", "只作补充", "只能补充", "作为补充")
+_CLASS = re.compile(r"[A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*")
+_PATHISH = re.compile(
+    r"[\w./\-]+\.(?:java|py|go|kt|sql|yml|yaml|properties|vue|ts|tsx|jsx|md)",
+    re.IGNORECASE,
+)
+_SYMBOL_STOP = frozenset({"Java", "JavaScript", "TypeScript", "README", "PROGRESS", "GraphRAG"})
+_TEST_SUFFIX = ("Test", "Tests", "IT", "ITs", "Spec")
+
+
+def _is_forbidding(seg: str) -> bool:
+    if any(t in seg for t in _NEG_TRIGGERS):
+        return True
+    return any(t in seg for t in _NEG_SOFT)
+
+
+def _is_supplement(seg: str) -> bool:
+    return any(t in seg for t in _SUPPLEMENT)
+
+
+def _detect_types(seg: str) -> set[EvidenceType]:
+    s = seg
+    sl = seg.lower()
+    types: set[EvidenceType] = set()
+    if "设计文档" in s or "设计说明" in s:
+        types.add("design_doc")
+    if (
+        "数据库迁移" in s
+        or "迁移文件" in s
+        or "flyway" in sl
+        or "migration" in sl
+        or ("迁移" in s and any(w in s for w in ("数据库", "schema", "sql", "SQL", ".sql")))
+    ):
+        types.add("migration")
+    if (
+        "配置文件" in s
+        or "application.yml" in sl
+        or "application.yaml" in sl
+        or "docker-compose" in sl
+        or "compose" in sl
+    ):
+        types.add("production_config")
+    if (
+        any(w in s for w in ("Vue", "TypeScript", "前端源码", "前端组件"))
+        or ".vue" in sl
+        or ".tsx" in sl
+    ):
+        types.add("frontend_source")
+    if "计划文档" in s or "规划文档" in s or "路线图" in s:
+        types.add("historical_plan")
+    if "测试" in s:
+        types.add("test")
+    if "dev-log" in sl or "devlog" in sl or "开发日志" in s:
+        types.add("dev_log")
+    if (
+        (
+            "生产" in s
+            and any(
+                w in s
+                for w in ("源码", "实现", "代码", "Java", "Repository", "Controller", "方法", "类")
+            )
+        )
+        or (("Java" in s or "java" in sl) and any(w in s for w in ("实现", "源码", "代码")))
+        or "src/main" in sl
+        or any(w in s for w in ("生产源码", "生产实现", "生产代码", "实现代码"))
+    ):
+        types.add("production_source")
+    if "README" in s or "readme" in sl or "PROGRESS" in s:
+        types.add("current_doc")
+    return types
+
+
+def _looks_like_symbol(token: str) -> bool:
+    return token not in _SYMBOL_STOP and _CLASS.fullmatch(token) is not None
+
+
+def _infer_symbol_type(symbol: str, seg_types: set[EvidenceType]) -> EvidenceType:
+    if symbol.endswith(_TEST_SUFFIX):
+        return "test"
+    production: list[EvidenceType] = [t for t in seg_types if t in PRODUCTION_TYPES]
+    if len(production) == 1:
+        return production[0]
+    return "production_source"
+
+
+def _detect_named(
+    seg: str, seg_types: set[EvidenceType]
+) -> list[tuple[EvidenceType, str, str | None, str | None]]:
+    """返回 (type, anchor, path, symbol)。"""
+    named: list[tuple[EvidenceType, str, str | None, str | None]] = []
+    seen: set[str] = set()
+    for path in _PATHISH.findall(seg):
+        if path in seen:
+            continue
+        seen.add(path)
+        named.append((classify_path(path), path, path, None))
+    for token in _CLASS.findall(seg):
+        if not _looks_like_symbol(token) or token in seen:
+            continue
+        seen.add(token)
+        named.append((_infer_symbol_type(token, seg_types), token, None, token))
+    return named
 
 
 def parse_required_evidence(question: str) -> RequiredEvidence:
-    """从问题确定性提取必需证据类型 / 禁止替代类型 / 点名符号。"""
-    q = question
-    ql = question.lower()
+    """确定性解析 → 权威 RequiredEvidenceItem[] + 禁止替代类型。"""
+    forbidden: set[EvidenceType] = set()
+    raw_items: list[tuple[EvidenceType, str, str | None, str | None]] = []
 
-    # 1) 禁止替代句式（先解析，用于抑制"不要只引用 X"里的 X 被误当必需）
-    forbidden: list[EvidenceType] = []
-    if _any(
-        q,
-        (
-            "不要用测试",
-            "测试只能作为补充",
-            "测试不能",
-            "不要用测试或规划",
-            "架构文档或测试代替",
-            "不要用测试、",
-            "不能用测试",
-        ),
-    ):
-        forbidden.append("test")
-    if _any(q, ("dev-log", "dev log", "devlog")) and _any(
-        q, ("不要用", "不要使用", "代替", "不能")
-    ):
-        forbidden.append("dev_log")
-    if _any(
-        q,
-        (
-            "不要把规划",
-            "不要用规划",
-            "规划文档当作实现",
-            "规划文档代替",
-            "不要用测试或规划",
-            "不要只依据 README 或规划",
-            "不要只依据README或规划",
-            "计划文档",
-        ),
-    ):
-        forbidden.append("historical_plan")
-    design_forbidden = _any(q, ("不要只引用设计文档", "不要只依据设计", "不能只用设计"))
-    if design_forbidden:
-        forbidden.append("design_doc")
-    readme_present = _any(q, ("README", "readme"))
-    readme_ban = _any(q, ("不要只依据 README", "不要只依据README", "不要只用 README")) or (
-        readme_present and _any(q, ("代替", "代替实现")) and _any(q, ("不要", "不能", "别"))
-    )
-    if readme_ban:
-        forbidden.append("current_doc")
+    for segment in _CLAUSE_SPLIT.split(question):
+        seg = segment.strip()
+        if not seg:
+            continue
+        seg_types = _detect_types(seg)
+        if _is_forbidding(seg) or _is_supplement(seg):
+            forbidden |= seg_types
+            continue
+        named = _detect_named(seg, seg_types)
+        named_types = {t for t, *_ in named}
+        raw_items.extend(named)
+        # 无点名符号的类型 → 一条 type-only 项（anchor=类型词）
+        for t in seg_types:
+            if t not in named_types:
+                raw_items.append((t, TYPE_LABELS[t], None, None))
 
-    # 2) 必需证据类型
-    required: list[EvidenceType] = []
-
-    def demand(t: EvidenceType) -> None:
-        if t not in required:
-            required.append(t)
-
-    production = (
-        (
-            "生产" in q
-            and _any(q, ("源码", "实现", "代码", "Java", "Repository", "Controller", "方法", "类"))
+    # 全局去重 + 禁止类型剔除 + 有点名时丢弃同类型 type-only 项
+    typed_named = {t for t, _a, _p, sym in raw_items if sym or (_p and t in PRODUCTION_TYPES)}
+    ids = count(1)
+    seen_key: set[tuple[EvidenceType, str | None, str | None]] = set()
+    items: list[RequiredEvidenceItem] = []
+    for t, anchor, path, symbol in raw_items:
+        if t in forbidden:
+            continue
+        if symbol is None and path is None and t in typed_named:
+            continue  # 该类型已有具体点名，丢弃 type-only
+        key = (t, path, symbol)
+        if key in seen_key:
+            continue
+        seen_key.add(key)
+        items.append(
+            RequiredEvidenceItem(
+                item_id=f"R{next(ids)}", type=t, anchor=anchor, path=path, symbol=symbol
+            )
         )
-        or (("Java" in q or "java" in ql) and _any(q, ("实现", "源码", "代码")))
-        or "src/main" in ql
-        or _any(q, ("生产源码", "生产实现", "生产代码"))
-    )
-    if production:
-        demand("production_source")
-    if _any(q, ("设计文档", "设计说明")) and not design_forbidden:
-        demand("design_doc")
-    migration = (
-        _any(q, ("数据库迁移", "迁移文件"))
-        or _any(ql, ("migration", "flyway"))
-        or ("迁移" in q and _any(q, ("数据库", "schema", "sql", "SQL", ".sql")))
-    )
-    if migration:
-        demand("migration")
-    if (
-        _any(q, ("配置文件", "application.yml", "application.yaml", "docker-compose"))
-        or "compose" in ql
-    ):
-        demand("production_config")
-    if readme_present and not readme_ban:
-        demand("current_doc")
-    if _any(ql, (".vue", ".tsx")) or _any(q, ("Vue", "TypeScript", "前端源码", "前端组件")):
-        demand("frontend_source")
-
-    # 3) 点名符号（大写驼峰标识符），仅供覆盖报告，不作硬门
-    named = tuple(dict.fromkeys(_SYMBOL.findall(q)))
-
-    # 禁止替代的类型不应同时是必需类型
-    required = [t for t in required if t not in forbidden]
     return RequiredEvidence(
-        required_types=tuple(required),
+        items=tuple(items),
         forbidden_substitute_types=tuple(dict.fromkeys(forbidden)),
-        named_symbols=named,
     )
 
 
-def unmet_required_types(
-    required: RequiredEvidence,
-    cited_rel_paths: Iterable[str],
-) -> list[EvidenceType]:
-    """返回未被同类型直接引用覆盖的必需证据类型（升序稳定）。
+# ---- 确定性覆盖 matcher --------------------------------------------------
 
-    full 硬约束：空列表才允许 full。补充类型（测试/设计/历史计划/dev-log）因类型
-    不同，天然无法覆盖必需的生产类型，故"测试不能替代生产实现"由类型系统保证。
-    """
-    if not required.required_types:
-        return []
-    covered = covered_types(cited_rel_paths)
-    return [t for t in required.required_types if t not in covered]
+
+def _item_matches(item: RequiredEvidenceItem, rel_path: str) -> bool:
+    if classify_path(rel_path) != item.type:
+        return False
+    base = rel_path.rsplit("/", 1)[-1].lower()
+    stem = base.rsplit(".", 1)[0]
+    if item.symbol is not None:
+        # 精确文件名匹配（Java 惯例：public 类与文件同名）。用子串会让
+        # ReorderServiceLog.java 误配 OrderService，制造新的错误 full；从严更安全。
+        return item.symbol.lower() == stem
+    if item.path is not None:
+        return item.path.lower() in rel_path.lower()
+    return True  # type-only：类型已匹配即可
+
+
+def compute_coverage(
+    required: RequiredEvidence,
+    cited: Iterable[tuple[str, str]],
+) -> tuple[CoverageEntry, ...]:
+    """按真实引用 (evidence_id, rel_path) 逐项算权威覆盖矩阵。"""
+    cited_list = list(cited)
+    entries: list[CoverageEntry] = []
+    for item in required.items:
+        matched = tuple(eid for eid, path in cited_list if _item_matches(item, path))
+        entries.append(
+            CoverageEntry(item_id=item.item_id, covered=bool(matched), matched_evidence_ids=matched)
+        )
+    return tuple(entries)
+
+
+def uncovered_items(
+    required: RequiredEvidence,
+    coverage: tuple[CoverageEntry, ...],
+) -> list[RequiredEvidenceItem]:
+    uncovered_ids = {entry.item_id for entry in coverage if not entry.covered}
+    return [item for item in required.items if item.item_id in uncovered_ids]
+
+
+def all_required_covered(coverage: tuple[CoverageEntry, ...]) -> bool:
+    return all(entry.covered for entry in coverage)

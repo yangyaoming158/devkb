@@ -16,7 +16,7 @@ from pydantic import (
     model_validator,
 )
 
-from devkb.agent.evidence_types import RequiredEvidence, parse_required_evidence
+from devkb.agent.evidence_types import CoverageEntry, RequiredEvidence, parse_required_evidence
 
 MAX_QUESTION_CHARS = 4000
 MAX_QUERY_CHARS = 4000
@@ -80,10 +80,19 @@ class PlanOutput(StrictModel):
         return list(dict.fromkeys(queries))
 
 
+class CoverageReport(StrictModel):
+    """LLM 对某条必需证据的覆盖观察；仅诊断，不作事实来源（裁决权在确定性代码）。"""
+
+    item_id: ShortText
+    covered: bool
+    evidence_ids: list[EvidenceId] = Field(default_factory=list, max_length=MAX_CLAIM_EVIDENCE_IDS)
+
+
 class EvaluateOutput(StrictModel):
     sufficiency: Sufficiency
     supported_aspects: list[ShortText] = Field(default_factory=list, max_length=10)
     missing_aspects: list[ShortText] = Field(default_factory=list, max_length=10)
+    coverage: list[CoverageReport] = Field(default_factory=list, max_length=10)
 
 
 class RefineOutput(StrictModel):
@@ -151,6 +160,7 @@ class AgentState(TypedDict):
     project_id: uuid.UUID
     question: str
     required_evidence: RequiredEvidence
+    coverage: tuple[CoverageEntry, ...]
     plan: PlanOutput | None
     queries: list[str]
     retrieval_round: int
@@ -188,6 +198,7 @@ def initial_agent_state(agent_input: AgentInput) -> AgentState:
         project_id=agent_input.project_id,
         question=agent_input.question,
         required_evidence=parse_required_evidence(agent_input.question),
+        coverage=(),
         plan=None,
         queries=[],
         retrieval_round=0,
