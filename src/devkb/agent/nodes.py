@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from devkb.agent import prompts
+from devkb.agent.evidence_types import TYPE_LABELS, unmet_required_types
 from devkb.agent.state import (
     MAX_GENERATE_CALLS,
     MAX_LLM_REQUESTS,
@@ -281,12 +282,17 @@ class AgentNodes:
             default=default,
             recorder=self._recorder,
         )
+        # plan 只回显确认 required_evidence：未锚定问题原文的一律警告并忽略，
+        # 权威来源是 state["required_evidence"]（确定性解析），LLM 不得新增/伪造。
+        warnings = list(call.warnings)
+        if any(item not in state["question"] for item in call.value.required_evidence):
+            warnings.append("plan:required_evidence_unanchored")
         return {
             **call.updates,
             "plan": call.value,
             "queries": call.value.queries,
             "node_history": ["plan"],
-            "warnings": call.warnings,
+            "warnings": warnings,
         }
 
     async def retrieve(self, state: AgentState) -> dict[str, Any]:
@@ -409,6 +415,7 @@ class AgentNodes:
                 state["evidences"],
                 evaluation,
                 verification_errors=state["verification_feedback"] or None,
+                required_types=list(state["required_evidence"].required_types) or None,
             ),
             schema=GenerateOutput,
             default=default,
@@ -496,18 +503,37 @@ class AgentNodes:
         else:
             answer, _, l0_warnings = apply_l0(draft.answer_text, len(state["evidences"]))
             warnings.extend(l0_warnings)
+            # T22.2 full 硬约束：用户明确要求的每类证据都须有同类型直接引用；
+            # 测试/设计/历史材料因类型不同天然无法覆盖必需生产证据。
+            evidence_by_id = {ev.evidence_id: ev for ev in state["evidences"]}
+            cited_paths = [
+                evidence_by_id[evidence_id].rel_path
+                for claim in kept
+                for evidence_id in claim.evidence_ids
+                if evidence_id in evidence_by_id
+            ]
+            unmet = unmet_required_types(state["required_evidence"], cited_paths)
             if (
                 evaluation is not None
                 and evaluation.sufficiency == "sufficient"
                 and kept
                 and not draft.not_found
                 and verification_ok
+                and not unmet
             ):
                 mode = "full"
             else:
                 mode = "partial"
                 if evaluation is not None and evaluation.sufficiency == "sufficient" and not kept:
                     warnings.append("finalize: 充分判定但无结构化 claim，降级 partial")
+                if unmet:
+                    labels = "、".join(TYPE_LABELS.get(t, t) for t in unmet)
+                    note = f"未取得用户要求的必需证据类型（{labels}）；测试/设计/历史材料不能替代"
+                    if note not in not_found:
+                        not_found = [*not_found, note]
+                    warnings.append(
+                        "finalize: 必需证据类型未满足，降级 partial（" + ",".join(unmet) + "）"
+                    )
         if mode == "refusal":
             answer = _refusal_text(not_found)
             kept = []

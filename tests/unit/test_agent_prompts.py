@@ -13,7 +13,7 @@ from devkb.contracts import PROMPT_VERSION
 
 def test_prompt_snapshot_locks_version_security_and_output_contract() -> None:
     snapshot = prompt_snapshot()
-    assert snapshot["version"] == PROMPT_VERSION == "p1-agent-v3"
+    assert snapshot["version"] == PROMPT_VERSION == "p1.5-agent-v1"
     assert set(snapshot) == {"version", "plan", "evaluate", "refine", "generate"}
     for name in ("plan", "evaluate", "refine", "generate"):
         prompt = snapshot[name]
@@ -22,11 +22,14 @@ def test_prompt_snapshot_locks_version_security_and_output_contract() -> None:
         assert "只输出一个 JSON 对象" in prompt
         assert "Schema:" in prompt
         assert f"Prompt-Version: {PROMPT_VERSION}" in prompt
+    # T22：plan 回显 required_evidence、generate 消费 required_evidence_types
+    assert "required_evidence" in snapshot["plan"]
+    assert "required_evidence_types" in snapshot["generate"]
 
     serialized = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     assert (
         hashlib.sha256(serialized.encode()).hexdigest()
-        == "4200342d59b1d3ec92c710cc826382750f605651bc8b113d09805367f131ff11"
+        == "60a62298ca35c5a004e4e8d8d21184b795a2fb126e6d972c02a839479fc44377"
     )
 
 

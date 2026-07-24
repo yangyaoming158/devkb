@@ -16,6 +16,8 @@ from pydantic import (
     model_validator,
 )
 
+from devkb.agent.evidence_types import RequiredEvidence, parse_required_evidence
+
 MAX_QUESTION_CHARS = 4000
 MAX_QUERY_CHARS = 4000
 MAX_SUBQUERIES = 3
@@ -70,6 +72,7 @@ class AgentInput(StrictModel):
 class PlanOutput(StrictModel):
     intent: Intent
     queries: list[QueryText] = Field(min_length=1, max_length=MAX_SUBQUERIES)
+    required_evidence: list[ShortText] = Field(default_factory=list, max_length=10)
 
     @field_validator("queries")
     @classmethod
@@ -147,6 +150,7 @@ class AgentState(TypedDict):
     run_id: uuid.UUID
     project_id: uuid.UUID
     question: str
+    required_evidence: RequiredEvidence
     plan: PlanOutput | None
     queries: list[str]
     retrieval_round: int
@@ -183,6 +187,7 @@ def initial_agent_state(agent_input: AgentInput) -> AgentState:
         run_id=agent_input.run_id,
         project_id=agent_input.project_id,
         question=agent_input.question,
+        required_evidence=parse_required_evidence(agent_input.question),
         plan=None,
         queries=[],
         retrieval_round=0,

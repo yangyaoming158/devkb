@@ -817,3 +817,12 @@
 - 核心是**两栏预期**的逐题裁定：P1.5 契约预期（绑定 Gate、不改检索/摄取下可确定性达成）vs P1.6 目标预期（仅记录）。裁定原则——c06/c07/c09/c11/c12/c13 承诺"实质修复"（根因是跨轮丢证 RT-16/假 not_found RT-15/无 policy 终态 RT-22，且相关文件当轮确被召回过、非召回不到）；c01/c02/c05/c08/c10 为"诚实天花板"（不判 full、未召回用条件式 missing，引到位属 P1.6）；c04 正向基线（保持拒答不编造）；c03/c10-迁移/c11/c12 沿用 Fable §2 已冻结方向。用户 2026-07-24 逐题确认全部 13 条并接受 RT-20 partial 优先取舍。
 - 序列化用 scratchpad 生成器（手工填 dict → `json.dumps(ensure_ascii=False)` + 逐行 `json.loads` 校验）保证 JSON 合法；`confirmed_at=2026-07-24` 回填后三份 JSONL 各 13/8/6 行全部合法。holdout 标 `sealed`，声明 T22–T31 实现期不查阅、不据此调参。
 - 纪律边界：本项只产出评测数据与冻结，未运行任何 P1.5 dev（标签锁定生效点为首次 dev 运行）、未改 `src/`、tests、Prompt、模型或检索参数、未复用或触碰 P1 holdout。证据 commit：本提交。
+
+## 2026-07-24 · P1.5 T22：证据类型硬约束与权威性分层（RT-01/05）
+
+- P1.5 首个实现任务，也是 T23–T25 的地基。核心洞察（问题记录 §18 归因）：系统缺"证据类型/权威性"结构化模型，才会用测试/dev-log 顶替生产源码仍判 full。T22 补上这层。
+- 新增 `src/devkb/agent/evidence_types.py`（零 LLM、仓库无关、不 import state 避免环）：`classify_path` 按通用约定把 rel_path 映射到 10 类证据（src/main→production_source、src/test→test、`*.sql`/migration→migration、docs/design→design_doc、docs/plans/phase-/规划→historical_plan、dev-log→dev_log、README/PROGRESS→current_doc、`.vue/.ts`→frontend_source…）；`parse_required_evidence` 确定性从问题提取必需类型、"不要用 X 代替 Y"式禁止替代类型与点名符号——**权威来源在此，plan 的 LLM 回显只作确认**。
+- full 硬约束落在 `nodes.finalize`：`unmet_required_types` 检查每个必需类型是否有同类型直接引用，缺则确定性降级 partial——测试/设计/历史材料因类型不同天然无法覆盖必需生产证据，"**测试不能替代生产实现**"由类型系统而非 Prompt 保证。plan 回显未锚定问题原文即 `plan:required_evidence_unanchored` 警告并忽略，杜绝 LLM 伪造 required 清单。
+- 设计取向（防过拟合）：解析对显式通用词汇生效，自然问法优雅降级为空约束（宁可回退 P1 行为不过度约束）；over-detect 使 full 更保守（诚实方向），under-detect 不劣于 P1。`test_evidence_types.py` 用 c01/c04/c05/c09/c10/c11 与自然问法 e01 验证泛化，不为单句写特判。
+- `PROMPT_VERSION` p1-agent-v3→p1.5-agent-v1、`AGENT_STATE_SCHEMA_VERSION`→p1.5-agent-state-v1（AgentState 新增 required_evidence），快照 SHA 与两处版本断言同步更新。Answer schema 不变（本任务只往 not_found 追加字符串说明，仍 list[str]）。
+- 全绿：`make ci`（ruff/pyright 0 错、pytest 312 passed）、`make eval-ci`（65+19）。P0 fixed-rag 对照路径与既有 P1 图/状态测试未受影响。证据 commit：本提交。
