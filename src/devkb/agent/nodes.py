@@ -389,8 +389,8 @@ class AgentNodes:
             entry = deterministic.get(report.item_id)
             if entry is None or report.covered != entry.covered:
                 mismatch = True
-            elif set(report.evidence_ids) - set(entry.matched_evidence_ids):
-                mismatch = True  # 自报命中的 evidence 与确定性矩阵不符
+            elif set(report.evidence_ids) != set(entry.matched_evidence_ids):
+                mismatch = True  # 自报命中的 evidence 与确定性矩阵不符（含遗漏/多报）
         if mismatch:
             warnings.append("evaluate:coverage_mismatch")
         return {

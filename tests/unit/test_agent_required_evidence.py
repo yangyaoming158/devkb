@@ -119,3 +119,30 @@ async def test_llm_omitting_required_reports_warns_but_deterministic_full_stands
     assert any("plan:required_evidence_mismatch" in w for w in result["warnings"])
     assert any("evaluate:coverage_mismatch" in w for w in result["warnings"])
     assert result["final_mode"] == "full"
+
+
+async def test_negation_period_combination_does_not_full_on_test_only() -> None:
+    # 三审发现1（图级）：否定跨句 + 显式路径组合，只引测试文件不得 full
+    question = "不要引用测试. 请引用 backend/src/main/java/foo/OrderService.java."
+    result = await run_agent(
+        _runtime(
+            [PLAN, EVAL_OK, REFINE, EVAL_OK, GEN],
+            "backend/src/test/java/foo/OrderServiceTest.java",
+        ),
+        _input(question),
+    )
+    assert result["final_mode"] == "partial"
+
+
+async def test_evaluate_coverage_evidence_omission_is_mismatch() -> None:
+    # 三审发现5：LLM 报 covered=true 但漏报命中的 evidence_id → 记诊断 mismatch
+    eval_cov_empty = (
+        '{"sufficiency":"sufficient","supported_aspects":["订单校验"],'
+        '"missing_aspects":[],"coverage":[{"item_id":"R1","covered":true,"evidence_ids":[]}]}'
+    )
+    result = await run_agent(
+        _runtime([PLAN, eval_cov_empty, GEN], "backend/src/main/java/svc/OrderService.java"),
+        _input(_NAMED_Q),
+    )
+    assert any("evaluate:coverage_mismatch" in w for w in result["warnings"])
+    assert result["final_mode"] == "full"  # 确定性覆盖成立，诊断不改判

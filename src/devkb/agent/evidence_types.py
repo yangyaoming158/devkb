@@ -129,8 +129,9 @@ def classify_path(rel_path: str) -> EvidenceType:
         or "docker-compose" in base
         or base == ".env"
         or base.startswith(".env.")
-        or base.startswith("application.")
     ):
+        # application.* 只按配置扩展名（.yml/.yaml/.properties）计入，不用裸前缀——
+        # 否则 application.md/.java/.txt 被误判生产配置，测试证据即可凑成 full（三审发现3）。
         return "production_config"
     if base.startswith("readme") or base.startswith("progress"):
         return "current_doc"
@@ -180,16 +181,20 @@ class CoverageEntry(BaseModel):
 
 # ---- 解析 ----------------------------------------------------------------
 
-# 注意：不切英文 "."，否则 backend/.../Foo.java 会被截成 "Foo" 与 "java"，
-# 显式路径退化为 type-only 从而制造错误 full（第二轮复审发现1）。中文问题里
-# 句子边界是 。；！？ 与换行、分号、逗号、顿号。
-_CLAUSE_SPLIT = re.compile(r"[。；;！？!?、，,\n]")
+# 句界含英文 "."，但路径 token 会先被遮蔽再分句（见 parse_required_evidence），
+# 所以 backend/.../Foo.java 不被截断，同时 "不要引用测试. 请引用 X" 的否定不会跨句
+# 污染（三审发现1）。不切顿号 "、"：让 "A、B、C" 枚举留在同一子句，便于按"引用/根据"
+# 指令限定点名作用域（三审发现4）。
+_CLAUSE_SPLIT = re.compile(r"[。；;！？!?，,.\n]")
 _NEG_TRIGGERS = ("不要", "请勿", "不得", "禁止", "勿使用", "勿引用")
 # 注意不加"别用/别引用"（撞"分别引用"）、"不应用"（撞"应用/application"）
 _NEG_SOFT = ("不能用", "不能引用", "不应引用")
 _SUPPLEMENT = ("只能作为补充", "仅作补充", "只作补充", "只能补充", "作为补充")
 # "不要用 X 代替 Y"：X=禁止替代、Y=被保护（肯定必需）
 _SUBSTITUTE_MARKERS = ("代替", "替代", "冒充", "顶替", "充当", "当作", "当成")
+# 点名（类名/路径）硬约束只在带"引用/根据"等证据指令的子句生效，避免自然问句里的
+# 技术名（如 RabbitMQ）被误当必需点名类（三审发现4）。
+_CITE_DIRECTIVES = ("引用", "根据", "依据", "参照", "参见", "结合")
 
 _CLASS = re.compile(r"[A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*")
 _PATHISH = re.compile(
@@ -204,7 +209,7 @@ _TEST_SUFFIX = ("Test", "Tests", "IT", "ITs", "Spec")
 _TYPE_PATTERNS: list[tuple[re.Pattern[str], EvidenceType]] = [
     (re.compile(r"设计文档|设计说明"), "design_doc"),
     (re.compile(r"数据库迁移|迁移文件|迁移脚本|迁移\s*SQL|[Ff]lyway"), "migration"),
-    (re.compile(r"配置文件|application\.ya?ml|docker-compose"), "production_config"),
+    (re.compile(r"生产配置|配置文件|application\.ya?ml|docker-compose"), "production_config"),
     (
         re.compile(
             r"前端源码|前端组件|前端代码|TypeScript|\.vue|\.tsx|(?<![A-Za-z])Vue(?![A-Za-z])"
@@ -230,6 +235,11 @@ def _is_forbidding(seg: str) -> bool:
 
 def _is_supplement(seg: str) -> bool:
     return any(t in seg for t in _SUPPLEMENT)
+
+
+def _has_cite_directive(seg: str) -> bool:
+    """子句是否含"引用/根据"等证据指令——点名硬约束仅在此类子句生效。"""
+    return any(d in seg for d in _CITE_DIRECTIVES)
 
 
 def _split_substitution(seg: str) -> tuple[str, str | None]:
@@ -302,11 +312,20 @@ def _collect_positive(
     clause_index: int,
     seg: str,
     raw: list[tuple[tuple[int, int], EvidenceType, str, str | None, str | None]],
+    *,
+    require_directive: bool = True,
 ) -> None:
-    """肯定子句 → 追加点名项 + type-only 项（带 (子句序, 局部 span) 排序键）。"""
+    """肯定子句 → 追加点名项 + type-only 项（带 (子句序, 局部 span) 排序键）。
+
+    点名类/路径默认只在带证据指令（引用/根据）的子句提取，避免自然问句里的技术名
+    成为伪必需项；替代结构 "用 X 代替 Y" 的被保护侧 Y 本身即隐含引用要求，故以
+    ``require_directive=False`` 强制提取，否则 "不要用测试代替 Order.java" 会漏掉
+    Order.java 造成错误 full。
+    """
     seg_types: set[EvidenceType] = {t for _sp, t, _a in _detect_type_hits(seg)}
-    for span, etype, anchor, path, symbol in _detect_named_hits(seg, seg_types):
-        raw.append(((clause_index, span), etype, anchor, path, symbol))
+    if not require_directive or _has_cite_directive(seg):
+        for span, etype, anchor, path, symbol in _detect_named_hits(seg, seg_types):
+            raw.append(((clause_index, span), etype, anchor, path, symbol))
     for span, etype, anchor in _detect_type_hits(seg):
         raw.append(((clause_index, span), etype, anchor, None, None))
 
@@ -316,8 +335,24 @@ def parse_required_evidence(question: str) -> RequiredEvidence:
     forbidden: list[EvidenceType] = []
     raw: list[tuple[tuple[int, int], EvidenceType, str, str | None, str | None]] = []
 
-    for clause_index, segment in enumerate(_CLAUSE_SPLIT.split(question)):
-        seg = segment.strip()
+    # 先把路径 token（含扩展名的 a/b/Foo.java）遮蔽成无点的占位符，再按句界（含英文
+    # "."）分句，最后逐子句还原——既保护显式路径不被句点截断，又让 "不要引用测试.
+    # 请引用 X" 的否定停在句号处、不跨句污染（三审发现1）。
+    placeholders: dict[str, str] = {}
+
+    def _mask(match: re.Match[str]) -> str:
+        key = f"\x00{len(placeholders)}\x00"
+        placeholders[key] = match.group()
+        return key
+
+    masked = _PATHISH.sub(_mask, question)
+
+    for clause_index, segment in enumerate(_CLAUSE_SPLIT.split(masked)):
+        seg = segment
+        for key, value in placeholders.items():
+            if key in seg:
+                seg = seg.replace(key, value)
+        seg = seg.strip()
         if not seg:
             continue
         if _is_forbidding(seg):
@@ -325,8 +360,8 @@ def parse_required_evidence(question: str) -> RequiredEvidence:
             for _sp, etype, _a in _detect_type_hits(x_side):
                 if etype not in forbidden:
                     forbidden.append(etype)
-            if y_side is not None:  # 被保护的一侧是肯定必需
-                _collect_positive(clause_index, y_side, raw)
+            if y_side is not None:  # 被保护的一侧是肯定必需（替代结构即隐含引用要求）
+                _collect_positive(clause_index, y_side, raw, require_directive=False)
             continue
         if _is_supplement(seg):
             for _sp, etype, _a in _detect_type_hits(seg):

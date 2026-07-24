@@ -42,6 +42,11 @@ def _symbols(r: RequiredEvidence) -> set[str]:
         ("backend/src/main/resources/application.yml", "production_config"),
         ("docker-compose.yml", "production_config"),
         (".env.example", "production_config"),
+        # 三审发现3：application.* 只按配置扩展名，其余不得冒充生产配置
+        ("application.md", "current_doc"),
+        ("application.java", "production_source"),
+        ("application.txt", "other"),
+        ("backend/src/main/resources/application.properties", "production_config"),
         # 复审发现3：docs 下含 flyway/audit 的 markdown 不得判为生产
         ("docs/review/flyway-audit.md", "historical_plan"),
         ("docs/review/architecture-audit-2026-07-03.md", "historical_plan"),
@@ -238,3 +243,53 @@ def test_item_order_follows_text_position_deterministically() -> None:
         ("R2", "production_source"),
         ("R3", "test"),
     ]
+
+
+# ---- 第三轮复审对抗用例（组合场景，先红后修） ----
+
+
+def test_negation_period_does_not_leak_across_sentences() -> None:
+    # 三审发现1：删 "." 会让否定跨句污染；须遮蔽路径后按句点分句
+    r = parse_required_evidence("不要引用测试. 请引用 backend/src/main/java/foo/Foo.java.")
+    assert "production_source" in _types(r)  # Foo.java 仍是必需，未被否定吞掉
+    assert "test" in r.forbidden_substitute_types
+    cov = compute_coverage(r, [("E1", "backend/src/test/java/foo/FooTest.java")])
+    assert not all_required_covered(cov)  # 只引测试文件不得 full
+
+
+def test_production_config_keyword_detected() -> None:
+    # 三审发现2：冻结判据列出的"生产配置"须被识别为 production_config
+    r = parse_required_evidence("请引用生产配置说明部署。")
+    assert "production_config" in _types(r)
+    cov = compute_coverage(r, [("E1", "backend/src/test/java/FooTest.java")])
+    assert not all_required_covered(cov)  # 测试证据不能满足生产配置必需
+
+
+def test_config_requirement_not_covered_by_application_markdown() -> None:
+    # 三审发现3：application.md 不是配置，不能覆盖 production_config 必需
+    r = parse_required_evidence("请引用配置文件说明。")
+    assert "production_config" in _types(r)
+    assert not all_required_covered(compute_coverage(r, [("E1", "docs/application.md")]))
+
+
+def test_natural_question_tech_name_is_not_a_required_symbol() -> None:
+    # 三审发现4：无"引用/根据"指令的自然问句里技术名不得成为伪必需点名类
+    r = parse_required_evidence("这个后端有没有用到消息队列（如 Kafka/RabbitMQ）？")
+    assert r.items == ()
+
+
+def test_named_symbol_only_within_cite_directive_clause() -> None:
+    # 有指令才提取点名；无指令的陈述句提及类名不算必需
+    assert parse_required_evidence("系统里 OrderService 是干嘛的？").items == ()
+    assert "OrderService" in _symbols(parse_required_evidence("请引用 OrderService 的生产实现。"))
+
+
+def test_substitution_protected_named_side_is_required_without_directive() -> None:
+    # 自查补洞：'不要用测试代替 Order.java' 的被保护侧无"引用"指令，也须成为必需，
+    # 否则只引 OrderTest.java 会错误 full
+    r = parse_required_evidence("不要用测试代替 Order.java。")
+    assert "Order.java" in {i.path for i in r.items if i.path}
+    assert "test" in r.forbidden_substitute_types
+    assert not all_required_covered(
+        compute_coverage(r, [("E1", "backend/src/test/java/OrderTest.java")])
+    )

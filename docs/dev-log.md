@@ -854,3 +854,15 @@
 - 连带影响：覆盖缺口现在会驱动一次补检，`test_agent_required_evidence` 两条降级用例脚本补齐 refine 轮（plan→evaluate→refine→evaluate→generate）；其余 agent 测试问题无 required 触发词，路由不受影响。
 - `PROMPT_VERSION` 保持 p1.5-agent-v2（T22 未验收、契约仍在定稿），仅 plan/evaluate Prompt 文案改为"有 required 必须完整逐项返回"并删矛盾表述，快照 SHA 更新为 `5d2c6ec4…`。全绿：`make ci`（ruff/pyright 0、pytest 327）、`make eval-ci`（65+19）；P0/P1 兼容。
 - 勾选纪律：因上轮曾在"自认已修"后仍有缺陷，本轮 T22.1/T22.2 **暂不勾选**，待第三轮独立复审确认；T22.3 保留。证据 commit：本提交。
+
+## 2026-07-25 · P1.5 T22 三审整改（组合场景错误 full + 自查补洞）
+
+- 第二轮整改（fc16b66）经**第三轮复审**：二审 4 个原始用例全过，但复审构造**组合场景**又稳定产出错误 full，撤销 T22.1/T22.2/**T22.3**（三者全撤）。根因是我上轮为修发现 1"简单删英文 `.`"——治标致新病。这次先补红测，且**自己主动构造组合场景试图打破**再修。
+  - **发现1（否定跨句污染）**：删 `.` 分句后"不要引用测试. 请引用 Foo.java"成一整句，命中否定即走禁止分支、跳过正向路径解析，`Foo.java` 未成必需，仅引 `FooTest.java` 仍 full。整改：解析开头先用 `_PATHISH.sub` 把路径 token 遮蔽成无点占位符（`\x00N\x00`），再按含 `.` 的句界分句，逐子句还原——路径不被句点截断，否定又停在句号。
+  - **发现2（生产配置漏检）**：`_TYPE_PATTERNS` 配置类只认"配置文件/application.yml/docker-compose"，漏冻结判据的"生产配置"。整改：加入"生产配置"。
+  - **发现3（application.* 前缀过宽）**：`classify_path` 仍 `base.startswith("application.")`，`application.md/.java/.txt` 全判 production_config，与任务清单"只匹配配置扩展名"矛盾。整改：删裸前缀，只按 `.yml/.yaml/.properties` 扩展名（真配置本就被 `_CONFIG_EXTS` 命中，无损）；补 3 负例。
+  - **发现4（自然问句技术名）**：非否定子句无条件抽 CamelCase，"消息队列（如 Kafka/RabbitMQ）"把 RabbitMQ 当必需点名类。整改：点名硬约束限定在带"引用/根据/依据/参照/参见/结合"指令的子句（`_has_cite_directive`），并把顿号 `、` 移出句界让"A、B、C"枚举留同句；替代结构"用 X 代替 Y"的被保护侧 Y 隐含引用要求，以 `require_directive=False` 强制提取。
+  - **发现5（evaluate 诊断漏报）**：只查 LLM 多报 evidence（`report - matched`），漏报（covered=true 但 evidence_ids=[]）不记 mismatch。整改：改 evidence 集合**全等**比较。
+- **自查补洞**：修完后我主动构造"不要用测试代替 Order.java"（替代 Y 侧裸文件名、无指令），发现 Y 侧漏提取→required 空→仍错误 full；即改为 Y 侧强制点名提取并补测试。这是这轮第一次在提交前自己先把组合场景跑穿。
+- 未改 Prompt，`PROMPT_VERSION`/快照 SHA 不变。全绿：`make ci`（ruff/pyright 0、pytest 339）、`make eval-ci`（65+19）；P0/P1 兼容。跨 5 个 `PYTHONHASHSEED` 的 item_id→type 仍完全一致。
+- 勾选纪律：三审后 T22.1/T22.2/T22.3 **全部暂不勾选**，待第四轮独立复审确认。证据 commit：本提交。
