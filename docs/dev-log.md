@@ -810,3 +810,10 @@
 - **文档间不一致**：RT-05 归属在 ADR-0010（P1.6）与实现规格（P1.5 T22.3）之间矛盾，裁定为规则/Prompt 层入 P1.5、检索层权重属 P1.6，ADR-0010 增修订注记（含 RT-07 最小版/RT-10/RT-04 离线包差集声明）；路线图-v2 §6 阶段文件门禁表仍写"当前 P1/P1 验收后建 P2 文档"，已更新为 P1.5→P1.6→P2 链。
 - **契约与机制补定**：`mode` 扩为四值（取值域扩张，非加字段，规格 §2 显式声明）、`not_found` 保持 list[str] + 平行 `not_found_details`；policy-refusal 识别 = 确定性规则前置 + plan 标志兜底（D6 内不新增调用点），落终态 run 保可审计；required-evidence 解析确定性为主并加防过拟合条款；T30 允许可逆迁移 0004、候选元数据设硬上限；"18 条真实 DeepSeek 运行"拆为 13 真实问答 + 5 机制检查（题 14 需脚本化 LLM、题 17 需 loader spy，字面不可在真模型上跑）；检索无退化对照指名 `evalsets/v0/retrieval_dev.jsonl`，明示不触碰 P1 holdout 检索集；v1.5 数据集文件名与 JSONL schema 落入 Evaluation-v1.5 §2。
 - **分支与 CI**：P1 关闭后误在 p1 分支堆积 P1.5 开启提交（未推送）。新建 `p1.5` 分支承接（含 RT 记录与 ADR-0010 提交），本地 p1 退回 origin/p1（9dfff3f），p1 分支冻结；ci.yml push 触发分支补 `p1.5`（否则 T32.4 头提交远端绿灯无法达成）。遗留：9dfff3f 自身的远端 Actions 状态此前未记录，待推送后一并核验。
+
+## 2026-07-24 · P1.5 U3.1：冻结 Evaluation-v1.5 回归集
+
+- U3.1 是 P1.5 第一项，也是"动 src/Prompt 前先冻结评测"的前置纪律。从《P1后真实仓库可用性测试问题记录》§21.1 逐案把 13 条真实问答复现转为 `evalsets/v1.5/contract_dev.jsonl`（每题 source_case/run_id/aspects/required_evidence(type+path/symbol)/allowed_supplement/forbidden_substitute/expected_mode_p15/p15_expectation/p16_target/key_paths/key_symbols）；另落 `contract_dev_extended.jsonl`（8 条反例）、`contract_holdout.jsonl`（6 条封存）、`mechanism_checks.md`（14–18 走 §5.2 确定性层）。
+- 核心是**两栏预期**的逐题裁定：P1.5 契约预期（绑定 Gate、不改检索/摄取下可确定性达成）vs P1.6 目标预期（仅记录）。裁定原则——c06/c07/c09/c11/c12/c13 承诺"实质修复"（根因是跨轮丢证 RT-16/假 not_found RT-15/无 policy 终态 RT-22，且相关文件当轮确被召回过、非召回不到）；c01/c02/c05/c08/c10 为"诚实天花板"（不判 full、未召回用条件式 missing，引到位属 P1.6）；c04 正向基线（保持拒答不编造）；c03/c10-迁移/c11/c12 沿用 Fable §2 已冻结方向。用户 2026-07-24 逐题确认全部 13 条并接受 RT-20 partial 优先取舍。
+- 序列化用 scratchpad 生成器（手工填 dict → `json.dumps(ensure_ascii=False)` + 逐行 `json.loads` 校验）保证 JSON 合法；`confirmed_at=2026-07-24` 回填后三份 JSONL 各 13/8/6 行全部合法。holdout 标 `sealed`，声明 T22–T31 实现期不查阅、不据此调参。
+- 纪律边界：本项只产出评测数据与冻结，未运行任何 P1.5 dev（标签锁定生效点为首次 dev 运行）、未改 `src/`、tests、Prompt、模型或检索参数、未复用或触碰 P1 holdout。证据 commit：本提交。
