@@ -825,4 +825,11 @@
 - full 硬约束落在 `nodes.finalize`：`unmet_required_types` 检查每个必需类型是否有同类型直接引用，缺则确定性降级 partial——测试/设计/历史材料因类型不同天然无法覆盖必需生产证据，"**测试不能替代生产实现**"由类型系统而非 Prompt 保证。plan 回显未锚定问题原文即 `plan:required_evidence_unanchored` 警告并忽略，杜绝 LLM 伪造 required 清单。
 - 设计取向（防过拟合）：解析对显式通用词汇生效，自然问法优雅降级为空约束（宁可回退 P1 行为不过度约束）；over-detect 使 full 更保守（诚实方向），under-detect 不劣于 P1。`test_evidence_types.py` 用 c01/c04/c05/c09/c10/c11 与自然问法 e01 验证泛化，不为单句写特判。
 - `PROMPT_VERSION` p1-agent-v3→p1.5-agent-v1、`AGENT_STATE_SCHEMA_VERSION`→p1.5-agent-state-v1（AgentState 新增 required_evidence），快照 SHA 与两处版本断言同步更新。Answer schema 不变（本任务只往 not_found 追加字符串说明，仍 list[str]）。
-- 全绿：`make ci`（ruff/pyright 0 错、pytest 312 passed）、`make eval-ci`（65+19）。P0 fixed-rag 对照路径与既有 P1 图/状态测试未受影响。证据 commit：本提交。
+- 全绿：`make ci`（ruff/pyright 0 错、pytest 313 passed）、`make eval-ci`（65+19）。P0 fixed-rag 对照路径与既有 P1 图/状态测试未受影响。证据 commit：本提交。
+
+## 2026-07-24 · P1.5 T22 复审：确认错误 full，撤销勾选
+
+- T22 首版（26777fd）经独立代码复审（GPT）被驳回，4 处缺陷全部用图级/单元复现确认，撤销 T22.1–T22.3 勾选（详见任务清单偏差记录）。
+- 根因不是个别 bug，是设计错误：把用户"证据类型/**路径**"要求压成"类型集合"、丢了点名路径/符号与逐项——所以点名 RetrievalRepository/CitationParser/RagService 却引用无关 `other/Foo.java` 仍判 full；`classify_path` 可信目录后判使 `src/test/.../*.sql`、`flyway-audit.md` 冒充生产 migration；关键词解析出现否定语义反转（"不要引用设计文档"→必需 design、"计划文档…规划过"→禁止 plan）与漏识别（"对应测试"）。且"under-detect 仍安全"假设被证伪：漏识别真实要求时回退的正是 P1 错误 full——那正是 P1.5 要消灭的。
+- 教训：CI 全绿只证明无兼容退化、不证明新能力正确；勾选前必须让对抗性测试（点名不匹配、可信目录冲突矩阵、否定语义）先红。此次违反勾选纪律（判据未全满足即勾），已撤销。
+- 本条只改文档（撤勾 + 偏差 + 本叙事 + 更正 313 计数）；26777fd 代码保留为历史，整改在后续提交 fix-forward。
