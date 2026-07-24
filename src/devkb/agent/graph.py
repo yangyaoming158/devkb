@@ -60,10 +60,13 @@ def route_after_evaluate(state: AgentState) -> RouteAfterEvaluate:
     # 也必须按 insufficient 路径补检或拒答，不能生成零证据 full 回答。
     if not state["evidences"]:
         return "refine" if can_refine(state) else "finalize"
-    # 确定性覆盖缺口（权威，非 LLM 自报）：必需证据未被现有引用覆盖时，只要预算允许
-    # 就优先补检，即便 LLM 判 sufficient 也不能直接生成——full 门只认确定性覆盖，
-    # 跳过补检只会产出注定降级的 partial（T22 复审发现4）。
-    required_gap = any(not entry.covered for entry in state["coverage"])
+    # 确定性覆盖缺口（权威，非 LLM 自报）：resolved 必需项未被引用覆盖，或存在
+    # unresolved 约束（结构性 fail-closed），都算缺口。只要预算允许就优先补检，即便
+    # LLM 判 sufficient 也不能直接生成——full 门只认确定性覆盖 + 无 unresolved。
+    required = state["required_evidence"]
+    required_gap = any(not entry.covered for entry in state["coverage"]) or bool(
+        required.unresolved_constraints
+    )
     if required_gap and can_refine(state):
         return "refine"
     if evaluation.sufficiency == "sufficient":

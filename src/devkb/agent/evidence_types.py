@@ -1,26 +1,30 @@
 """P1.5 T22：证据类型分层、逐项 required-evidence 解析与确定性 coverage（RT-01/05）。
 
-裁决语义（用户 2026-07-24 冻结）：A 的 schema + B 的确定性裁决。
+裁决语义：A 的 schema + B 的确定性裁决（2026-07-24）；**结构性 fail-closed**（2026-07-25，
+第四轮复审裁决）。
 
-- ``classify_path``：rel_path → 证据类型。**可信目录优先**（test/design/plans/
-  review·audit/dev-log 先判），再在生产目录内识别 source/config/migration；
-  避免 ``src/test/**.sql``、``docs/**flyway*.md`` 冒充生产 migration。
-- ``parse_required_evidence``：按**子句 + 否定作用域**确定性解析出权威
-  ``RequiredEvidenceItem[]``（type + 原文 anchor + 可选 path/symbol，同类型多个点名
-  各自成项、不合并）与禁止替代类型。这是唯一权威来源。
-- ``compute_coverage``：确定性 matcher，按真实引用逐项算覆盖矩阵。full 门、refine
-  缺口、finalize 只读这里的结果；LLM 的覆盖报告只作诊断（见 nodes）。
+错误 full 的共同根因是"用户给出显式证据约束，但确定性解析器漏掉全部或部分目标 →
+空/不完整 required 清单使 full 门错误放行"。故引入**确定性三态**：
 
-第二轮复审整改（2026-07-24）：
-- 子句切分不再切英文 ``.``，显式路径（``a/b/Foo.java``）不被截断；路径匹配改按
-  完整路径后缀 / 裸文件名 basename 全等，杜绝 ``Foo.java`` 子串误配 ``NotFoo.java``。
-- 否定作用域改子句内 "用 X 代替 Y"：X→禁止替代、Y→肯定必需；禁止类型不再删除
-  其它子句显式产生的必需项。
-- 类型检测按**原文位置排序**产出 (type, 原文 anchor, span)，item_id 依位置稳定，
-  不再用无序 set 决定顺序；点名类默认 production_source（永不因同句"数据库迁移"
-  被误判 migration）。
+- ``RequiredEvidence.status``：``none``（无显式证据约束）/ ``complete``（显式约束全部
+  被确定性解析）/ ``ambiguous``（至少一个目标未解析或只解析了一部分）。
+- 已解析的 ``items`` 走 ``compute_coverage`` 逐项匹配；未解析/部分解析的目标进入
+  ``unresolved_constraints``（原文 anchor + 固定 reason 枚举），**永不进入 coverage、
+  也不用 type=other 伪造可被任意文件满足的 item**。
+- ``full`` 的必要条件 = 每个 resolved item 被直接引用覆盖 **且** ``unresolved_constraints``
+  为空。route/finalize 把 unresolved 视作覆盖缺口（见 graph/nodes）。
 
-全部零 LLM、仓库无关、可单测。
+解析设计（防过拟合、防组合错误 full）：
+
+- **路径遮蔽**：先用有明确 ASCII 边界的 file-token 扫描器把路径遮蔽成无点占位符，
+  再按句界（含英文 ``.``）分句——无空格中文不被吞、否定不跨句、显式路径不被截断。
+- **指令作用域**：点名/类型硬约束只在带证据指令的子句生效；强指令（引用/参见/参照）
+  直接激活，弱指令（根据/依据/结合/列出…）仅在邻接路径/证据类型词/角色词/"X 类"时激活。
+- **枚举列表**：句号/分号/换行是强句界；逗号/顿号是同一指令下的列表连接符（后续项
+  作为延续解析，不要求重复指令），避免"引用 A，B"丢掉 B。
+- **集合/类别/模糊/未知语法** → unresolved，而非静默空 required。
+
+全部零 LLM、仓库无关、可单测；大小写敏感（ext4）。
 """
 
 from __future__ import annotations
@@ -44,6 +48,7 @@ EvidenceType = Literal[
     "frontend_source",
     "other",
 ]
+UnresolvedReason = Literal["unparsed_target", "partial_enumeration", "unsupported_syntax"]
 
 # 可满足"必需生产证据"的类型；测试/设计/历史计划/dev-log 不在其中（权威性分层）。
 PRODUCTION_TYPES: frozenset[EvidenceType] = frozenset(
@@ -82,23 +87,24 @@ _SOURCE_EXTS = (
 _CONFIG_EXTS = (".yml", ".yaml", ".properties", ".toml")
 _FRONTEND_EXTS = (".vue", ".ts", ".tsx", ".jsx")
 
+# required-path lexer 认识的后缀。已摄取集合必须与 ingest.SUPPORTED_SUFFIXES 对齐
+# （有 test_ingested_ext_lexer_matches_supported_suffixes 防漂移）；另加 P1.5 识别但
+# 当前未摄取的显式后缀（.sql/.vue/.ts/.tsx 属 P1.6 摄取范围）。
+_INGESTED_EXTS: frozenset[str] = frozenset({"md", "txt", "java", "yml", "yaml", "properties"})
+_RECOGNIZED_UNINGESTED_EXTS: frozenset[str] = frozenset({"sql", "vue", "ts", "tsx", "jsx"})
+_KNOWN_EXTS: frozenset[str] = _INGESTED_EXTS | _RECOGNIZED_UNINGESTED_EXTS
+
 
 def classify_path(rel_path: str) -> EvidenceType:
-    """rel_path → 证据类型。可信目录优先，再在生产目录内识别。"""
+    """rel_path → 证据类型。可信目录优先、生产目录优先于文件名约定、Test 约定大小写敏感。"""
     lower = rel_path.lower()
     segs = lower.strip("/").split("/")
     base = segs[-1] if segs else lower
+    orig_base = rel_path.strip("/").split("/")[-1] if rel_path.strip("/") else rel_path
+    stem = orig_base.rsplit(".", 1)[0]  # 原始大小写，用于 Test 约定判断
 
-    # 1) 可信（非生产）目录/命名优先——先于 .sql/config 关键词
-    if (
-        "test" in segs
-        or "tests" in segs
-        or base.endswith(("test.java", "tests.java"))
-        or base.startswith("test_")
-        or ".test." in base
-        or ".spec." in base
-        or "_test." in base
-    ):
+    # 1) 可信（非生产）目录优先——目录语义强于文件名约定
+    if "test" in segs or "tests" in segs:
         return "test"
     if "dev-log" in lower or "devlog" in lower or base.startswith("changelog"):
         return "dev_log"
@@ -119,19 +125,30 @@ def classify_path(rel_path: str) -> EvidenceType:
     if "docs" in segs and lower.endswith(".md"):
         return "current_doc"
 
-    # 2) 生产目录内识别
+    # 2) 生产目录（src/main）优先于 *Test 命名约定：main 下的 OrderTest.java 仍是生产源码
+    in_production_dir = lower.startswith("src/main/") or "/src/main/" in ("/" + lower)
+
+    # 3) 命名约定 test：仅在非生产目录、且大小写敏感——不把 Contest/Latest 当 Test
+    if not in_production_dir and (
+        stem.endswith(("Test", "Tests", "IT", "ITs", "Spec"))
+        or stem.startswith("Test")
+        or ".test." in orig_base
+        or ".spec." in orig_base
+    ):
+        return "test"
+
+    # 4) 生产目录内 / 通用扩展名识别
     if lower.endswith(".sql") or "/migration/" in lower or "flyway" in segs:
         return "migration"
     if lower.endswith(_FRONTEND_EXTS):
         return "frontend_source"
+    # application.* 只按配置扩展名（.yml/.yaml/.properties）计入，不用裸前缀（三审发现3）
     if (
         lower.endswith(_CONFIG_EXTS)
         or "docker-compose" in base
         or base == ".env"
         or base.startswith(".env.")
     ):
-        # application.* 只按配置扩展名（.yml/.yaml/.properties）计入，不用裸前缀——
-        # 否则 application.md/.java/.txt 被误判生产配置，测试证据即可凑成 full（三审发现3）。
         return "production_config"
     if base.startswith("readme") or base.startswith("progress"):
         return "current_doc"
@@ -143,7 +160,7 @@ def classify_path(rel_path: str) -> EvidenceType:
 
 
 class RequiredEvidenceItem(BaseModel):
-    """一条权威的必需证据要求（确定性解析产出，不由 LLM 覆盖）。"""
+    """一条**已解析**的必需证据要求（确定性解析产出，不由 LLM 覆盖）。"""
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
@@ -154,15 +171,36 @@ class RequiredEvidenceItem(BaseModel):
     symbol: str | None = None
 
 
+class UnresolvedConstraint(BaseModel):
+    """一条**未解析/部分解析**的显式证据约束——存在但无法确定性定位到具体文件。
+
+    只要非空，整体 status 即 ambiguous、full 门必然关闭；absolutely 不进入 coverage。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    anchor: str
+    reason: UnresolvedReason
+
+
 class RequiredEvidence(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     items: tuple[RequiredEvidenceItem, ...] = ()
     forbidden_substitute_types: tuple[EvidenceType, ...] = ()
+    unresolved_constraints: tuple[UnresolvedConstraint, ...] = ()
+
+    @property
+    def status(self) -> Literal["none", "complete", "ambiguous"]:
+        if self.unresolved_constraints:
+            return "ambiguous"
+        if self.items:
+            return "complete"
+        return "none"
 
     @property
     def has_requirements(self) -> bool:
-        return bool(self.items)
+        return bool(self.items) or bool(self.unresolved_constraints)
 
     @property
     def item_ids(self) -> frozenset[str]:
@@ -181,31 +219,62 @@ class CoverageEntry(BaseModel):
 
 # ---- 解析 ----------------------------------------------------------------
 
-# 句界含英文 "."，但路径 token 会先被遮蔽再分句（见 parse_required_evidence），
-# 所以 backend/.../Foo.java 不被截断，同时 "不要引用测试. 请引用 X" 的否定不会跨句
-# 污染（三审发现1）。不切顿号 "、"：让 "A、B、C" 枚举留在同一子句，便于按"引用/根据"
-# 指令限定点名作用域（三审发现4）。
-_CLAUSE_SPLIT = re.compile(r"[。；;！？!?，,.\n]")
+# 句界含英文 "."，但 file-token 会先被遮蔽再分句；不切顿号"、"，让枚举留同句。
+_SENTENCE_SPLIT = re.compile(r"[。；;！？!?.\n]")
+_SUB_SPLIT = re.compile(r"[，,、]")
 _NEG_TRIGGERS = ("不要", "请勿", "不得", "禁止", "勿使用", "勿引用")
-# 注意不加"别用/别引用"（撞"分别引用"）、"不应用"（撞"应用/application"）
 _NEG_SOFT = ("不能用", "不能引用", "不应引用")
 _SUPPLEMENT = ("只能作为补充", "仅作补充", "只作补充", "只能补充", "作为补充")
-# "不要用 X 代替 Y"：X=禁止替代、Y=被保护（肯定必需）
 _SUBSTITUTE_MARKERS = ("代替", "替代", "冒充", "顶替", "充当", "当作", "当成")
-# 点名（类名/路径）硬约束只在带"引用/根据"等证据指令的子句生效，避免自然问句里的
-# 技术名（如 RabbitMQ）被误当必需点名类（三审发现4）。
-_CITE_DIRECTIVES = ("引用", "根据", "依据", "参照", "参见", "结合")
+_STRONG_DIRECTIVES = ("引用", "参见", "参照", "援引")
+_WEAK_DIRECTIVES = ("根据", "依据", "结合", "基于", "列出", "枚举", "罗列", "给出")
 
-_CLASS = re.compile(r"[A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*")
-_PATHISH = re.compile(
-    r"[\w./\-]+\.(?:java|py|go|kt|sql|yml|yaml|properties|vue|ts|tsx|jsx|md)",
-    re.IGNORECASE,
+# ASCII 边界的 file-token：起始必须是 ASCII 字母/数字/下划线（不吞中文），扩展名 2-11 位。
+_FILE_TOKEN = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./\-]*\.[A-Za-z][A-Za-z0-9]{1,10}")
+# 类名/标识符：首字母大写 + 至少一个小写（PascalCase），排除 ALL_CAPS 常量（NO_ANSWER 等）。
+_IDENT_SYMBOL = re.compile(r"[A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*")
+# "X 类" / "X 文件" → 明确点名（即便 X 是角色词，如 DTO 类）。
+_CLASS_WORD = re.compile(r"([A-Za-z][A-Za-z0-9]*)\s*(?:类|文件)")
+# 泛化角色词（standalone）→ 集合/类别，无法定位具体文件 → unresolved。
+_ROLE_WORDS = (
+    "Repository",
+    "Controller",
+    "Service",
+    "Mapper",
+    "Entity",
+    "DAO",
+    "DTO",
+    "Component",
+    "Configuration",
+    "Handler",
+    "Resolver",
+    "Filter",
+    "Interceptor",
+    "Listener",
+    "Endpoint",
 )
-_SYMBOL_STOP = frozenset({"Java", "JavaScript", "TypeScript", "README", "PROGRESS", "GraphRAG"})
+_ROLE_WORD = re.compile(r"(?<![A-Za-z])(?:" + "|".join(_ROLE_WORDS) + r")(?![A-Za-z])")
+# 集合/枚举量词 → partial_enumeration；模糊指代 → unparsed_target。
+_COLLECTIVE = re.compile(
+    r"(?:每个|每一个|所有|全部|各个|逐个|列出|枚举|穷举|罗列)[^，。；、\n]{0,12}"
+)
+_VAGUE = re.compile(r"(?:某个|某些|某一个|某几个|某项)[^，。；、\n]{0,12}")
+_SYMBOL_STOP = frozenset(
+    {
+        "Java",
+        "JavaScript",
+        "TypeScript",
+        "README",
+        "PROGRESS",
+        "GraphRAG",
+        "Vue",
+        "Spring",
+        "Boot",
+        "Mock",
+    }
+)
 _TEST_SUFFIX = ("Test", "Tests", "IT", "ITs", "Spec")
 
-# 类型关键词 → 类型；每条取子句内首次出现（span + 原文 anchor）。生产源码用受限
-# 的紧邻组合，避免 "生产环境部署" 之类误报。
 _TYPE_PATTERNS: list[tuple[re.Pattern[str], EvidenceType]] = [
     (re.compile(r"设计文档|设计说明"), "design_doc"),
     (re.compile(r"数据库迁移|迁移文件|迁移脚本|迁移\s*SQL|[Ff]lyway"), "migration"),
@@ -228,18 +297,11 @@ _TYPE_PATTERNS: list[tuple[re.Pattern[str], EvidenceType]] = [
 
 
 def _is_forbidding(seg: str) -> bool:
-    if any(t in seg for t in _NEG_TRIGGERS):
-        return True
-    return any(t in seg for t in _NEG_SOFT)
+    return any(t in seg for t in _NEG_TRIGGERS) or any(t in seg for t in _NEG_SOFT)
 
 
 def _is_supplement(seg: str) -> bool:
     return any(t in seg for t in _SUPPLEMENT)
-
-
-def _has_cite_directive(seg: str) -> bool:
-    """子句是否含"引用/根据"等证据指令——点名硬约束仅在此类子句生效。"""
-    return any(d in seg for d in _CITE_DIRECTIVES)
 
 
 def _split_substitution(seg: str) -> tuple[str, str | None]:
@@ -265,16 +327,34 @@ def _detect_type_hits(seg: str) -> list[tuple[int, EvidenceType, str]]:
     return hits
 
 
-def _looks_like_symbol(token: str) -> bool:
-    return token not in _SYMBOL_STOP and _CLASS.fullmatch(token) is not None
+def _has_evidence_context(seg: str) -> bool:
+    """弱指令/延续项是否邻接可解析的证据信号（路径/类型词/角色词/X 类）。"""
+    return bool(
+        _FILE_TOKEN.search(seg)
+        or _detect_type_hits(seg)
+        or _ROLE_WORD.search(seg)
+        or _CLASS_WORD.search(seg)
+    )
+
+
+def _strong_directive_pos(seg: str) -> int:
+    positions = [seg.find(d) for d in _STRONG_DIRECTIVES if d in seg]
+    return min(positions) if positions else -1
+
+
+def _is_activated(seg: str) -> bool:
+    if _strong_directive_pos(seg) != -1:
+        return True
+    return any(d in seg for d in _WEAK_DIRECTIVES) and _has_evidence_context(seg)
+
+
+def _looks_like_list_item(seg: str) -> bool:
+    """延续子句是否像列表项（连接词/空白后紧跟 ASCII 标识符或路径）。"""
+    return re.match(r"^(?:和|与|及|以及|或|、|\s)*[A-Za-z0-9_]", seg) is not None
 
 
 def _infer_symbol_type(symbol: str, seg_types: set[EvidenceType]) -> EvidenceType:
-    """点名类默认按生产源码归类；测试后缀归 test，明显前端上下文归前端。
-
-    绝不把驼峰类名判成 migration/config（那是文件级类型）——修复同句出现
-    "数据库迁移" 时 DocumentService 被误判 migration 的缺陷（复审发现3）。
-    """
+    """点名类默认生产源码；测试后缀归 test；明显前端上下文归前端。绝不判 migration/config。"""
     if symbol.endswith(_TEST_SUFFIX):
         return "test"
     if "frontend_source" in seg_types and "production_source" not in seg_types:
@@ -282,62 +362,107 @@ def _infer_symbol_type(symbol: str, seg_types: set[EvidenceType]) -> EvidenceTyp
     return "production_source"
 
 
-def _detect_named_hits(
-    seg: str, seg_types: set[EvidenceType]
-) -> list[tuple[int, EvidenceType, str, str | None, str | None]]:
-    """返回 (span, type, anchor, path, symbol)。路径优先，类名跳过路径内部片段。"""
-    named: list[tuple[int, EvidenceType, str, str | None, str | None]] = []
-    path_spans: list[tuple[int, int]] = []
-    seen_paths: set[str] = set()
-    for match in _PATHISH.finditer(seg):
-        path = match.group()
-        path_spans.append((match.start(), match.end()))
-        if path in seen_paths:
-            continue
-        seen_paths.add(path)
-        named.append((match.start(), classify_path(path), path, path, None))
-    seen_syms: set[str] = set()
-    for match in _CLASS.finditer(seg):
-        token = match.group()
-        if any(start <= match.start() < end for start, end in path_spans):
-            continue  # 属于已捕获路径的一部分（如 Foo.java 里的 Foo）
-        if not _looks_like_symbol(token) or token in seen_syms:
-            continue
-        seen_syms.add(token)
-        named.append((match.start(), _infer_symbol_type(token, seg_types), token, None, token))
-    return named
+_RawItem = tuple[tuple[int, ...], EvidenceType, str, str | None, str | None]
 
 
-def _collect_positive(
-    clause_index: int,
-    seg: str,
-    raw: list[tuple[tuple[int, int], EvidenceType, str, str | None, str | None]],
-    *,
-    require_directive: bool = True,
+def _extract(
+    key: tuple[int, ...],
+    span: str,
+    seg_types: set[EvidenceType],
+    raw: list[_RawItem],
+    unresolved: list[UnresolvedConstraint],
+    seen_unresolved: set[str],
 ) -> None:
-    """肯定子句 → 追加点名项 + type-only 项（带 (子句序, 局部 span) 排序键）。
+    """从已激活子句提取 resolved items 与 unresolved 约束（key 前缀用于稳定排序）。"""
 
-    点名类/路径默认只在带证据指令（引用/根据）的子句提取，避免自然问句里的技术名
-    成为伪必需项；替代结构 "用 X 代替 Y" 的被保护侧 Y 本身即隐含引用要求，故以
-    ``require_directive=False`` 强制提取，否则 "不要用测试代替 Order.java" 会漏掉
-    Order.java 造成错误 full。
-    """
-    seg_types: set[EvidenceType] = {t for _sp, t, _a in _detect_type_hits(seg)}
-    if not require_directive or _has_cite_directive(seg):
-        for span, etype, anchor, path, symbol in _detect_named_hits(seg, seg_types):
-            raw.append(((clause_index, span), etype, anchor, path, symbol))
-    for span, etype, anchor in _detect_type_hits(seg):
-        raw.append(((clause_index, span), etype, anchor, None, None))
+    def add_unresolved(anchor: str, reason: UnresolvedReason) -> None:
+        anchor = anchor.strip()
+        if anchor and anchor not in seen_unresolved:
+            seen_unresolved.add(anchor)
+            unresolved.append(UnresolvedConstraint(anchor=anchor, reason=reason))
+
+    produced = False
+    consumed_spans: list[tuple[int, int]] = []
+
+    # 1) file tokens：已知扩展名 → resolved path；未知扩展名 → unsupported_syntax
+    for match in _FILE_TOKEN.finditer(span):
+        token = match.group()
+        consumed_spans.append((match.start(), match.end()))
+        produced = True
+        ext = token.rsplit(".", 1)[-1].lower()
+        if ext in _KNOWN_EXTS:
+            raw.append(((*key, match.start()), classify_path(token), token, token, None))
+        else:
+            add_unresolved(token, "unsupported_syntax")
+
+    # 2) "X 类 / X 文件" → 明确点名 symbol（含 DTO 类等缩写）
+    for match in _CLASS_WORD.finditer(span):
+        if any(s <= match.start() < e for s, e in consumed_spans):
+            continue
+        consumed_spans.append((match.start(), match.end()))
+        symbol = match.group(1)
+        if symbol in _SYMBOL_STOP:
+            continue
+        produced = True
+        raw.append(
+            ((*key, match.start()), _infer_symbol_type(symbol, seg_types), symbol, None, symbol)
+        )
+
+    # 3) 独立角色词（Repository/Controller/DTO…）→ 集合/类别 → unresolved
+    #    标记已消费，避免 step 4 又把它当作已解析 symbol。
+    for match in _ROLE_WORD.finditer(span):
+        if any(s <= match.start() < e for s, e in consumed_spans):
+            continue
+        consumed_spans.append((match.start(), match.end()))
+        produced = True
+        add_unresolved(match.group(), "unparsed_target")
+
+    # 4) PascalCase 标识符 symbol（排除已消费片段与 stop 词）
+    for match in _IDENT_SYMBOL.finditer(span):
+        token = match.group()
+        if any(s <= match.start() < e for s, e in consumed_spans):
+            continue
+        if token in _SYMBOL_STOP:
+            continue
+        consumed_spans.append((match.start(), match.end()))
+        produced = True
+        raw.append(
+            ((*key, match.start()), _infer_symbol_type(token, seg_types), token, None, token)
+        )
+
+    # 5) 集合/枚举量词 → partial_enumeration；模糊指代 → unparsed_target
+    for match in _COLLECTIVE.finditer(span):
+        produced = True
+        add_unresolved(match.group(), "partial_enumeration")
+    for match in _VAGUE.finditer(span):
+        produced = True
+        add_unresolved(match.group(), "unparsed_target")
+
+    # 6) 类型词 → type-only item
+    for local_span, etype, anchor in _detect_type_hits(span):
+        produced = True
+        raw.append(((*key, local_span), etype, anchor, None, None))
+
+    # 7) fail-closed 兜底：强指令激活但完全没解析出任何目标 → 视为未解析目标
+    if not produced:
+        pos = _strong_directive_pos(span)
+        if pos != -1:
+            obj = span[pos:]
+            for d in _STRONG_DIRECTIVES:
+                if span.startswith(d, pos):
+                    obj = span[pos + len(d) :]
+                    break
+            add_unresolved(obj.strip(" 的了：:，,。")[:30], "unparsed_target")
 
 
 def parse_required_evidence(question: str) -> RequiredEvidence:
-    """确定性解析 → 权威 RequiredEvidenceItem[] + 禁止替代类型。"""
+    """确定性解析 → 权威 items + 禁止替代类型 + unresolved 约束（三态 fail-closed）。"""
     forbidden: list[EvidenceType] = []
-    raw: list[tuple[tuple[int, int], EvidenceType, str, str | None, str | None]] = []
+    raw: list[_RawItem] = []
+    unresolved: list[UnresolvedConstraint] = []
+    seen_unresolved: set[str] = set()
 
-    # 先把路径 token（含扩展名的 a/b/Foo.java）遮蔽成无点的占位符，再按句界（含英文
-    # "."）分句，最后逐子句还原——既保护显式路径不被句点截断，又让 "不要引用测试.
-    # 请引用 X" 的否定停在句号处、不跨句污染（三审发现1）。
+    # 先遮蔽 file-token（无点占位符），保护显式路径不被句点截断、否定不跨句。
     placeholders: dict[str, str] = {}
 
     def _mask(match: re.Match[str]) -> str:
@@ -345,33 +470,45 @@ def parse_required_evidence(question: str) -> RequiredEvidence:
         placeholders[key] = match.group()
         return key
 
-    masked = _PATHISH.sub(_mask, question)
+    masked = _FILE_TOKEN.sub(_mask, question)
 
-    for clause_index, segment in enumerate(_CLAUSE_SPLIT.split(masked)):
-        seg = segment
-        for key, value in placeholders.items():
-            if key in seg:
-                seg = seg.replace(key, value)
-        seg = seg.strip()
-        if not seg:
-            continue
-        if _is_forbidding(seg):
-            x_side, y_side = _split_substitution(seg)
-            for _sp, etype, _a in _detect_type_hits(x_side):
-                if etype not in forbidden:
-                    forbidden.append(etype)
-            if y_side is not None:  # 被保护的一侧是肯定必需（替代结构即隐含引用要求）
-                _collect_positive(clause_index, y_side, raw, require_directive=False)
-            continue
-        if _is_supplement(seg):
-            for _sp, etype, _a in _detect_type_hits(seg):
-                if etype not in forbidden:
-                    forbidden.append(etype)
-            continue
-        _collect_positive(clause_index, seg, raw)
+    def _restore(text: str) -> str:
+        for placeholder, value in placeholders.items():
+            if placeholder in text:
+                text = text.replace(placeholder, value)
+        return text
+
+    for si, sentence in enumerate(_SENTENCE_SPLIT.split(masked)):
+        mode_positive = False
+        for bi, raw_sub in enumerate(_SUB_SPLIT.split(sentence)):
+            sub = _restore(raw_sub).strip()
+            if not sub:
+                continue
+            seg_types: set[EvidenceType] = {t for _s, t, _a in _detect_type_hits(sub)}
+            if _is_forbidding(sub):
+                mode_positive = False
+                x_side, y_side = _split_substitution(sub)
+                for _s, etype, _a in _detect_type_hits(x_side):
+                    if etype not in forbidden:
+                        forbidden.append(etype)
+                if y_side is not None:  # 被保护侧是肯定必需（替代结构即隐含引用要求）
+                    y_types: set[EvidenceType] = {t for _s, t, _a in _detect_type_hits(y_side)}
+                    _extract((si, bi), y_side, y_types, raw, unresolved, seen_unresolved)
+                continue
+            if _is_supplement(sub):
+                mode_positive = False
+                for _s, etype, _a in _detect_type_hits(sub):
+                    if etype not in forbidden:
+                        forbidden.append(etype)
+                continue
+            if _is_activated(sub):
+                mode_positive = True
+                _extract((si, bi), sub, seg_types, raw, unresolved, seen_unresolved)
+            elif mode_positive and (_has_evidence_context(sub) or _looks_like_list_item(sub)):
+                _extract((si, bi), sub, seg_types, raw, unresolved, seen_unresolved)
+            # 否则：无指令、非延续 → 不产生约束
 
     raw.sort(key=lambda item: item[0])
-    # 有具体点名（路径/符号）的类型 → 丢弃该类型的 type-only 项，避免重复覆盖计数。
     named_types = {
         etype for _k, etype, _a, path, symbol in raw if path is not None or symbol is not None
     }
@@ -380,7 +517,7 @@ def parse_required_evidence(question: str) -> RequiredEvidence:
     items: list[RequiredEvidenceItem] = []
     for _key, etype, anchor, path, symbol in raw:
         if symbol is None and path is None and etype in named_types:
-            continue
+            continue  # 该类型已有具体点名，丢弃 type-only
         dedup_key = (etype, path, symbol)
         if dedup_key in seen:
             continue
@@ -393,29 +530,24 @@ def parse_required_evidence(question: str) -> RequiredEvidence:
     return RequiredEvidence(
         items=tuple(items),
         forbidden_substitute_types=tuple(dict.fromkeys(forbidden)),
+        unresolved_constraints=tuple(unresolved),
     )
 
 
-# ---- 确定性覆盖 matcher --------------------------------------------------
+# ---- 确定性覆盖 matcher（只处理 resolved items；大小写敏感） -----------------
 
 
 def _item_matches(item: RequiredEvidenceItem, rel_path: str) -> bool:
     if classify_path(rel_path) != item.type:
         return False
-    lower = rel_path.lower()
-    base = lower.rsplit("/", 1)[-1]
+    base = rel_path.rsplit("/", 1)[-1]
     stem = base.rsplit(".", 1)[0]
     if item.symbol is not None:
-        # 精确文件名匹配（Java 惯例：public 类与文件同名）。用子串会让
-        # ReorderServiceLog.java 误配 OrderService，制造新的错误 full；从严更安全。
-        return item.symbol.lower() == stem
+        return item.symbol == stem  # 大小写敏感（Java 惯例：public 类与文件同名）
     if item.path is not None:
-        wanted = item.path.lower()
-        if "/" in wanted:
-            # 含目录的显式路径：完整路径或按目录边界的后缀匹配
-            return lower == wanted or lower.endswith("/" + wanted)
-        # 裸文件名：basename 全等（杜绝 foo.java ⊂ notfoo.java 的子串误配）
-        return base == wanted
+        if "/" in item.path:
+            return rel_path == item.path or rel_path.endswith("/" + item.path)
+        return base == item.path  # 裸文件名 basename 全等（大小写敏感）
     return True  # type-only：类型已匹配即可
 
 
@@ -423,7 +555,7 @@ def compute_coverage(
     required: RequiredEvidence,
     cited: Iterable[tuple[str, str]],
 ) -> tuple[CoverageEntry, ...]:
-    """按真实引用 (evidence_id, rel_path) 逐项算权威覆盖矩阵。"""
+    """按真实引用 (evidence_id, rel_path) 逐项算权威覆盖矩阵（不含 unresolved）。"""
     cited_list = list(cited)
     entries: list[CoverageEntry] = []
     for item in required.items:
@@ -444,3 +576,8 @@ def uncovered_items(
 
 def all_required_covered(coverage: tuple[CoverageEntry, ...]) -> bool:
     return all(entry.covered for entry in coverage)
+
+
+def required_satisfied(required: RequiredEvidence, coverage: tuple[CoverageEntry, ...]) -> bool:
+    """full 的必要条件：resolved 全覆盖 **且** 无 unresolved（结构性 fail-closed）。"""
+    return not required.unresolved_constraints and all_required_covered(coverage)

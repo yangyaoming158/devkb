@@ -293,3 +293,83 @@ def test_substitution_protected_named_side_is_required_without_directive() -> No
     assert not all_required_covered(
         compute_coverage(r, [("E1", "backend/src/test/java/OrderTest.java")])
     )
+
+
+# ---- 第四轮复审：分类大小写、匹配大小写、单词类名、后缀、枚举、弱指令 ----
+
+
+@pytest.mark.parametrize(
+    ("rel_path", "expected"),
+    [
+        # 发现5：lower() 后 endswith("test.java") 的伪命中——生产目录优先
+        ("backend/src/main/java/Contest.java", "production_source"),
+        ("backend/src/main/java/Latest.java", "production_source"),
+        ("backend/src/main/java/OrderTest.java", "production_source"),
+        ("backend/src/test/java/Order.java", "test"),
+        ("OrderTest.java", "test"),
+        # 后缀对齐：P1.5 识别但未摄取的显式后缀也要能分类
+        ("db/migration/V2__x.sql", "migration"),
+        ("frontend/src/App.vue", "frontend_source"),
+        ("frontend/src/main.ts", "frontend_source"),
+        ("docs/notes.txt", "other"),
+    ],
+)
+def test_classify_path_case_sensitive_and_dir_priority(rel_path: str, expected: str) -> None:
+    assert classify_path(rel_path) == expected
+
+
+def test_ingested_ext_lexer_matches_supported_suffixes() -> None:
+    # 防漂移：required-path lexer 的"已摄取后缀"集合必须与 ingest.SUPPORTED_SUFFIXES 对齐
+    from devkb.agent.evidence_types import _INGESTED_EXTS
+    from devkb.ingest.pipeline import SUPPORTED_SUFFIXES
+
+    assert {s.lstrip(".") for s in SUPPORTED_SUFFIXES} == _INGESTED_EXTS
+
+
+def test_path_and_symbol_match_is_case_sensitive() -> None:
+    # 发现6：ext4 大小写敏感，Foo.java / foo.java / NotFoo.java 互不覆盖
+    r = parse_required_evidence("请引用 Foo.java。")
+    assert not all_required_covered(compute_coverage(r, [("E1", "x/foo.java")]))
+    assert not all_required_covered(compute_coverage(r, [("E1", "x/NotFoo.java")]))
+    assert all_required_covered(compute_coverage(r, [("E1", "x/Foo.java")]))
+
+
+def test_single_word_and_abbrev_class_names_resolve() -> None:
+    # 发现3：单词类名 Order、缩写 URLParser、"X 类" 都要成为逐项 symbol
+    assert "Order" in _symbols(parse_required_evidence("请引用 Order 类的生产实现。"))
+    assert "URLParser" in _symbols(parse_required_evidence("请引用 URLParser 的实现代码。"))
+    assert "DTO" in _symbols(parse_required_evidence("请引用 DTO 类。"))
+
+
+def test_comma_enumeration_keeps_all_targets() -> None:
+    # 发现2：逗号/顿号列表在同一证据指令下不得丢目标
+    r1 = parse_required_evidence("请引用 Foo.java，Bar.java。")
+    assert {i.path for i in r1.items if i.path} == {"Foo.java", "Bar.java"}
+    r2 = parse_required_evidence("请引用 OrderService，CitationParser 的生产实现。")
+    assert {"OrderService", "CitationParser"} <= _symbols(r2)
+
+
+def test_explicit_txt_path_is_required() -> None:
+    # 发现4：.txt 是受支持后缀，必须成为必需路径
+    r = parse_required_evidence("请引用 docs/notes.txt。")
+    assert "docs/notes.txt" in {i.path for i in r.items if i.path}
+    assert not all_required_covered(
+        compute_coverage(r, [("E1", "backend/src/test/java/FooTest.java")])
+    )
+
+
+def test_weak_directive_needs_evidence_context() -> None:
+    # 弱指令（根据/结合）只有邻接证据类型词/路径/X类 才进入约束解析
+    assert parse_required_evidence("系统根据 OrderStatus 如何选择分支？").items == ()
+    assert parse_required_evidence("OrderService 如何结合 RabbitMQ 实现异步处理？").items == ()
+    # 但 "根据 OrderService 的生产源码" 是明确证据约束
+    r = parse_required_evidence("请根据 OrderService 的生产源码说明处理流程。")
+    assert "OrderService" in _symbols(r)
+    assert "production_source" in _types(r)
+
+
+def test_role_word_category_is_unresolved_not_resolved_symbol() -> None:
+    # 泛化角色词（Repository/Controller/DTO）作为集合要求 → 不得当已解析 symbol
+    r = parse_required_evidence("请引用生产 Repository 实现。")
+    assert "Repository" not in _symbols(r)
+    assert r.status == "ambiguous"

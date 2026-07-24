@@ -9,7 +9,7 @@ import uuid
 
 from devkb.agent.graph import run_agent
 from devkb.agent.nodes import AgentRuntime
-from devkb.agent.state import AgentInput, Evidence
+from devkb.agent.state import AgentInput, AgentState, Evidence
 from devkb.llm import FakeLLM
 
 PLAN = '{"intent":"knowledge_qa","queries":["订单校验"]}'
@@ -146,3 +146,68 @@ async def test_evaluate_coverage_evidence_omission_is_mismatch() -> None:
     )
     assert any("evaluate:coverage_mismatch" in w for w in result["warnings"])
     assert result["final_mode"] == "full"  # 确定性覆盖成立，诊断不改判
+
+
+# ---- 第四轮复审 §五.A：图级错误 full 反例（结构性 fail-closed） ----
+
+# 每条：确定性覆盖缺口/unresolved 必须驱动一次补检，最终不得 full。补检轮脚本
+# plan→evaluate→refine→evaluate→generate。
+_SCRIPT5: list[str | Exception] = [PLAN, EVAL_OK, REFINE, EVAL_OK, GEN]
+
+
+async def _run5(question: str, cited_rel_path: str) -> AgentState:
+    return await run_agent(_runtime(_SCRIPT5, cited_rel_path), _input(question))
+
+
+async def test_gA1_negation_period_no_space_test_only_not_full() -> None:
+    result = await _run5("不要引用测试.请引用Foo.java。", "backend/src/test/java/foo/FooTest.java")
+    # 解析必须是干净的 Foo.java，而非把"请引用Foo.java"整段吞成路径
+    assert "Foo.java" in {i.path for i in result["required_evidence"].items if i.path}
+    assert result["final_mode"] == "partial"
+
+
+async def test_gA2_comma_enumeration_partial_citation_not_full() -> None:
+    result = await _run5("请引用 Foo.java，Bar.java。", "backend/src/main/java/foo/Foo.java")
+    assert "refine" in result["node_history"]
+    assert result["final_mode"] == "partial"
+
+
+async def test_gA3_named_enumeration_partial_citation_not_full() -> None:
+    result = await _run5(
+        "请引用 OrderService，CitationParser 的生产实现。",
+        "backend/src/main/java/svc/OrderService.java",
+    )
+    assert "refine" in result["node_history"]
+    assert result["final_mode"] == "partial"
+
+
+async def test_gA4_single_word_class_wrong_file_not_full() -> None:
+    result = await _run5("请引用 Order 类的生产实现。", "backend/src/main/java/foo/Foo.java")
+    assert "refine" in result["node_history"]
+    assert result["final_mode"] == "partial"
+
+
+async def test_gA5_txt_path_required_test_evidence_not_full() -> None:
+    result = await _run5("请引用 docs/notes.txt。", "backend/src/test/java/FooTest.java")
+    assert "refine" in result["node_history"]
+    assert result["final_mode"] == "partial"
+
+
+async def test_gA6_test_required_but_production_cited_not_full() -> None:
+    # "对应测试" → test 必需；只引生产 Contest.java（大小写不得伪命中 test）→ 不 full
+    result = await _run5("请引用对应测试。", "backend/src/main/java/Contest.java")
+    assert "refine" in result["node_history"]
+    assert result["final_mode"] == "partial"
+
+
+async def test_gA7_case_mismatch_not_full() -> None:
+    result = await _run5("请引用 Foo.java。", "backend/src/main/java/foo/foo.java")
+    assert "refine" in result["node_history"]  # 大小写敏感 → 覆盖缺口 → 补检
+    assert result["final_mode"] == "partial"
+
+
+async def test_gA8_resolved_plus_unresolved_target_not_full() -> None:
+    # Foo.java 已引用，但"某个关键实现"未解析 → unresolved → 缺口 → 补检 → 最高 partial
+    result = await _run5("请引用 Foo.java 和某个关键实现。", "backend/src/main/java/foo/Foo.java")
+    assert "refine" in result["node_history"]
+    assert result["final_mode"] == "partial"

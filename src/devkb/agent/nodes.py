@@ -16,8 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from devkb.agent import prompts
 from devkb.agent.evidence_types import (
     TYPE_LABELS,
-    all_required_covered,
     compute_coverage,
+    required_satisfied,
     uncovered_items,
 )
 from devkb.agent.state import (
@@ -418,7 +418,9 @@ class AgentNodes:
                 uncovered_hints=[
                     item.symbol or item.path or item.anchor
                     for item in uncovered_items(state["required_evidence"], state["coverage"])
-                ],
+                ]
+                # unresolved 约束的原文 anchor 也进补检提示（结构性 fail-closed 缺口）
+                + [uc.anchor for uc in state["required_evidence"].unresolved_constraints],
             ),
             schema=RefineOutput,
             default=default,
@@ -546,8 +548,10 @@ class AgentNodes:
         else:
             answer, _, l0_warnings = apply_l0(draft.answer_text, len(state["evidences"]))
             warnings.extend(l0_warnings)
-            # T22.2 full 硬约束：逐项确定性覆盖——每条必需证据（含点名类/路径）都须有
-            # 匹配的直接引用；测试/设计/历史材料因类型不同无法替代必需生产证据。
+            # T22 full 硬约束（结构性 fail-closed）：逐项确定性覆盖——每条已解析必需证据
+            # 都须有匹配的直接引用，且无 unresolved 约束（解析器漏检/部分解析时绝不 full）。
+            # 测试/设计/历史材料因类型不同无法替代必需生产证据。
+            required = state["required_evidence"]
             evidence_by_id = {ev.evidence_id: ev for ev in state["evidences"]}
             cited = [
                 (evidence_id, evidence_by_id[evidence_id].rel_path)
@@ -555,15 +559,15 @@ class AgentNodes:
                 for evidence_id in claim.evidence_ids
                 if evidence_id in evidence_by_id
             ]
-            final_coverage = compute_coverage(state["required_evidence"], cited)
-            uncovered = uncovered_items(state["required_evidence"], final_coverage)
+            final_coverage = compute_coverage(required, cited)
+            uncovered = uncovered_items(required, final_coverage)
             if (
                 evaluation is not None
                 and evaluation.sufficiency == "sufficient"
                 and kept
                 and not draft.not_found
                 and verification_ok
-                and all_required_covered(final_coverage)
+                and required_satisfied(required, final_coverage)
             ):
                 mode = "full"
             else:
@@ -581,6 +585,20 @@ class AgentNodes:
                     warnings.append(
                         "finalize: 必需证据未覆盖，降级 partial（"
                         + ",".join(item.item_id for item in uncovered)
+                        + "）"
+                    )
+                if required.unresolved_constraints:
+                    # 未解析/部分解析的显式约束 → 确定性限制说明；不静默降级
+                    anchors = "、".join(uc.anchor for uc in required.unresolved_constraints)
+                    note = (
+                        f"用户要求的部分证据目标无法确定性定位（{anchors}）；"
+                        "当前证据不足以穷举确认，最高 partial"
+                    )
+                    if note not in not_found:
+                        not_found = [*not_found, note]
+                    warnings.append(
+                        "finalize: 存在未解析证据约束，降级 partial（"
+                        + ",".join(uc.reason for uc in required.unresolved_constraints)
                         + "）"
                     )
         if mode == "refusal":

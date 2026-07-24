@@ -866,3 +866,18 @@
 - **自查补洞**：修完后我主动构造"不要用测试代替 Order.java"（替代 Y 侧裸文件名、无指令），发现 Y 侧漏提取→required 空→仍错误 full；即改为 Y 侧强制点名提取并补测试。这是这轮第一次在提交前自己先把组合场景跑穿。
 - 未改 Prompt，`PROMPT_VERSION`/快照 SHA 不变。全绿：`make ci`（ruff/pyright 0、pytest 339）、`make eval-ci`（65+19）；P0/P1 兼容。跨 5 个 `PYTHONHASHSEED` 的 item_id→type 仍完全一致。
 - 勾选纪律：三审后 T22.1/T22.2/T22.3 **全部暂不勾选**，待第四轮独立复审确认。证据 commit：本提交。
+
+## 2026-07-25 · P1.5 T22 结构性 fail-closed（第四轮复审：停止堆正则）
+
+- 三次整改（a6583f8）经**第四轮复审**又发现 5 处组合错误 full（+我自查 1 处），且核心判断是"窄修正则治标不治本"。前三轮的定向修复本身有效（Foo.java≠NotFoo.java、否定作用域、可信目录、生产配置、大小写…都仍成立），但只要解析器**漏检某个显式约束**，空/不完整 required 就让 full 门自动放行——这是所有错误 full 的同一根因。用户裁决：**改用结构性防御**，把安全性从"正则召回率"转为"结构保证"。
+- **新结构（确定性三态 + unresolved 硬门）**：`RequiredEvidence` 增 `unresolved_constraints`（严格 Pydantic：原文 anchor + reason∈{unparsed_target, partial_enumeration, unsupported_syntax}）与派生属性 `status`（none/complete/ambiguous）。`full` 必要条件改为 `required_satisfied` = 每个 resolved item 被直接引用覆盖 **且** unresolved 为空；`route_after_evaluate` 把 unresolved 也当覆盖缺口优先 refine（anchor 进补检查询）；`finalize` 仍有 unresolved 时最高 partial（保留 claims + 确定性限制说明，不静默降级）。`compute_coverage` 只处理 resolved items，**绝不**用 type=other 伪造可被任意文件满足的 item。关键性质：解析器 under-detect 显式约束时，要么进 items（须被覆盖）要么进 unresolved（硬关 full），**不再有"漏检=放行"**。
+- **解析重写（防组合错误 full）**：
+  - 发现1 无空格中文被吞：file-token 改**ASCII 边界**扫描器（起始必须 ASCII 字母/数字/下划线，扩展名 2-11 位），先遮蔽再按句界（含英文 `.`）分句、逐子句还原——"请引用Foo.java说明"得到干净 `Foo.java`，"Foo.java和Bar.java"分成两个。
+  - 发现2 逗号枚举丢目标：句号/分号/换行是强句界，逗号/顿号是同指令下列表连接符；后续子句作为**延续**解析（不要求重复指令）——"引用 Foo.java，Bar.java" 两个都必需。
+  - 发现3 单词/缩写类名：symbol 正则放宽为 PascalCase（首大写+≥1 小写，排除 ALL_CAPS 常量），`Order`/`URLParser` 可解析；`X 类/X 文件` 明确点名（含 `DTO 类`）；泛化角色词(Repository/Controller/DTO 独立出现)与集合/模糊量词(每个/所有/列出/某个)→**unresolved**，不假装已完整解析。
+  - 发现4 后缀不全：lexer 已摄取后缀集合与 `ingest.SUPPORTED_SUFFIXES` 对齐（有防漂移单测），另加 P1.5 识别未摄取的 `.sql/.vue/.ts/.tsx`；未知扩展名的显式路径→`unsupported_syntax` unresolved，不退化空 required。
+  - 发现5 test 大小写伪命中：`classify_path` 明确目录优先级——test 目录 > 生产目录(src/main) > `*Test/*Tests/*IT/*Spec` **大小写敏感**命名约定；`Contest/Latest`(main)、`OrderTest.java`(main)→production_source，`src/test/Order.java`、根级 `OrderTest.java`→test。
+  - 发现6 匹配大小写：`_item_matches` 的 path/basename/symbol 身份比较改**大小写敏感**（分类仍可小写）；Foo.java/foo.java/NotFoo.java 互不覆盖。
+  - **指令作用域**（防自然问句误判）：强指令(引用/参见/参照)直接激活；弱指令(根据/依据/结合/列出…)仅在邻接路径/证据类型词/角色词/`X 类` 时激活——"OrderService 如何结合 RabbitMQ" / "系统根据 OrderStatus" → 无约束；"根据 OrderService 的生产源码" → 有约束。
+- **纪律**：先红后绿——§五.A 图级 8 反例、分类/parser 参数化、自然问法、§五.D 结构不变量（空格无关、增量不减、hashseed 一致、anchor 原文子串）均先在 a6583f8 确认失败再实现。提交前自己又构造组合（未知 ext+已知 ext、集合+具体、参照+连接、多重否定）跑穿。`AGENT_STATE_SCHEMA_VERSION`→v3（RequiredEvidence 形状变化）；Prompt 未改，`PROMPT_VERSION`/快照 SHA 不变。`make ci` 376、`make eval-ci` 65+19 全绿；P0/P1 兼容；跨 5 PYTHONHASHSEED items+unresolved 完全一致。
+- 勾选纪律：T22.1/T22.2/T22.3 **仍全部不勾选**，待下一轮独立复审确认。证据 commit：本提交。
