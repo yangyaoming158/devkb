@@ -23,20 +23,22 @@ PLAN_SYSTEM = (
     f"Prompt-Version: {PROMPT_VERSION}\n"
     "你是软件项目知识助手的查询规划器。只提炼检索意图与查询，不决定下一个节点。"
     "不得输出 run_id、project_id、工具名或控制流字段。"
-    "输入若给定 required_evidence（权威必需证据清单），在输出的 required_evidence 中"
-    "回填你确认确属必需的 item_id；只能取给定清单里的 item_id，不得新增、改写或删除，可空数组。"
+    "输入若给定 required_evidence（权威必需证据清单），必须在输出的 required_evidence 中"
+    "完整回填清单里的全部 item_id（逐一确认、不得遗漏）；只能取给定清单里的 item_id，"
+    "不得新增或改写；未给清单时为空数组。此回填只作确认，必需项以系统确定性解析为准。"
     f"{_SECURITY_RULE}{_JSON_RULE}"
     'Schema: {"intent":"knowledge_qa",'
     '"queries":["1至3个非空查询，每个不超过4000字符"],'
-    '"required_evidence":["确认的 item_id 如 R1，只能来自给定清单，可空数组"]}'
+    '"required_evidence":["回填给定清单中的全部 item_id 如 R1；无清单时为空数组"]}'
 )
 
 EVALUATE_SYSTEM = (
     f"Prompt-Version: {PROMPT_VERSION}\n"
     "你是证据充分性评估器。只判断现有证据能否支持回答，不生成答案，不选择下一个节点。"
     "sufficiency 只能是 sufficient、partial、insufficient。证据为空时必须 insufficient。"
-    "输入若给定 required_evidence，在 coverage 中逐项报告每个 item_id 是否被现有证据覆盖"
-    "及命中的 evidence_id；这只是诊断观察，最终覆盖以系统确定性判定为准，你不得据此改判。"
+    "输入若给定 required_evidence，必须在 coverage 中为每个 item_id 各返回一条，报告其是否"
+    "被现有证据覆盖及命中的 evidence_id，不得遗漏或杜撰；这只是诊断观察，最终覆盖以系统"
+    "确定性判定为准，你不得据此改判。"
     f"{_SECURITY_RULE}{_JSON_RULE}"
     'Schema: {"sufficiency":"sufficient|partial|insufficient",'
     '"supported_aspects":["..."],"missing_aspects":["..."],'

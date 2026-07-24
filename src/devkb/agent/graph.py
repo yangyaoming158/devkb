@@ -47,8 +47,12 @@ def can_refine(state: AgentState) -> bool:
     )
 
 
+def _can_generate(state: AgentState) -> bool:
+    return remaining_llm_requests(state) >= 1 and state["generate_calls"] < MAX_GENERATE_CALLS
+
+
 def route_after_evaluate(state: AgentState) -> RouteAfterEvaluate:
-    """只读取 schema 枚举、证据、轮次和预算；LLM 不能返回节点名。"""
+    """只读取 schema 枚举、证据、确定性覆盖、轮次和预算；LLM 不能返回节点名。"""
     evaluation = state["evaluation"]
     if evaluation is None:
         return "finalize"
@@ -56,20 +60,18 @@ def route_after_evaluate(state: AgentState) -> RouteAfterEvaluate:
     # 也必须按 insufficient 路径补检或拒答，不能生成零证据 full 回答。
     if not state["evidences"]:
         return "refine" if can_refine(state) else "finalize"
+    # 确定性覆盖缺口（权威，非 LLM 自报）：必需证据未被现有引用覆盖时，只要预算允许
+    # 就优先补检，即便 LLM 判 sufficient 也不能直接生成——full 门只认确定性覆盖，
+    # 跳过补检只会产出注定降级的 partial（T22 复审发现4）。
+    required_gap = any(not entry.covered for entry in state["coverage"])
+    if required_gap and can_refine(state):
+        return "refine"
     if evaluation.sufficiency == "sufficient":
-        return (
-            "generate"
-            if remaining_llm_requests(state) >= 1 and state["generate_calls"] < MAX_GENERATE_CALLS
-            else "finalize"
-        )
+        return "generate" if _can_generate(state) else "finalize"
     if can_refine(state):
         return "refine"
     if evaluation.sufficiency == "partial" and state["evidences"]:
-        return (
-            "generate"
-            if remaining_llm_requests(state) >= 1 and state["generate_calls"] < MAX_GENERATE_CALLS
-            else "finalize"
-        )
+        return "generate" if _can_generate(state) else "finalize"
     return "finalize"
 
 

@@ -11,6 +11,15 @@
 - ``compute_coverage``：确定性 matcher，按真实引用逐项算覆盖矩阵。full 门、refine
   缺口、finalize 只读这里的结果；LLM 的覆盖报告只作诊断（见 nodes）。
 
+第二轮复审整改（2026-07-24）：
+- 子句切分不再切英文 ``.``，显式路径（``a/b/Foo.java``）不被截断；路径匹配改按
+  完整路径后缀 / 裸文件名 basename 全等，杜绝 ``Foo.java`` 子串误配 ``NotFoo.java``。
+- 否定作用域改子句内 "用 X 代替 Y"：X→禁止替代、Y→肯定必需；禁止类型不再删除
+  其它子句显式产生的必需项。
+- 类型检测按**原文位置排序**产出 (type, 原文 anchor, span)，item_id 依位置稳定，
+  不再用无序 set 决定顺序；点名类默认 production_source（永不因同句"数据库迁移"
+  被误判 migration）。
+
 全部零 LLM、仓库无关、可单测。
 """
 
@@ -171,11 +180,17 @@ class CoverageEntry(BaseModel):
 
 # ---- 解析 ----------------------------------------------------------------
 
-_CLAUSE_SPLIT = re.compile(r"[。；;.!？?！\n，,]")
+# 注意：不切英文 "."，否则 backend/.../Foo.java 会被截成 "Foo" 与 "java"，
+# 显式路径退化为 type-only 从而制造错误 full（第二轮复审发现1）。中文问题里
+# 句子边界是 。；！？ 与换行、分号、逗号、顿号。
+_CLAUSE_SPLIT = re.compile(r"[。；;！？!?、，,\n]")
 _NEG_TRIGGERS = ("不要", "请勿", "不得", "禁止", "勿使用", "勿引用")
 # 注意不加"别用/别引用"（撞"分别引用"）、"不应用"（撞"应用/application"）
 _NEG_SOFT = ("不能用", "不能引用", "不应引用")
 _SUPPLEMENT = ("只能作为补充", "仅作补充", "只作补充", "只能补充", "作为补充")
+# "不要用 X 代替 Y"：X=禁止替代、Y=被保护（肯定必需）
+_SUBSTITUTE_MARKERS = ("代替", "替代", "冒充", "顶替", "充当", "当作", "当成")
+
 _CLASS = re.compile(r"[A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*")
 _PATHISH = re.compile(
     r"[\w./\-]+\.(?:java|py|go|kt|sql|yml|yaml|properties|vue|ts|tsx|jsx|md)",
@@ -183,6 +198,28 @@ _PATHISH = re.compile(
 )
 _SYMBOL_STOP = frozenset({"Java", "JavaScript", "TypeScript", "README", "PROGRESS", "GraphRAG"})
 _TEST_SUFFIX = ("Test", "Tests", "IT", "ITs", "Spec")
+
+# 类型关键词 → 类型；每条取子句内首次出现（span + 原文 anchor）。生产源码用受限
+# 的紧邻组合，避免 "生产环境部署" 之类误报。
+_TYPE_PATTERNS: list[tuple[re.Pattern[str], EvidenceType]] = [
+    (re.compile(r"设计文档|设计说明"), "design_doc"),
+    (re.compile(r"数据库迁移|迁移文件|迁移脚本|迁移\s*SQL|[Ff]lyway"), "migration"),
+    (re.compile(r"配置文件|application\.ya?ml|docker-compose"), "production_config"),
+    (
+        re.compile(
+            r"前端源码|前端组件|前端代码|TypeScript|\.vue|\.tsx|(?<![A-Za-z])Vue(?![A-Za-z])"
+        ),
+        "frontend_source",
+    ),
+    (re.compile(r"计划文档|规划文档|路线图"), "historical_plan"),
+    (re.compile(r"开发日志|dev-?log"), "dev_log"),
+    (
+        re.compile(r"生产[^，。；、\n]{0,8}?(?:源码|实现|代码)|实现代码|Java\s*实现|src/main"),
+        "production_source",
+    ),
+    (re.compile(r"README|PROGRESS|当前文档"), "current_doc"),
+    (re.compile(r"测试"), "test"),
+]
 
 
 def _is_forbidding(seg: str) -> bool:
@@ -195,56 +232,27 @@ def _is_supplement(seg: str) -> bool:
     return any(t in seg for t in _SUPPLEMENT)
 
 
-def _detect_types(seg: str) -> set[EvidenceType]:
-    s = seg
-    sl = seg.lower()
-    types: set[EvidenceType] = set()
-    if "设计文档" in s or "设计说明" in s:
-        types.add("design_doc")
-    if (
-        "数据库迁移" in s
-        or "迁移文件" in s
-        or "flyway" in sl
-        or "migration" in sl
-        or ("迁移" in s and any(w in s for w in ("数据库", "schema", "sql", "SQL", ".sql")))
-    ):
-        types.add("migration")
-    if (
-        "配置文件" in s
-        or "application.yml" in sl
-        or "application.yaml" in sl
-        or "docker-compose" in sl
-        or "compose" in sl
-    ):
-        types.add("production_config")
-    if (
-        any(w in s for w in ("Vue", "TypeScript", "前端源码", "前端组件"))
-        or ".vue" in sl
-        or ".tsx" in sl
-    ):
-        types.add("frontend_source")
-    if "计划文档" in s or "规划文档" in s or "路线图" in s:
-        types.add("historical_plan")
-    if "测试" in s:
-        types.add("test")
-    if "dev-log" in sl or "devlog" in sl or "开发日志" in s:
-        types.add("dev_log")
-    if (
-        (
-            "生产" in s
-            and any(
-                w in s
-                for w in ("源码", "实现", "代码", "Java", "Repository", "Controller", "方法", "类")
-            )
-        )
-        or (("Java" in s or "java" in sl) and any(w in s for w in ("实现", "源码", "代码")))
-        or "src/main" in sl
-        or any(w in s for w in ("生产源码", "生产实现", "生产代码", "实现代码"))
-    ):
-        types.add("production_source")
-    if "README" in s or "readme" in sl or "PROGRESS" in s:
-        types.add("current_doc")
-    return types
+def _split_substitution(seg: str) -> tuple[str, str | None]:
+    """禁止子句里的 "X 代替 Y" → (X 段, Y 段)；无替代标记则 (整句, None)。"""
+    best: tuple[int, str] | None = None
+    for marker in _SUBSTITUTE_MARKERS:
+        idx = seg.find(marker)
+        if idx != -1 and (best is None or idx < best[0]):
+            best = (idx, marker)
+    if best is None:
+        return seg, None
+    idx, marker = best
+    return seg[:idx], seg[idx + len(marker) :]
+
+
+def _detect_type_hits(seg: str) -> list[tuple[int, EvidenceType, str]]:
+    """子句 → 每类首次出现 (span, type, 原文 anchor)，按原文位置。"""
+    hits: list[tuple[int, EvidenceType, str]] = []
+    for pattern, etype in _TYPE_PATTERNS:
+        match = pattern.search(seg)
+        if match is not None:
+            hits.append((match.start(), etype, match.group()))
+    return hits
 
 
 def _looks_like_symbol(token: str) -> bool:
@@ -252,71 +260,99 @@ def _looks_like_symbol(token: str) -> bool:
 
 
 def _infer_symbol_type(symbol: str, seg_types: set[EvidenceType]) -> EvidenceType:
+    """点名类默认按生产源码归类；测试后缀归 test，明显前端上下文归前端。
+
+    绝不把驼峰类名判成 migration/config（那是文件级类型）——修复同句出现
+    "数据库迁移" 时 DocumentService 被误判 migration 的缺陷（复审发现3）。
+    """
     if symbol.endswith(_TEST_SUFFIX):
         return "test"
-    production: list[EvidenceType] = [t for t in seg_types if t in PRODUCTION_TYPES]
-    if len(production) == 1:
-        return production[0]
+    if "frontend_source" in seg_types and "production_source" not in seg_types:
+        return "frontend_source"
     return "production_source"
 
 
-def _detect_named(
+def _detect_named_hits(
     seg: str, seg_types: set[EvidenceType]
-) -> list[tuple[EvidenceType, str, str | None, str | None]]:
-    """返回 (type, anchor, path, symbol)。"""
-    named: list[tuple[EvidenceType, str, str | None, str | None]] = []
-    seen: set[str] = set()
-    for path in _PATHISH.findall(seg):
-        if path in seen:
+) -> list[tuple[int, EvidenceType, str, str | None, str | None]]:
+    """返回 (span, type, anchor, path, symbol)。路径优先，类名跳过路径内部片段。"""
+    named: list[tuple[int, EvidenceType, str, str | None, str | None]] = []
+    path_spans: list[tuple[int, int]] = []
+    seen_paths: set[str] = set()
+    for match in _PATHISH.finditer(seg):
+        path = match.group()
+        path_spans.append((match.start(), match.end()))
+        if path in seen_paths:
             continue
-        seen.add(path)
-        named.append((classify_path(path), path, path, None))
-    for token in _CLASS.findall(seg):
-        if not _looks_like_symbol(token) or token in seen:
+        seen_paths.add(path)
+        named.append((match.start(), classify_path(path), path, path, None))
+    seen_syms: set[str] = set()
+    for match in _CLASS.finditer(seg):
+        token = match.group()
+        if any(start <= match.start() < end for start, end in path_spans):
+            continue  # 属于已捕获路径的一部分（如 Foo.java 里的 Foo）
+        if not _looks_like_symbol(token) or token in seen_syms:
             continue
-        seen.add(token)
-        named.append((_infer_symbol_type(token, seg_types), token, None, token))
+        seen_syms.add(token)
+        named.append((match.start(), _infer_symbol_type(token, seg_types), token, None, token))
     return named
+
+
+def _collect_positive(
+    clause_index: int,
+    seg: str,
+    raw: list[tuple[tuple[int, int], EvidenceType, str, str | None, str | None]],
+) -> None:
+    """肯定子句 → 追加点名项 + type-only 项（带 (子句序, 局部 span) 排序键）。"""
+    seg_types: set[EvidenceType] = {t for _sp, t, _a in _detect_type_hits(seg)}
+    for span, etype, anchor, path, symbol in _detect_named_hits(seg, seg_types):
+        raw.append(((clause_index, span), etype, anchor, path, symbol))
+    for span, etype, anchor in _detect_type_hits(seg):
+        raw.append(((clause_index, span), etype, anchor, None, None))
 
 
 def parse_required_evidence(question: str) -> RequiredEvidence:
     """确定性解析 → 权威 RequiredEvidenceItem[] + 禁止替代类型。"""
-    forbidden: set[EvidenceType] = set()
-    raw_items: list[tuple[EvidenceType, str, str | None, str | None]] = []
+    forbidden: list[EvidenceType] = []
+    raw: list[tuple[tuple[int, int], EvidenceType, str, str | None, str | None]] = []
 
-    for segment in _CLAUSE_SPLIT.split(question):
+    for clause_index, segment in enumerate(_CLAUSE_SPLIT.split(question)):
         seg = segment.strip()
         if not seg:
             continue
-        seg_types = _detect_types(seg)
-        if _is_forbidding(seg) or _is_supplement(seg):
-            forbidden |= seg_types
+        if _is_forbidding(seg):
+            x_side, y_side = _split_substitution(seg)
+            for _sp, etype, _a in _detect_type_hits(x_side):
+                if etype not in forbidden:
+                    forbidden.append(etype)
+            if y_side is not None:  # 被保护的一侧是肯定必需
+                _collect_positive(clause_index, y_side, raw)
             continue
-        named = _detect_named(seg, seg_types)
-        named_types = {t for t, *_ in named}
-        raw_items.extend(named)
-        # 无点名符号的类型 → 一条 type-only 项（anchor=类型词）
-        for t in seg_types:
-            if t not in named_types:
-                raw_items.append((t, TYPE_LABELS[t], None, None))
+        if _is_supplement(seg):
+            for _sp, etype, _a in _detect_type_hits(seg):
+                if etype not in forbidden:
+                    forbidden.append(etype)
+            continue
+        _collect_positive(clause_index, seg, raw)
 
-    # 全局去重 + 禁止类型剔除 + 有点名时丢弃同类型 type-only 项
-    typed_named = {t for t, _a, _p, sym in raw_items if sym or (_p and t in PRODUCTION_TYPES)}
+    raw.sort(key=lambda item: item[0])
+    # 有具体点名（路径/符号）的类型 → 丢弃该类型的 type-only 项，避免重复覆盖计数。
+    named_types = {
+        etype for _k, etype, _a, path, symbol in raw if path is not None or symbol is not None
+    }
     ids = count(1)
-    seen_key: set[tuple[EvidenceType, str | None, str | None]] = set()
+    seen: set[tuple[EvidenceType, str | None, str | None]] = set()
     items: list[RequiredEvidenceItem] = []
-    for t, anchor, path, symbol in raw_items:
-        if t in forbidden:
+    for _key, etype, anchor, path, symbol in raw:
+        if symbol is None and path is None and etype in named_types:
             continue
-        if symbol is None and path is None and t in typed_named:
-            continue  # 该类型已有具体点名，丢弃 type-only
-        key = (t, path, symbol)
-        if key in seen_key:
+        dedup_key = (etype, path, symbol)
+        if dedup_key in seen:
             continue
-        seen_key.add(key)
+        seen.add(dedup_key)
         items.append(
             RequiredEvidenceItem(
-                item_id=f"R{next(ids)}", type=t, anchor=anchor, path=path, symbol=symbol
+                item_id=f"R{next(ids)}", type=etype, anchor=anchor, path=path, symbol=symbol
             )
         )
     return RequiredEvidence(
@@ -331,14 +367,20 @@ def parse_required_evidence(question: str) -> RequiredEvidence:
 def _item_matches(item: RequiredEvidenceItem, rel_path: str) -> bool:
     if classify_path(rel_path) != item.type:
         return False
-    base = rel_path.rsplit("/", 1)[-1].lower()
+    lower = rel_path.lower()
+    base = lower.rsplit("/", 1)[-1]
     stem = base.rsplit(".", 1)[0]
     if item.symbol is not None:
         # 精确文件名匹配（Java 惯例：public 类与文件同名）。用子串会让
         # ReorderServiceLog.java 误配 OrderService，制造新的错误 full；从严更安全。
         return item.symbol.lower() == stem
     if item.path is not None:
-        return item.path.lower() in rel_path.lower()
+        wanted = item.path.lower()
+        if "/" in wanted:
+            # 含目录的显式路径：完整路径或按目录边界的后缀匹配
+            return lower == wanted or lower.endswith("/" + wanted)
+        # 裸文件名：basename 全等（杜绝 foo.java ⊂ notfoo.java 的子串误配）
+        return base == wanted
     return True  # type-only：类型已匹配即可
 
 

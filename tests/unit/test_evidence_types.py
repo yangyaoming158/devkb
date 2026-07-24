@@ -178,3 +178,63 @@ def test_required_item_ids_are_stable_and_unique() -> None:
     ids = [item.item_id for item in r.items]
     assert ids == sorted(ids, key=lambda x: int(x[1:]))
     assert len(ids) == len(set(ids))
+
+
+# ---- 第二轮复审对抗用例（4 处新发现，先红后修） ----
+
+
+def test_explicit_path_survives_and_wrong_file_not_covered() -> None:
+    # 复审发现1：子句切分不得切断 Foo.java；显式路径须完整进入 required
+    r = parse_required_evidence("请引用 backend/src/main/java/foo/Foo.java 说明订单校验。")
+    assert "backend/src/main/java/foo/Foo.java" in {i.path for i in r.items if i.path}
+    cov = compute_coverage(r, [("E1", "backend/src/main/java/foo/NotFoo.java")])
+    assert not all_required_covered(cov)
+
+
+def test_bare_filename_matches_basename_not_substring() -> None:
+    # 复审发现1：裸文件名按 basename 全等，foo.java 不得子串误配 notfoo.java
+    r = parse_required_evidence("请引用 Foo.java 说明。")
+    assert not all_required_covered(
+        compute_coverage(r, [("E1", "backend/src/main/java/foo/NotFoo.java")])
+    )
+    assert all_required_covered(compute_coverage(r, [("E1", "backend/src/main/java/foo/Foo.java")]))
+
+
+def test_substitution_forbids_x_but_protects_positive_y() -> None:
+    # 复审发现2：'不要用测试代替生产源码' → test 禁止、生产源码仍必需（不得被删）
+    r = parse_required_evidence("不要用测试代替生产源码，请引用生产源码说明订单校验。")
+    assert "production_source" in _types(r)
+    assert "test" in r.forbidden_substitute_types
+    assert "test" not in _types(r)
+    # 只引用测试文件不能满足被保护的生产源码必需项
+    cov = compute_coverage(r, [("E1", "backend/src/test/java/FooTest.java")])
+    assert not all_required_covered(cov)
+
+
+def test_named_class_never_typed_migration_despite_migration_word() -> None:
+    # 复审发现3：同句出现"数据库迁移"不得把 DocumentService 误判为 migration
+    r = parse_required_evidence(
+        "请根据数据库迁移、DocumentService、CitationRepository 说明级联删除。"
+    )
+    by_symbol = {i.symbol: i.type for i in r.items if i.symbol}
+    assert by_symbol["DocumentService"] == "production_source"
+    assert by_symbol["CitationRepository"] == "production_source"
+    assert "migration" in _types(r)  # 迁移作为 type-only 项仍在
+
+
+def test_type_only_anchor_is_substring_of_question() -> None:
+    # 复审发现3：type-only 项的 anchor 必须锚定问题原文，而非规范化标签
+    question = "请引用设计文档和生产 Java 源码。"
+    r = parse_required_evidence(question)
+    assert all(item.anchor in question for item in r.items)
+    assert "生产 Java 源码" in {item.anchor for item in r.items}
+
+
+def test_item_order_follows_text_position_deterministically() -> None:
+    # 复审发现3：item_id 按原文位置排序，不依赖无序集合（PYTHONHASHSEED 无关）
+    r = parse_required_evidence("请引用设计文档、生产 Java 源码和对应测试。")
+    assert [(i.item_id, i.type) for i in r.items] == [
+        ("R1", "design_doc"),
+        ("R2", "production_source"),
+        ("R3", "test"),
+    ]

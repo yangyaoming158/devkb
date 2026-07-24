@@ -31,7 +31,7 @@ def test_prompt_snapshot_locks_version_security_and_output_contract() -> None:
     serialized = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     assert (
         hashlib.sha256(serialized.encode()).hexdigest()
-        == "23404ae7900bbfa0955e1b7dfbf9258e6debd1401f3b692fb3c5dbdc9c76f89c"
+        == "5d2c6ec462b9844f62f6aab65f90fb32a2ef4ebea2e074ada8ef3ff1b5669885"
     )
 
 

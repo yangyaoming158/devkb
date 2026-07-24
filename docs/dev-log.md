@@ -843,3 +843,14 @@
   - **发现2（schema+严格）**：`RequiredEvidenceItem`/`CoverageEntry` 为严格 Pydantic；`PlanOutput.required_evidence` 回显 item_id、`EvaluateOutput.coverage` 逐项报告——但**裁决权全在确定性代码**：plan 回显非权威 id→`plan:required_evidence_mismatch`、evaluate LLM 覆盖与确定性不符→`evaluate:coverage_mismatch`，full 门/refine 只读确定性 coverage，LLM 报告仅诊断/驱动查询（语义 5/6）。
 - 教训固化：这次先写对抗性测试（点名不匹配、冲突矩阵、否定正反）再实现，勾选前用复审原始场景逐条确认错误 full 消失，而非只看 CI 绿。
 - `PROMPT_VERSION` p1.5-agent-v1→v2、`AGENT_STATE_SCHEMA`→v2、快照 SHA 更新。全绿：`make ci`（pyright 0、pytest 319）、`make eval-ci`（65+19）；P0/P1 兼容。重新勾选 T22.1–T22.3，偏差记录裁决已闭环。证据 commit：本提交。
+
+## 2026-07-24 · P1.5 T22 二审整改（第二轮复审 4 处再发现）
+
+- 上一条重实现（a1f3f37）经**第二轮独立复审**又被驳回：4 处可稳定复现，再次撤销 T22.1/T22.2（T22.3 分类修复确认有效，保留勾选）。这次严格"先红后修"——四处先落对抗性测试确认失败，再修，再用原始场景 + 跨 hashseed 自验。
+  - **发现1（显式路径被句号切断 → 错误 full）**：`_CLAUSE_SPLIT` 含英文 `.` 且分句先于路径提取，`backend/.../Foo.java` 被切成 `Foo`+`java`，退化为 type-only；且 `_item_matches` 路径分支用子串，裸 `foo.java` ⊂ `notfoo.java`。整改：分句正则去掉 `.`（中文句界用 `。；！？、，`+换行+`;`）；路径匹配改按**完整路径后缀**（`rl == p or rl.endswith('/'+p)`）/**裸名 basename 全等**。复现确认：required `Foo.java` 引用 `NotFoo.java`→未覆盖→partial。
+  - **发现2（否定作用域整句级删除正确要求）**：旧逻辑对禁止子句把检测到的所有类型入 forbidden，再全局 `if t in forbidden: continue` 删除，"不要用测试代替生产源码，请引用生产源码"里 production_source 被误删→required 空→引 `FooTest.java` 仍 full。整改：禁止子句按"用 X 代替 Y"切分（`_split_substitution`），X→forbidden、Y→肯定必需；**移除全局按类型删除 required**，forbidden 只作独立信号（类型分层已保证 test 不覆盖 production）。复现确认：production 仍必需、test 禁止、`FooTest.java` 未覆盖。
+  - **发现3（非确定性 + anchor 非原文 + 类名误判 migration）**：type-only 用规范标签作 anchor、用无序 `set` 遍历生成 item_id（PYTHONHASHSEED 敏感），`_infer_symbol_type` 在同句仅 `{migration}` 时把 `DocumentService` 判成 migration。整改：`_detect_type_hits` 返回 `(span, type, 原文 anchor)`，按 `(子句序, 局部 span)` 排序后再分配 R 号；点名类默认 production_source（永不 migration/config）。复现确认：跨 5 个 `PYTHONHASHSEED` 的 item_id→type 完全一致；`DocumentService`/`CitationRepository`=production_source；anchor 均为原文子串。
+  - **发现4（A schema + B 裁决只落到 finalize）**：`route_after_evaluate` 完全没读确定性 coverage——必需项未覆盖却 LLM sufficient 时跳过补检直奔 generate；evaluate/plan 只查 LLM 已返回项，全省略时不告警。整改：`route_after_evaluate` 增加"确定性覆盖缺口且预算允许→优先 refine"（语义 5，即便 sufficient）；plan/evaluate 校验回显集合须与权威集合完整一致、covered/evidence 与确定性矩阵对齐，遗漏也记诊断 mismatch（语义 6，不改判）。图级测试：缺口先补检再降级 partial；LLM 全省略→双 mismatch 警告但确定性 full 不受影响。
+- 连带影响：覆盖缺口现在会驱动一次补检，`test_agent_required_evidence` 两条降级用例脚本补齐 refine 轮（plan→evaluate→refine→evaluate→generate）；其余 agent 测试问题无 required 触发词，路由不受影响。
+- `PROMPT_VERSION` 保持 p1.5-agent-v2（T22 未验收、契约仍在定稿），仅 plan/evaluate Prompt 文案改为"有 required 必须完整逐项返回"并删矛盾表述，快照 SHA 更新为 `5d2c6ec4…`。全绿：`make ci`（ruff/pyright 0、pytest 327）、`make eval-ci`（65+19）；P0/P1 兼容。
+- 勾选纪律：因上轮曾在"自认已修"后仍有缺陷，本轮 T22.1/T22.2 **暂不勾选**，待第三轮独立复审确认；T22.3 保留。证据 commit：本提交。

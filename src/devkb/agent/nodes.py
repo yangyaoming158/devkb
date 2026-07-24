@@ -287,11 +287,15 @@ class AgentNodes:
             default=default,
             recorder=self._recorder,
         )
-        # plan 只回显确认 required_evidence 的 item_id：出现非权威 id 即警告并忽略。
-        # 权威来源是 state["required_evidence"]（确定性解析），LLM 不得新增/伪造。
+        # plan 回显确认 required_evidence 的 item_id：须与权威集合完整一致；遗漏或
+        # 出现非权威 id 都记诊断警告并忽略。权威来源是 state["required_evidence"]
+        # （确定性解析），LLM 不得新增/伪造/漏报，也不影响确定性裁决。
         warnings = list(call.warnings)
         authoritative_ids = state["required_evidence"].item_ids
-        if any(item_id not in authoritative_ids for item_id in call.value.required_evidence):
+        reported_ids = set(call.value.required_evidence)
+        if (authoritative_ids and reported_ids != authoritative_ids) or (
+            reported_ids - authoritative_ids
+        ):
             warnings.append("plan:required_evidence_mismatch")
         return {
             **call.updates,
@@ -371,15 +375,23 @@ class AgentNodes:
             default=default,
             recorder=self._recorder,
         )
-        # 确定性覆盖矩阵（按当前证据可用性）：权威，驱动 refine；LLM 覆盖报告只作诊断
+        # 确定性覆盖矩阵（按当前证据可用性）：权威，驱动 route/refine；LLM 覆盖报告
+        # 只作诊断。报告须逐项完整、covered 与命中 evidence 都要与确定性矩阵对齐；
+        # 遗漏/翻转/乱报 evidence 都记 mismatch 警告，但绝不改判确定性覆盖。
         cited = [(ev.evidence_id, ev.rel_path) for ev in state["evidences"]]
         coverage = compute_coverage(state["required_evidence"], cited)
-        deterministic = {entry.item_id: entry.covered for entry in coverage}
+        deterministic = {entry.item_id: entry for entry in coverage}
+        authoritative_ids = state["required_evidence"].item_ids
+        reported_ids = {report.item_id for report in call.value.coverage}
         warnings = list(call.warnings)
-        if any(
-            report.item_id not in deterministic or report.covered != deterministic[report.item_id]
-            for report in call.value.coverage
-        ):
+        mismatch = bool(authoritative_ids) and reported_ids != authoritative_ids
+        for report in call.value.coverage:
+            entry = deterministic.get(report.item_id)
+            if entry is None or report.covered != entry.covered:
+                mismatch = True
+            elif set(report.evidence_ids) - set(entry.matched_evidence_ids):
+                mismatch = True  # 自报命中的 evidence 与确定性矩阵不符
+        if mismatch:
             warnings.append("evaluate:coverage_mismatch")
         return {
             **call.updates,
