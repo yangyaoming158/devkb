@@ -802,3 +802,11 @@
 - 第 15 项不存在 project 为部分通过：POST 返回结构化 404/`NOT_FOUND` 和 `error_id`，无 traceback/DSN/密码；project 行数 0，数据库计数不变，没有 run 或外部 LLM 请求。但源码复核确认 `AppService.ask()` 先 `_get_embedder/_get_llm`、后 `_resolve_project`，冷 API 会先加载 SentenceTransformer 再得到 404，违反预登记“不加载模型”。驻留 API 已缓存 embedder，所以本次请求本身没有再次加载；现有 Fake 注入测试也无法发现 factory 调用顺序。新增 RT-23。
 - 第 16 项非法 `top_k` 通过：`top_k=99` 返回结构化 422/`INVALID_INPUT`，只报告 `body.top_k`，没有回显问题或请求体；数据库计数与最新 run 时间均不变。Pydantic 在 endpoint/service 前拒绝，未进入任何模型/Agent 路径。
 - 手工清单 16 项现已全部完成；问题记录新增案例十四、RT-23、API 固定回归 Gate 与前后计数证据，backlog 同步冷加载 fail-fast 入口。此次只执行健康、只读回放和两个预登记错误请求；未发送有效知识问答、未发出外部 LLM 请求、未运行 holdout、未修改 `src/`、tests、Prompt、模型或被分析仓库。
+
+## 2026-07-24 · P1.5 规划复审与文档修正（开工前）
+
+- 对 P1 验收证据与 P1.5 三份规划文件做独立复审（Claude Fable 5），发现并经用户批准修正 10 处纰漏。全部为文档/CI 配置修正，未修改 `src/`、tests、Prompt。
+- **两处结构性缺陷**：① §21.1 原判据混有 P1.6 能力要求（题 3 摄取 .vue、题 12 穷举 endpoint）且多条"必须引用 X"依赖 P1.5 明确不改的检索召回——Gate 照原判据在 P1.5 范围内结构性不可过。修正为 Evaluation-v1.5 §2 的**两栏预期**（P1.5 契约预期绑定 Gate、P1.6 目标预期仅记录；"必须引用"改条件式），题 3/10/11/12 的 P1.5 预期现已冻结。② `unsupported_or_not_ingested`"由 manifest 廉价判定"机制不存在——核实 `tools/build_corpus_view.py` 的 manifest 只记录入选文件且不入库，在线路径无法证明"仓库确实有该文件"。改为 SUPPORTED_SUFFIXES + documents 表静态判定 + 条件式措辞 + 有限技术词→后缀映射表；仓库级普查归 P1.6 inventory。
+- **文档间不一致**：RT-05 归属在 ADR-0010（P1.6）与实现规格（P1.5 T22.3）之间矛盾，裁定为规则/Prompt 层入 P1.5、检索层权重属 P1.6，ADR-0010 增修订注记（含 RT-07 最小版/RT-10/RT-04 离线包差集声明）；路线图-v2 §6 阶段文件门禁表仍写"当前 P1/P1 验收后建 P2 文档"，已更新为 P1.5→P1.6→P2 链。
+- **契约与机制补定**：`mode` 扩为四值（取值域扩张，非加字段，规格 §2 显式声明）、`not_found` 保持 list[str] + 平行 `not_found_details`；policy-refusal 识别 = 确定性规则前置 + plan 标志兜底（D6 内不新增调用点），落终态 run 保可审计；required-evidence 解析确定性为主并加防过拟合条款；T30 允许可逆迁移 0004、候选元数据设硬上限；"18 条真实 DeepSeek 运行"拆为 13 真实问答 + 5 机制检查（题 14 需脚本化 LLM、题 17 需 loader spy，字面不可在真模型上跑）；检索无退化对照指名 `evalsets/v0/retrieval_dev.jsonl`，明示不触碰 P1 holdout 检索集；v1.5 数据集文件名与 JSONL schema 落入 Evaluation-v1.5 §2。
+- **分支与 CI**：P1 关闭后误在 p1 分支堆积 P1.5 开启提交（未推送）。新建 `p1.5` 分支承接（含 RT 记录与 ADR-0010 提交），本地 p1 退回 origin/p1（9dfff3f），p1 分支冻结；ci.yml push 触发分支补 `p1.5`（否则 T32.4 头提交远端绿灯无法达成）。遗留：9dfff3f 自身的远端 Actions 状态此前未记录，待推送后一并核验。
