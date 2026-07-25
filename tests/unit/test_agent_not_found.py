@@ -18,6 +18,7 @@ from devkb.agent.not_found import (
     TERM_SUFFIX_HINTS,
     CorpusProfile,
     NotFoundInput,
+    _split_segments,
     calibrate_not_found,
     coverage_disclosure,
 )
@@ -347,6 +348,89 @@ def test_every_detail_is_internally_consistent(
             assert detail.category == "missing_from_current_evidence"
             assert detail.basis != "static_suffix_rule"
             assert all(not ref.startswith(".") or "/" in ref for ref in detail.refs)
+
+
+def test_same_reason_members_keep_every_fact_reference() -> None:
+    # 复审阻断点1：同一原因下有多个目标时，只留第一个成员的 refs 会让其余事实来源
+    # 从 refs 与告警里消失（PaymentService.java 蒸发）
+    corpus = CorpusProfile.from_paths(
+        [
+            "backend/src/main/java/svc/OrderService.java",
+            "backend/src/main/java/svc/PaymentService.java",
+        ]
+    )
+    result = _calibrate("未找到数据库迁移、OrderService 与 PaymentService 的实现", corpus=corpus)
+
+    indexed = next(detail for detail in result.details if detail.basis == "corpus_index")
+    assert set(indexed.refs) == {
+        "backend/src/main/java/svc/OrderService.java",
+        "backend/src/main/java/svc/PaymentService.java",
+    }
+    assert "OrderService" in indexed.text and "PaymentService" in indexed.text
+    index_warning = next(w for w in result.warnings if "已索引 active 路径" in w)
+    assert "PaymentService.java" in index_warning
+
+
+def test_every_target_named_in_text_has_a_fact_reference() -> None:
+    # 复审指出的测试盲点：只检查 refs 形状不够，必须检查**文本里每个目标**都有对应事实来源
+    corpus = CorpusProfile.from_paths(
+        [
+            "backend/src/main/java/svc/OrderService.java",
+            "backend/src/main/java/svc/PaymentService.java",
+            "backend/src/main/java/svc/DocumentService.java",
+        ]
+    )
+    result = _calibrate(
+        "未找到 OrderService、PaymentService 与 DocumentService 的实现", corpus=corpus
+    )
+    for detail in result.details:
+        if detail.basis not in ("corpus_index", "evidence_history"):
+            continue
+        for symbol in ("OrderService", "PaymentService", "DocumentService"):
+            if symbol in detail.text:
+                assert any(ref.endswith(f"/{symbol}.java") for ref in detail.refs), (symbol, detail)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "当前证据未覆盖涉及数据库迁移的字段定义",  # 涉及
+        "未找到 OrderService 或者 DocumentService 的实现",  # 或者
+        "与此同时 DocumentService 的删除实现未被召回",  # 句首"与"+与此
+        "未找到参与方 DocumentService 的删除实现",  # 参与
+    ],
+)
+def test_natural_connective_words_are_not_split_points(text: str) -> None:
+    # 复审阻断点2：单字连接词（及/与/或/和）出现在"涉及/或者/与此/参与/普及/和谐"里
+    # 不是目标连接处，在那里切会产出"者 DocumentService""此同时 …"这类残段
+    assert _split_segments(text) == [text]
+
+
+def test_real_target_connectors_still_split() -> None:
+    # 不能因为防误切而失去拆分能力
+    assert _split_segments("未找到迁移文件与 DocumentService") == [
+        "未找到迁移文件",
+        " DocumentService",
+    ]
+    assert _split_segments("A 以及 B") == ["A ", " B"]
+    assert _split_segments("迁移文件、DocumentService，README") == [
+        "迁移文件",
+        "DocumentService",
+        "README",
+    ]
+
+
+def test_split_preserves_original_order_and_keeps_residual_in_place() -> None:
+    # 保序：条目顺序与原文目标出现顺序一致；无信号残段留在它原本所属的那一条里，
+    # 不得被挪到第一条前面（"数据库迁移…未找到涉"这种错位）
+    corpus = CorpusProfile.from_paths(["backend/src/main/java/svc/DocumentService.java"])
+    result = _calibrate("未找到 DocumentService 的删除实现与数据库迁移的字段定义", corpus=corpus)
+    assert [detail.basis for detail in result.details] == ["corpus_index", "static_suffix_rule"]
+
+    mixed = _calibrate("未找到涉及数据库迁移的字段定义与 DocumentService 的删除实现", corpus=corpus)
+    assert [detail.basis for detail in mixed.details] == ["static_suffix_rule", "corpus_index"]
+    assert mixed.details[0].text.startswith("未找到涉及数据库迁移的字段定义")
+    assert "DocumentService" in mixed.details[1].text
 
 
 def test_single_reason_item_is_not_split() -> None:

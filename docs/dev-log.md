@@ -945,3 +945,12 @@
   - 三条防过度拆分的约束：括号内不拆（否则"（数据库迁移:X、生产源码:Y）"这种括注会被切碎、留下不配对括号）、确定性说明不拆（`required_evidence_tail` 已按类型逐条生成，本就一条一原因）、同类目标不拆（"未找到 OrderService 与 PaymentService 的生产实现"仍是一条、文本原样）。
 - 红测先行：`test_mixed_reason_item_is_split_into_one_reason_per_entry`（拆分正确性）、`test_every_detail_is_internally_consistent`（5 组参数化的 `category`↔`basis`↔`refs` 自洽不变量）、`test_single_reason_item_is_not_split`（不得过度拆分）——修复前 4/4 失败，修复后全绿。
 - `make ci`（ruff/pyright 0、pytest 489）、`make eval-ci`（65+19）全绿；未改 Prompt 与任何契约版本（`PROMPT_VERSION` 仍 p1.5-agent-v4、state v5、answer v2）。证据 commit：本提交。
+
+## 2026-07-25 · P1.5 T23 拆分复审整改（refs 聚合 + 连接词上下文）
+
+- 复审对 5325ecd 的结论：原始矛盾确实修好了，但**我新写的拆分逻辑自己带了两个可复现阻断点**，T23 仍不能验收。两条都先复现留证再改。
+  - **阻断点1：同原因多目标丢事实引用**。分组时 `groups.append((members[0], text))` 只带第一个成员的 refs——"未找到数据库迁移、OrderService 与 PaymentService 的实现"里，Java 条目文本含两个 Service，refs 与告警却只有 `OrderService.java`。修法：把渲染从 `_assess` 里搬出来（`_clause`/`_render`），**refs 按原文顺序合并去重后再渲染**；文案最多列 3 条并记"等 N 条"，但 `detail.refs` 与告警**不截断**——审计要能看到每一个目标。
+  - **阻断点2：单字连接词误切 + 残段错位**。`_SEGMENT_TOKENS` 里的"及/与/或/和"在任意位置匹配，于是 `涉及`→`['当前证据未覆盖涉', '数据库迁移的字段定义']`、`或者`→`['未找到 OrderService ', '者 DocumentService 的实现']`、`与此同时`→句首"与"被吃掉；再加上无信号残段一律并到第一组，就出现了复审指出的 `数据库迁移的字段定义未找到涉…`。修法：`_connector_at` 判定"是否真正的目标连接处"——标点与"以及"无歧义直接切；单字连接词过**左右封闭屏蔽表**（涉/普/波/兼/顾｜其/时；参/给/赋/授｜此/其；—｜者/是/许/多；总/温/平/缓｜谐/平/睦）且句首/句尾不算连接处。残段改为并入**紧邻的前一个**有信号段（句首残段并入其后第一段），顺序与原文一致。
+- 复审同时点出我的测试盲点：自洽测试只查 refs 形状。补了 `test_every_target_named_in_text_has_a_fact_reference`——文本里出现的每个目标符号都必须在 refs 里有对应路径。
+- 一个测例是我自己写错的：`未找到普及率与和谐度相关的说明` 里的"与"本就是真连接词，被切是正确行为（`普及`/`和谐` 都没被切开）。已把它改成"真连接词仍要切"的正向断言，而不是去迁就错误预期。
+- 红测 7 条（同原因 refs 聚合、4 组自然连接词、保序与残段归位、真连接词仍切）在修复前全红；`make ci`（ruff/pyright 0、pytest 497）、`make eval-ci`（65+19）全绿；Prompt 与契约版本仍不变。证据 commit：本提交。

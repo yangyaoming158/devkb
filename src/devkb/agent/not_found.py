@@ -146,8 +146,20 @@ _ABSENCE_MARKERS = (
     "未出现",
 )
 
-# 目标段连接词（与 T22 的目标切分同口径）：只用于"一条一原因"的确定性拆分
-_SEGMENT_TOKENS = ("以及", "和", "与", "及", "或", "、", "，", ",", "；", ";")
+# 目标段连接词（与 T22 的目标切分同口径）：只用于"一条一原因"的确定性拆分。
+# 标点是无歧义的连接处；"以及"是无歧义的多字连接词。
+_PUNCT_CONNECTORS = ("、", "，", ",", "；", ";")
+_WORD_CONNECTORS = ("以及",)
+# 单字连接词只在**真正的目标连接处**才算数：它们同时是常见复合词的组成部分
+# （涉及/普及/参与/或者/与此/和谐…），在词内切会切出"者 DocumentService"
+# "此同时 …"这类残段。故对每个单字连接词维护左右两侧的封闭屏蔽表。
+_CHAR_CONNECTORS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    # 连接词: (左侧屏蔽字, 右侧屏蔽字)
+    "及": (("涉", "普", "波", "兼", "顾", "以"), ("其", "时", "早")),
+    "与": (("参", "给", "赋", "授", "施"), ("此", "其", "会")),
+    "或": ((), ("者", "是", "许", "多")),
+    "和": (("总", "温", "平", "缓", "柔", "祥"), ("谐", "平", "睦", "气")),
+}
 _PUNCT_STRIP = re.compile(r"[\s。．.，,；;：:、！!？?（）()【】\[\]\"'`]+")
 _MAX_SUBJECT_CHARS = 60
 _ANCHOR_TRIM = " \t的了：:，,。、；;和与及或\n"
@@ -312,9 +324,7 @@ class _Assessment:
     category: NotFoundCategory
     basis: FactCheckBasis
     refs: tuple[str, ...]
-    clauses: tuple[str, ...]
     replace: bool
-    uningested: tuple[str, ...]
     weakened: bool
     has_signal: bool
 
@@ -322,12 +332,45 @@ class _Assessment:
     def reason(self) -> tuple[NotFoundCategory, FactCheckBasis]:
         return (self.category, self.basis)
 
-    def render(self, text: str) -> str:
-        if not self.clauses:
-            return text
-        if self.replace:
-            return f"{_subject(text, ())}：" + "；".join(self.clauses)
-        return f"{text}（{'；'.join(self.clauses)}）"
+
+def _render_refs(refs: Sequence[str]) -> str:
+    """事实来源在文案里最多列 3 条（超出记"等 N 条"），但 refs 本身**不截断**——
+    告警与审计要能看到同一原因下的每一个目标（复审阻断点1）。"""
+    shown = "、".join(refs[:3])
+    return f"{shown} 等 {len(refs)} 条" if len(refs) > 3 else shown
+
+
+def _clause(basis: FactCheckBasis, refs: Sequence[str], *, exhaustive: bool) -> str:
+    """由**合并后的**事实来源渲染确定性说明；空串表示无需说明。"""
+    if basis == "evidence_history":
+        return (
+            f"该目标已出现在本次检索证据中（{_render_refs(refs)}），"
+            "属当前证据未展开的部分；当前证据不足以支撑该方面的完整结论"
+        )
+    if basis == "corpus_index":
+        return (
+            f"该路径已在当前项目索引中（{_render_refs(refs)}，状态 active），"
+            "本轮未被召回，属当前证据缺口"
+        )
+    if basis == "static_suffix_rule":
+        return (
+            f"{'、'.join(refs)} 不在当前摄取范围、未纳入本项目索引，"
+            "因此当前证据中不会出现；无法据此确认仓库是否包含此类文件"
+        )
+    if basis == "unverifiable_assertion":
+        return ("当前证据不足以穷举确认" if exhaustive else "当前证据不足以确认该结论") + (
+            "；是否在仓库中存在需仓库级核验，P1.5 不做此判定"
+        )
+    return ""
+
+
+def _render(assessment: _Assessment, text: str, refs: Sequence[str], *, exhaustive: bool) -> str:
+    clause = _clause(assessment.basis, refs, exhaustive=exhaustive)
+    if not clause:
+        return text
+    if assessment.replace:
+        return f"{_subject(text, ())}：{clause}"
+    return f"{text}（{clause}）"
 
 
 def _assess(
@@ -350,7 +393,6 @@ def _assess(
     in_index = list(dict.fromkeys(in_index))
 
     uningested = _uningested_signals(segment, corpus)
-    clauses: list[str] = []
     category: NotFoundCategory = "missing_from_current_evidence"
     basis: FactCheckBasis = "no_conflict_found"
     refs: tuple[str, ...] = ()
@@ -359,32 +401,16 @@ def _assess(
     # 优先级即"这一段的原因是什么"：证据事实 > 索引事实 > 摄取范围 > 无从证明的强断言。
     # 一段只取一个，混合原因由调用方拆成多条（用户裁决 2026-07-25：一条一原因）。
     if markers.rewritable and markers.has_absence and in_evidence:
-        clauses.append(
-            f"该目标已出现在本次检索证据中（{'、'.join(in_evidence[:3])}），"
-            "属当前证据未展开的部分；当前证据不足以支撑该方面的完整结论"
-        )
         basis = "evidence_history"
-        refs = tuple(in_evidence[:3])
+        refs = tuple(in_evidence)
     elif markers.rewritable and markers.has_absence and in_index:
-        clauses.append(
-            f"该路径已在当前项目索引中（{'、'.join(in_index[:3])}，状态 active），"
-            "本轮未被召回，属当前证据缺口"
-        )
         basis = "corpus_index"
-        refs = tuple(in_index[:3])
+        refs = tuple(in_index)
     elif uningested:
-        clauses.append(
-            f"{'、'.join(uningested)} 不在当前摄取范围、未纳入本项目索引，"
-            "因此当前证据中不会出现；无法据此确认仓库是否包含此类文件"
-        )
         category = "unsupported_or_not_ingested"
         basis = "static_suffix_rule"
         refs = uningested
     elif markers.rewritable and markers.has_repo_negation:
-        clauses.append(
-            ("当前证据不足以穷举确认" if markers.exhaustive else "当前证据不足以确认该结论")
-            + "；是否在仓库中存在需仓库级核验，P1.5 不做此判定"
-        )
         basis = "unverifiable_assertion"
         weakened = True
 
@@ -393,19 +419,39 @@ def _assess(
         category=category,
         basis=basis,
         refs=refs,
-        clauses=tuple(clauses),
         # Gate 要求已召回/已索引路径不得被写成"未找到/不存在"，故这两类与仓库级否定
         # 整条改写（主语用去标记后的方面名）；格式未摄取原文成立，只追加披露。
         replace=markers.rewritable
         and (bool(markers.has_absence and (in_evidence or in_index)) or markers.has_repo_negation),
-        uningested=uningested,
         weakened=weakened,
         has_signal=bool(in_evidence or in_index or uningested or tokens),
     )
 
 
+def _connector_at(text: str, index: int) -> str | None:
+    """text[index] 处是否是**真正的目标连接处**；是则返回该连接词。
+
+    标点与"以及"无歧义；单字连接词须过左右屏蔽表，且不能位于句首/句尾——
+    "与此同时 X"里的"与"在句首，"涉及"里的"及"左邻是"涉"，都不是连接处。
+    """
+    for token in (*_WORD_CONNECTORS, *_PUNCT_CONNECTORS):
+        if text.startswith(token, index):
+            return token
+    char = text[index]
+    blocks = _CHAR_CONNECTORS.get(char)
+    if blocks is None:
+        return None
+    if index == 0 or index + 1 >= len(text):  # 句首/句尾的单字连接词不是连接处
+        return None
+    left_block, right_block = blocks
+    left, right = text[index - 1], text[index + 1]
+    if left in left_block or right in right_block:
+        return None
+    return char
+
+
 def _split_segments(text: str) -> list[str]:
-    """按连接词把一条缺口语句拆成目标段（确定性、只拆不改字）。
+    """按连接词把一条缺口语句拆成目标段（确定性、只拆不改字、保序）。
 
     括号内不切：确定性说明与 LLM 的括注里常有"（数据库迁移:X、生产源码:Y）"这类
     枚举，在括号内切会切碎原文并留下不配对的括号。
@@ -420,10 +466,7 @@ def _split_segments(text: str) -> list[str]:
             depth += 1
         elif char in "）)】]":
             depth = max(0, depth - 1)
-        matched = next(
-            (token for token in _SEGMENT_TOKENS if depth == 0 and text.startswith(token, index)),
-            None,
-        )
+        matched = _connector_at(text, index) if depth == 0 else None
         if matched is not None:
             segments.append("".join(buffer))
             buffer = []
@@ -486,23 +529,36 @@ def calibrate_not_found(
         segments = (
             [assess(segment) for segment in _split_segments(raw)] if markers.rewritable else []
         )
-        signals = [segment for segment in segments if segment.has_signal]
-        reasons = list(dict.fromkeys(segment.reason for segment in signals))
+        reasons = list(dict.fromkeys(seg.reason for seg in segments if seg.has_signal))
         if len(reasons) <= 1:
-            groups: list[tuple[_Assessment, str]] = [(assess(raw), raw)]
+            groups: list[tuple[_Assessment, str, tuple[str, ...]]] = [(assess(raw), raw, ())]
         else:
-            residual = "".join(seg.segment for seg in segments if not seg.has_signal).strip()
+            # 保序：无信号残段并入**紧邻的前一个**有信号段（句首残段并入其后第一段），
+            # 不得挪到别的条目前面；同一原因的成员按原文顺序合并，refs 全量保留
+            chunks: list[tuple[_Assessment, list[str]]] = []
+            pending: list[str] = []
+            for segment in segments:
+                if not segment.has_signal:
+                    (chunks[-1][1] if chunks else pending).append(segment.segment)
+                    continue
+                chunks.append((segment, [*pending, segment.segment]))
+                pending = []
             groups = []
-            for index, reason in enumerate(reasons):
-                members = [segment for segment in signals if segment.reason == reason]
-                text = "、".join(member.segment.strip() for member in members)
-                groups.append((members[0], f"{text}{residual}" if index == 0 else text))
+            for reason in reasons:
+                members = [chunk for chunk in chunks if chunk[0].reason == reason]
+                text = "、".join("".join(parts).strip() for _assessment, parts in members)
+                merged = tuple(
+                    dict.fromkeys(ref for assessment, _parts in members for ref in assessment.refs)
+                )
+                groups.append((members[0][0], text, merged))
 
-        for assessment, segment_text in groups:
-            text = assessment.render(segment_text)
+        for assessment, segment_text, merged_refs in groups:
+            refs = merged_refs or assessment.refs
+            text = _render(assessment, segment_text, refs, exhaustive=markers.exhaustive)
             if text in texts:
                 continue
-            uningested_all.update(assessment.uningested)
+            if assessment.category == "unsupported_or_not_ingested":
+                uningested_all.update(refs)
             weakened += int(assessment.weakened)
             texts.append(text)
             details.append(
@@ -511,7 +567,7 @@ def calibrate_not_found(
                     category=assessment.category,
                     source=item.source,
                     basis=assessment.basis,
-                    refs=assessment.refs,
+                    refs=refs,
                     original_text=raw if text != raw else None,
                 )
             )
