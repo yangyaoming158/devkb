@@ -217,6 +217,18 @@ def summarize_output(node: str, updates: dict[str, Any]) -> dict[str, Any]:
             summary["rel_paths"] = clip_list(
                 list(dict.fromkeys(evidence.rel_path for evidence in evidences))
             )
+        eliminated = updates.get("evidence_eliminations") or []
+        if eliminated:
+            # T24：逐条淘汰原因（有界）——"未召回 / 被容量截断 / 方面失去锚点"可事后区分
+            summary["eliminated"] = [
+                {
+                    "chunk_id": str(record.chunk_id),
+                    "rel_path": clip_text(record.rel_path),
+                    "aspect_ids": list(record.aspect_ids)[:MAX_SUMMARY_ITEMS],
+                    "reason": record.reason,
+                }
+                for record in eliminated[:MAX_SUMMARY_ITEMS]
+            ]
         return summary
     if node == "evaluate":
         evaluation = updates.get("evaluation")

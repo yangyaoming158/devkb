@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from devkb.agent import prompts
 from devkb.agent.aspects import (
+    MAX_ELIMINATION_RECORDS,
     AspectStatus,
     build_matrix,
     displaced_aspects,
@@ -123,6 +124,7 @@ def required_evidence_tail(
     support_citations: list[tuple[str, str]],
     visible_citations: list[tuple[str, str]],
     retrieved: list[tuple[str, str]] | None = None,
+    matrix: Sequence[AspectStatus] = (),
 ) -> tuple[list[str], list[str], bool]:
     """确定性必需证据收尾（所有 finalize 分支共用）→ (not_found 追加项, warnings, 满足)。
 
@@ -138,15 +140,23 @@ def required_evidence_tail(
       ∪ claim 支撑）。禁止引用类型按这一套判：正文引用了被禁类型即违规，即便 claim
       没申报它——L0/L1 只校验标记存在与引文忠实，不要求正文标记出现在 claim 中。
 
-    ``retrieved``——本次终态证据集（全部 evidence，不限于被引用的）。用来把"未覆盖"
-    拆成两种事实不同的缺口（T24：跨轮保留会让"已召回但未被引用"明显变多，若仍统一
-    写成"未取得"，就与单调覆盖矩阵里的 ``present_now=True`` 自相矛盾）：
-    完全没有该证据 vs 证据在集合里但没有任何 claim 引用它。
+    ``retrieved``（终态证据集）与 ``matrix``（跨轮单调矩阵）用来把"未覆盖"拆成**三种
+    事实不同**的缺口（T24 复审发现2：跨轮保留会让后两种明显变多，若都写成"未取得"，
+    就与矩阵里的 ``present_now`` / ``supported`` 自相矛盾——同一个方面不能既告警
+    "被挤出、非证伪"又被告知用户"未取得"）：
+
+    1. **从未取得**——任何一轮都没有该证据；
+    2. **仍在证据集但未被引用**——证据在，但没有任何保留 claim 引用它；
+    3. **前轮取得、终态被挤出**——曾有直接证据，因跨轮容量上限不在终态证据集里，
+       本次无法作为引用支撑（覆盖仍按单调矩阵保留为已支持，不得改写成缺失）。
     """
     coverage = compute_coverage(required, support_citations)
     uncovered = uncovered_items(required, coverage)
     in_evidence = {
         entry.item_id for entry in compute_coverage(required, retrieved or []) if entry.covered
+    }
+    ever_supported = {
+        row.aspect_id for row in matrix if row.origin == "required_evidence" and row.supported
     }
     violations = forbidden_citation_hits(required, visible_citations)
     notes: list[str] = []
@@ -156,10 +166,13 @@ def required_evidence_tail(
         # （"数据库迁移(.sql 未摄取)" 与 "生产源码(已索引未召回)" 必须能分开，c10）
         absent: dict[str, list[str]] = {}
         uncited: list[str] = []
+        displaced: list[str] = []
         for item in uncovered:
             label = f"{TYPE_LABELS[item.type]}:{item.symbol or item.path or item.anchor}"
             if item.item_id in in_evidence:
                 uncited.append(label)
+            elif item.item_id in ever_supported:
+                displaced.append(label)
             else:
                 absent.setdefault(item.type, []).append(label)
         for labels in absent.values():
@@ -170,6 +183,11 @@ def required_evidence_tail(
             notes.append(
                 f"用户要求的必需证据已在本次证据集中，但未被任何断言直接引用"
                 f"（{'、'.join(uncited)}）；该部分结论未经引用支撑"
+            )
+        if displaced:
+            notes.append(
+                f"用户要求的必需证据在前几轮检索中已取得，但受证据容量上限被挤出终态证据集"
+                f"（{'、'.join(displaced)}）；本次无法作为引用支撑，覆盖按单调矩阵保留"
             )
         warnings.append(
             "finalize: 必需证据未覆盖（" + ",".join(item.item_id for item in uncovered) + "）"
@@ -498,6 +516,8 @@ class AgentNodes:
             # "任一轮出现过的文件不得被写成不存在"必须看全轮历史，不能只看终态证据
             "evidence_path_history": list(dict.fromkeys(item.rel_path for item in fresh)),
             "node_history": ["retrieve"],
+            # 逐条淘汰记录进状态与轨迹（汇总 warning 只是给人看的摘要，不能代替审计）
+            "evidence_eliminations": list(plan.eliminated[:MAX_ELIMINATION_RECORDS]),
             "warnings": retention_warnings(plan),
         }
 
@@ -763,6 +783,7 @@ class AgentNodes:
             support_citations,
             visible_citations,
             [(ev.evidence_id, ev.rel_path) for ev in state["evidences"]],
+            matrix,
         )
         warnings.extend(required_warnings)
         if full_candidate and satisfied:
@@ -774,8 +795,10 @@ class AgentNodes:
             [*raw_not_found, *_deterministic_items(required_notes)],
             evidence_paths=state["evidence_path_history"],
             corpus=self._runtime.corpus,
-            # 单调矩阵的诊断轨 = 各轮 evaluate 自报的已支持方面（T23.2 的输入口径不变）
-            supported_aspects_history=supported_labels(matrix, origin="evaluator"),
+            # 两轨的已支持方面都进来：evaluator 轨是 T23.2 原有输入；确定性轨（点名
+            # 类/路径）同样不得在后轮被凭空报成缺失——只传诊断轨会让"RagService 已在
+            # 第 1 轮取得"这类单调性事实对 not_found 不可见（复审发现2）
+            supported_aspects_history=supported_labels(matrix),
         )
         not_found = list(calibration.texts)
         warnings.extend(calibration.warnings)

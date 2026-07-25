@@ -53,11 +53,12 @@ def _can_generate(state: AgentState) -> bool:
 
 
 def has_deliverable_content(state: AgentState) -> bool:
-    """T24.2：当前证据集非空且跨轮单调矩阵里有取得过直接证据的方面 → 有可交付内容。
+    """T24.2：当前证据集里仍有方面拿得出直接证据 → 有可交付内容。
 
     进入 finalize 的**每条**路径都按这一个口径判断，避免"规则只在一条分支成立"
     （五审发现5 的同类问题）：末轮 evaluate 倒退、refine 解析失败都不得清空
-    前轮已支持的方面。
+    仍有直接证据的方面。反过来，历史账本非空**不等于**当前可交付——
+    ``has_deliverable_aspect`` 判的是 `supported and present_now`（复审发现2）。
     """
     return bool(state["evidences"]) and has_deliverable_aspect(monotonic_matrix(state))
 

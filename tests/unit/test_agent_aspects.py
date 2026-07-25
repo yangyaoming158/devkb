@@ -33,10 +33,16 @@ from devkb.agent.evidence_types import (
     matching_item_ids,
     parse_required_evidence,
 )
-from devkb.agent.graph import run_agent
+from devkb.agent.graph import has_deliverable_content, route_after_evaluate, run_agent
 from devkb.agent.nodes import AgentRuntime
-from devkb.agent.state import AgentInput, AgentState, Evidence
-from devkb.agent.trace import derive_step_status
+from devkb.agent.state import (
+    AgentInput,
+    AgentState,
+    EvaluateOutput,
+    Evidence,
+    initial_agent_state,
+)
+from devkb.agent.trace import TraceRecorder, derive_step_status
 from devkb.llm import FakeLLM
 
 RAG_SERVICE = "backend/src/main/java/com/ragdocs/service/RagService.java"
@@ -46,6 +52,8 @@ RAG_CONSTANTS = "backend/src/main/java/com/ragdocs/service/RagConstants.java"
 PARSE_RESULT = "backend/src/main/java/com/ragdocs/service/CitationParseResult.java"
 PARSER_TEST = "backend/src/test/java/com/ragdocs/service/CitationParserTest.java"
 ARCH_DOC = "docs/RAG规划-02-架构设计.md"
+OTHER_ONE = "backend/src/main/java/com/ragdocs/service/OtherOne.java"
+OTHER_TWO = "backend/src/main/java/com/ragdocs/service/OtherTwo.java"
 
 CASE9_QUESTION = (
     "只依据生产 Java 源码解释 NO_ANSWER 和 UNGROUNDED 分别在什么条件下产生，"
@@ -152,6 +160,26 @@ def test_empty_matrix_is_never_sufficient() -> None:
     # "既没有任何方面被支持、也没有任何方面被判缺失"绝不能升格为 full
     assert is_monotonically_sufficient((), outstanding=[]) is False
     assert has_deliverable_aspect(()) is False
+
+
+def test_diagnostic_track_alone_can_never_grant_sufficiency() -> None:
+    """用户裁决（2026-07-25）：诊断轨只给 partial/refusal 的单调下界，不得授予 full。
+
+    复审给的反例：无 required item 的双方面题，两轮各自报支持一个方面，终稿只引用
+    其中一个——矩阵会把两个方面都算 supported，若据此判充分，空 required 硬门会真空
+    通过，本该 partial 的终态会升成错误 full。
+    """
+    required = parse_required_evidence("订单校验和库存扣减分别是怎么做的？")
+    assert required.items == ()
+    observations = [
+        *observe_round(required, (), [], ["订单校验"], round_index=1),
+        *observe_round(required, (), [], ["库存扣减"], round_index=2),
+    ]
+    matrix = build_matrix(required, observations, (), current_round=2)
+
+    assert [row.origin for row in matrix] == ["evaluator", "evaluator"]
+    assert all(row.supported for row in matrix)  # 单调下界仍然成立
+    assert is_monotonically_sufficient(matrix, outstanding=[]) is False  # 但不得授予 full
 
 
 def test_normalize_aspect_label_is_shared_with_not_found_calibration() -> None:
@@ -265,7 +293,10 @@ def test_retention_never_exceeds_limit_and_is_deterministic() -> None:
         plan = plan_retention(required, (), fresh, carried, limit=limit)
         assert len(plan.kept) == min(limit, len(fresh) + len(carried))
         assert len(set(plan.kept)) == len(plan.kept)
-        assert len(plan.retained_anchors) <= max(limit - 1, 0)
+        # 确定性轨代表可以占满全部槽位（用户点名的证据优先于无关的新召回）；
+        # 只有诊断轨代表要给新证据让位，见
+        # test_diagnostic_anchor_never_evicts_the_whole_refill_round
+        assert len(plan.retained_anchors) <= limit
         assert set(plan.kept) | {record.chunk_id for record in plan.eliminated} == {
             *[chunk_id for chunk_id, _ in fresh],
             *[chunk_id for chunk_id, _ in carried],
@@ -274,6 +305,54 @@ def test_retention_never_exceeds_limit_and_is_deterministic() -> None:
 
     with pytest.raises(ValueError):
         plan_retention(required, (), fresh, carried, limit=0)
+
+
+@pytest.mark.parametrize("limit", [1, 2, 3, 4, 5, 6])
+def test_deterministic_aspects_are_never_starved_while_capacity_allows(limit: int) -> None:
+    """不变量（复审发现1 的一般化）：只要"有候选证据的确定性方面数 ≤ limit"，
+    这些方面在保留集中就必须各有一条直接证据——无论它的候选来自本轮还是上一轮。"""
+    required = parse_required_evidence(
+        "请引用 RagService、RagSupport、CitationParser 和 RagConstants 的生产实现。"
+    )
+    fresh = _pairs((11, OTHER_ONE), (12, RAG_SERVICE), (13, OTHER_TWO), (14, RAG_SUPPORT))
+    carried = _pairs((1, CITATION_PARSER), (2, ARCH_DOC), (3, RAG_CONSTANTS))
+    candidates = {RAG_SERVICE, RAG_SUPPORT, CITATION_PARSER, RAG_CONSTANTS}
+    path_by_id = dict([*fresh, *carried])
+
+    plan = plan_retention(required, (), fresh, carried, limit=limit)
+    kept_paths = {path_by_id[chunk_id] for chunk_id in plan.kept}
+
+    if limit >= len(candidates):
+        assert candidates <= kept_paths
+        assert not [r for r in plan.eliminated if r.reason == "aspect_anchor_capacity"]
+    else:  # 容量真的不够时才允许失锚，且必须逐条记录
+        assert len(kept_paths & candidates) == limit
+        assert [r for r in plan.eliminated if r.reason == "aspect_anchor_capacity"]
+    # 无论容量如何，两个来源各自的相对次序都不变
+    for source in (fresh, carried):
+        order = [chunk_id for chunk_id, _ in source if chunk_id in set(plan.kept)]
+        assert [c for c in plan.kept if c in set(order)] == order
+
+
+def test_diagnostic_anchor_never_evicts_the_whole_refill_round() -> None:
+    """诊断轨代表要给新证据让位：一条 LLM 自报标签不得把整轮补检结果清空。"""
+    required = parse_required_evidence("非法引用编号是怎么处理的？")
+    protected = (
+        AspectStatus(
+            aspect_id="evaluator:RagService分支",
+            label="RagService 分支",
+            origin="evaluator",
+            supported=True,
+            first_supported_round=1,
+        ),
+    )
+
+    plan = plan_retention(
+        required, protected, _pairs((11, CITATION_PARSER)), _pairs((1, RAG_SERVICE)), limit=1
+    )
+
+    assert plan.kept == (_uuid(11),)
+    assert [record.reason for record in plan.eliminated] == ["aspect_anchor_capacity"]
 
 
 def test_anchor_matcher_is_the_coverage_matcher() -> None:
@@ -303,6 +382,60 @@ def test_matrix_present_now_follows_current_coverage_only() -> None:
     assert matrix[0].supported is True and matrix[0].present_now is False
     assert supported_labels(matrix) == ["RagService"]
     assert supported_labels(matrix, origin="evaluator") == []
+
+
+def test_fresh_anchor_survives_when_other_aspects_reserve_slots() -> None:
+    """复审发现1：`anchored` 按全部 fresh 计算，但预留旧锚点又会缩短实际入选的 fresh
+    前缀——落在前缀外的 fresh 锚点与同方面的旧锚点会被一起截掉，容量明明够。"""
+    required = parse_required_evidence("请引用 RagService 和 CitationParser 的生产实现。")
+    fresh = _pairs((11, OTHER_ONE), (12, OTHER_TWO), (13, RAG_SERVICE))
+    carried = _pairs((1, RAG_SERVICE), (2, CITATION_PARSER))
+
+    plan = plan_retention(required, (), fresh, carried, limit=3)
+
+    # 容量 3 完全够：丢的应该是不锚定任何方面的 OtherTwo，而不是两条 RagService
+    assert plan.kept == (_uuid(11), _uuid(13), _uuid(2))
+    assert [record.reason for record in plan.eliminated if record.rel_path == RAG_SERVICE] == [
+        "capacity_limit"  # 同方面已由本轮 fresh 锚定，旧的那条只是普通截断
+    ]
+    assert not [record for record in plan.eliminated if record.reason == "aspect_anchor_capacity"]
+    # 本轮内相对顺序不变（只丢弃、不重排）
+    assert plan.kept.index(_uuid(11)) < plan.kept.index(_uuid(13))
+
+
+def test_history_alone_is_not_deliverable_when_current_evidence_lost_it() -> None:
+    """复审发现2：'历史已支持' ≠ '当前可交付'——当前证据集已不再支撑任何方面时，
+    不得因为历史账本非空就路由去 generate。"""
+    required = parse_required_evidence("请引用 RagService 的生产实现。")
+    state = initial_agent_state(_input("请引用 RagService 的生产实现。"))
+    state["required_evidence"] = required
+    state["retrieval_round"] = 2
+    state["evidences"] = [
+        Evidence(
+            evidence_id="E1",
+            chunk_id=_uuid(9),
+            rel_path=ARCH_DOC,
+            title_path="",
+            content=_content(ARCH_DOC),
+            start_line=1,
+            end_line=9,
+            score=0.4,
+        )
+    ]
+    state["coverage"] = (CoverageEntry(item_id="R1", covered=False),)
+    state["aspect_observations"] = observe_round(
+        required,
+        compute_coverage(required, [("E1", RAG_SERVICE)]),
+        [("E1", RAG_SERVICE)],
+        [],
+        round_index=1,
+    )
+    state["evaluation"] = EvaluateOutput(
+        sufficiency="insufficient", supported_aspects=[], missing_aspects=["RagService 生产源码"]
+    )
+
+    assert has_deliverable_content(state) is False
+    assert route_after_evaluate(state) == "finalize"
 
 
 # ---- 图级 Fake 矩阵：案例九复现 ---------------------------------------------
@@ -539,3 +672,57 @@ async def test_displaced_aspect_is_reported_as_squeezed_out_not_refuted() -> Non
     assert [evidence.rel_path for evidence in result["evidences"]] == [CITATION_PARSER]
     assert any("被挤出，非证伪" in warning for warning in result["warnings"])
     assert result["final_mode"] == "partial"
+
+
+async def test_displaced_aspect_is_never_worded_as_never_obtained() -> None:
+    """复审发现2 的第二半：同一方面不得既告警"被挤出、非证伪"、又在 not_found 里
+    被写成"未取得"。三态必须分开：从未取得 / 仍在证据集但未引用 / 前轮取得后被挤出。"""
+    runtime = _rounds_runtime(
+        [PLAN, EVAL_ROUND1, REFINE, EVAL_ROUND2_REGRESSED, GEN_PARTIAL],
+        [[RAG_SERVICE], [CITATION_PARSER]],
+        max_evidences=1,
+    )
+    result = await run_agent(runtime, _input(CASE9_QUESTION))
+
+    assert any("被挤出，非证伪" in warning for warning in result["warnings"])
+    assert not any(
+        "未取得用户要求的必需证据" in item and "RagService" in item
+        for item in result["final_not_found"]
+    )
+    # 第三态有自己的措辞，且仍如实说明"本次无法作为引用支撑"
+    assert any(
+        "RagService" in item and "被挤出" in item and "无法作为引用支撑" in item
+        for item in result["final_not_found"]
+    )
+    # 从未取得的 RagSupport 仍按第一态措辞
+    assert any(
+        "未取得用户要求的必需证据" in item and "RagSupport" in item
+        for item in result["final_not_found"]
+    )
+    assert result["final_mode"] == "partial"
+
+
+async def test_elimination_records_are_auditable_per_candidate() -> None:
+    """复审发现3：逐条淘汰原因必须能在运行结束后审计，不能只剩一条汇总 warning。"""
+    recorder = TraceRecorder()
+    runtime = _rounds_runtime(
+        [PLAN, EVAL_ROUND1, REFINE, EVAL_ROUND2_REGRESSED, GEN_PARTIAL],
+        [
+            [RAG_SERVICE, RAG_CONSTANTS, PARSER_TEST],
+            [CITATION_PARSER, PARSE_RESULT, ARCH_DOC],
+        ],
+        max_evidences=3,
+    )
+    result = await run_agent(runtime, _input(CASE9_QUESTION), recorder)
+
+    records = {record.rel_path: record for record in result["evidence_eliminations"]}
+    assert set(records) == {PARSE_RESULT, ARCH_DOC, PARSER_TEST}
+    assert all(record.reason == "capacity_limit" for record in records.values())
+    assert all(record.chunk_id for record in records.values())
+    # 轨迹里同样可逐条回放（chunk_id + reason），不止汇总条数
+    retrieve_steps = [step for step in recorder.steps if step.node == "retrieve"]
+    summary = retrieve_steps[-1].output_summary
+    assert summary is not None
+    eliminated = summary["eliminated"]
+    assert {item["rel_path"] for item in eliminated} == {PARSE_RESULT, ARCH_DOC, PARSER_TEST}
+    assert all({"chunk_id", "reason", "aspect_ids"} <= set(item) for item in eliminated)

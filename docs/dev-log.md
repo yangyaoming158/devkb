@@ -988,3 +988,16 @@
 - 契约版本：`AGENT_STATE_SCHEMA_VERSION` v5→**v6**（state 字段增删）；Prompt 未改，`PROMPT_VERSION` 仍 p1.5-agent-v4、`ANSWER_SCHEMA_VERSION` 仍 p1.5-answer-v2。
 - 观察但未改（留给 T25）：`draft is None` 且仍有可交付方面时（预算耗尽/生成上限）拒答文案仍写"现有资料不足以回答该问题"，这在"资料其实有、只是没能生成"时不准确；同理 `_limitations` 的 refusal 文案。属 T25.1"mode/正文/claims/not_found/limitations 相符"的判据范围，不在本任务顺手改。
 - 勾选：T24.1、T24.2 按判据逐条核对后勾选（**自查复核，非独立复审**；同 T22/T23 收尾口径）。证据 commit：本提交。
+
+## 2026-07-25 · P1.5 T24 第一轮复审整改：保留算法联合求解 + 可交付三态 + 淘汰记录可审计
+
+- 复审对 0c0eb36 的结论：两轨分治的方向被正式采纳（见清单偏差记录的裁决原文），但**实现有 3 处阻塞**，T24.1/T24.2 勾选撤销。三条都先复现再改，红测 4 条在 0c0eb36 上确认失败。
+- **发现1（P1）：保留算法误判 fresh 已覆盖。** 我用"全部 fresh 覆盖了哪些方面"决定预留，可预留旧锚点又会**缩短实际入选的 fresh 前缀**——落在前缀外的新锚点于是连同同方面的旧锚点一起被截掉。复审给的最小例：`limit=3`、fresh=[OtherOne, OtherTwo, RagService]、carried=[RagService, CitationParser] → 实际保留 [OtherOne, OtherTwo, CitationParser]，两条 RagService 都被标 `aspect_anchor_capacity`，而容量明明放得下 [OtherOne, RagService, CitationParser]。
+  - 改法：**代表证据联合求解**。先逐方面选一条代表（本轮新证据优先、否则旧轮排名最高），代表先占位，非代表才用剩余预算按原排名填；容量不足时只**丢弃**非代表，绝不把代表提前——避免又踩上一轮"重排改变 `E#` 语义"的坑。
+  - 顺带定了一条更硬的优先级：**确定性轨代表绝对优先**（用户点名的证据不该为"给新召回留个位"让路，那正是发现1 的同类问题）；**诊断轨代表**则必须给新证据让出一个位置，否则一条 LLM 自报的方面标签就能把整轮补检结果清空。两条都有专门单测。
+  - 我另写了 4000 例随机化不变量探针（容量/去重/两来源各自保序/确定性方面不被饿死/淘汰记录完备且 reason 正确/跨次确定性）：0c0eb36 上 **1057 例违反**——除复审点出的饿死外，还暴露了我自己没发现的 **carried 重排**（旧填充循环把预留锚点排到其余旧证据前面）；整改后 **0 例**。
+- **发现2（P1）：把"历史已支持"当成"当前可交付"。** `has_deliverable_content` 只看"证据集非空 + 历史有任一 supported"，不校验当前证据是否还支撑该方面；更糟的是同一个方面会**同时**出现"被挤出、非证伪"告警和"未取得…生产源码:RagService"的 not_found——我上一轮把它归给 T25，复审判定这就是 T24 的单调性，不能外推。
+  - 改法：`has_deliverable_aspect` 判 `supported and present_now`；缺口措辞拆成**三态**——从未取得 / 仍在证据集但未被引用 / 前轮取得后被容量挤出（第三态写明"本次无法作为引用支撑，覆盖按单调矩阵保留"，仍是 partial）；`calibrate_not_found` 的已支持标签改传两轨（确定性轨的单调性事实此前对 not_found 完全不可见，这是矛盾文案的第二个成因）。
+- **发现3（P2）：`EliminationRecord` 没进状态或轨迹。** 生成后即丢弃，只剩一条汇总 warning，"逐条记录淘汰原因"名不副实。改法：`AgentState.evidence_eliminations`（只增账本，硬上限 `MAX_ELIMINATION_RECORDS = 2×MAX_FINAL_TOP_K`，与"单轮合并输入 = 新证据 + 上轮保留"同源）+ retrieve 的 step `output_summary` 里逐条带 `chunk_id/rel_path/aspect_ids/reason`。这样运行结束后能回放"这条证据为什么不在终态证据集"，而不是只知道被砍了几条。T30 要做的 per-query 候选轨迹（rank/score/融合原因）仍未提前实现。
+- 用户裁决同时正式确认：**诊断轨矩阵只提供 partial/refusal 的单调下界和缺口防回退，不得授予 full**。已把它从"调用方的 `if required.items` 分支"提升为 `is_monotonically_sufficient` 内部的显式规则（只看确定性轨），并按复审给的反例加锁：无 required item 的双方面题，两轮各自报支持一个方面、终稿只引用其一 —— 矩阵仍判两方面 supported（下界成立），但**不得**据此判充分。
+- `make ci`（ruff/pyright 0、pytest 544）、`make eval-ci`（65+19）全绿；跨 5 个 PYTHONHASHSEED 一致。契约版本不变（state 已在上一提交升到 v6，本轮只增字段不改 Prompt）。**T24.1/T24.2 仍不勾选，待下一轮独立复审。** 证据 commit：本提交。

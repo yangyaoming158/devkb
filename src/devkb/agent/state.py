@@ -16,7 +16,7 @@ from pydantic import (
     model_validator,
 )
 
-from devkb.agent.aspects import AspectObservation
+from devkb.agent.aspects import AspectObservation, EliminationRecord
 from devkb.agent.evidence_types import (
     MAX_REQUIRED_ITEMS,
     CoverageEntry,
@@ -181,6 +181,10 @@ class AgentState(TypedDict):
     # 同为只增账本——覆盖单调性、假拒答判定与 T23 的"前轮已支持方面"都由它折出，
     # 同一事实不存两份（口径漂移是前几轮复审反复踩的坑）。
     aspect_observations: Annotated[list[AspectObservation], operator.add]
+    # T24 淘汰账本：跨轮合并里每条被截断的证据（chunk_id/rel_path/所锚定方面/原因），
+    # 使"这条证据为什么不在终态证据集"可事后逐条审计，而不是只剩一条汇总 warning。
+    # 有界：单轮 ≤ MAX_ELIMINATION_RECORDS，轮次本身受 MAX_RETRIEVAL_ROUNDS 限制。
+    evidence_eliminations: Annotated[list[EliminationRecord], operator.add]
     evaluation: EvaluateOutput | None
     answer_draft: GenerateOutput | None
     verification: VerificationOutput | None
@@ -222,6 +226,7 @@ def initial_agent_state(agent_input: AgentInput) -> AgentState:
         evidences=[],
         evidence_path_history=[],
         aspect_observations=[],
+        evidence_eliminations=[],
         evaluation=None,
         answer_draft=None,
         verification=None,
