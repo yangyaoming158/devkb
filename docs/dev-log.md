@@ -969,3 +969,22 @@
 - 红测先行 10 条（`或者` 混合原因、复审四例自然措辞的分段与端到端原文完整性、保守不切且告警），修复前全红；另在 `test_evidence_types.py` 补 2 条"目标区间与 token 词法同源"的防漂移测试，因为切分现在依赖这套词法，不能让它悄悄长出第二个口径。
 - 一处自证：我上一轮写的 artifact 断言 `"此同时 Doc" not in joined` 本身太松——正确输出 `与此同时 DocumentService…` 也含这个子串。真正的残段特征是**出现在条目开头**，已改成 `startswith` 断言。
 - `make ci`（ruff/pyright 0、pytest 509）、`make eval-ci`（65+19）全绿；Prompt 与三个契约版本均未动。证据 commit：本提交。
+
+## 2026-07-25 · P1.5 T24：跨轮覆盖单调性与 partial 保留
+
+- 目标（规格 §6 / RT-16/20）：把"用户要求"拆成可逐条判定的**证据方面**，让覆盖跨轮只增不减；只要还有一个方面拿得出直接证据，就交付范围准确的 partial，而不是整体假拒答（案例九）。
+- **先复现再动手**：写了一份不依赖新模块的案例九回放脚本（放 scratchpad），在 d0f037d 上跑出原始失败——`mode=refusal`、`claims=[]`、`citations=[]`，证据集是 `[CitationParser, CitationParseResult, 架构设计.md]`（第一轮的 RagService 被挤出），连确定性的必需证据说明都把四个点名类全报成"未取得"，其中 RagService 明明在第一轮召回过。这份输出同时暴露了两条独立缺陷（证据被挤出 + 有证据也不生成），后面分别对应 T24.1 与 T24.2。
+- **落点**：新增 `src/devkb/agent/aspects.py`（确定性、零 LLM 调用），三件事：
+  1. **方面分解两轨**。确定性轨 = T22 每条 required item（身份来自问题原文锚点，可与路径比对）；诊断轨 = 各轮 evaluate 自报的 supported_aspects（只承担"已支持不得回退"，永不放宽 full 门）。`AgentState` 用只增账本 `aspect_observations` 取代 T23 的 `supported_aspect_history`——同一事实存两份必然随修复漂移，T23 的"前轮已支持方面"现在由矩阵折出（`supported_labels(matrix, origin="evaluator")`），输入口径不变；`normalize_aspect_label` 也从 `not_found.py` 提上来共用，否则"not_found 里被剔除、却仍按缺口降级"这种自相矛盾迟早出现。
+  2. **跨轮保留**。`plan_retention` 在合并新旧证据时先给"旧轮锚定、本轮未覆盖"的方面**预留槽位**，剩下的才按原顺序填。
+  3. **单调矩阵**。`supported` 只增不减，`present_now` 才反映当前证据集；差值在 finalize 逐条告警"被挤出，非证伪"（P1.5 没有任何证伪机制，所以矩阵结构上不存在降级路径）。
+- **踩的坑（第一版写错并被自己的测试抓到）**：最初 `plan_retention` 把"命中方面的新证据"整体排到最前，等于**在本轮内重排召回结果**。`test_gB7b_answer_text_only_citation_cannot_satisfy_required_item` 立刻红了——重排后 `OrderService.java` 从 E2 变成 E1，claim 引用的 E1 恰好就成了点名类，一个本该 partial 的用例变成 full。这是很典型的"修 A 破 B"：T22 的两套引用账本没坏，是我把 `E#` 的含义改了。改成**只预留槽位、不重排**（锚点最多占 `limit-1` 个位，至少给新证据留一个），单轮行为与改动前逐字节一致。
+- **淘汰原因**：被容量截断的证据逐条产出 `EliminationRecord`；若某方面在保留集中彻底失去直接证据，记 `aspect_anchor_capacity` 并发带 `limit_reached` 标记的 warning（`derive_step_status` 据此把该 step 记为 degraded，与预算/轮次触顶同口径），其余记 `capacity_limit` 只报条数。
+- **充分性口径（本轮最需要复审盯的取舍）**：规格 §6 要"最终充分性按单调覆盖矩阵判定，不看最后一轮扁平 top-k"，但没有 required item 的问题里矩阵只剩 LLM 自报的方面，照字面执行等于把诊断信号升格为权威，与 D6/T22 裁决冲突。按轨分治：有确定性轨时矩阵接管（末轮 `sufficiency` 不再有否决权，`test_all_aspects_cited_still_reaches_full` 锁定"末轮 insufficient + 逐项已引用 → 仍可 full"）；无确定性轨时沿用末轮自报。无论哪一轨，矩阵**只降不升**——T22 的逐项引用硬门、unresolved、禁引三道门原样保留，并加了一条反向锁：跨轮已支持但终稿没引用（被容量挤出）→ 仍是 partial，不允许矩阵替它凑出 full。该张力已写入清单偏差记录待裁决。
+- **同型缺陷的另一条分支**：只改 `route_after_evaluate` 是不够的。`route_after_refine` 在 refine 解析/传输失败时直奔 finalize→refusal，同样把前轮已有直接证据的方面全丢掉。抽出 `has_deliverable_content(state)` 作为**进入 finalize 的每条路径**的统一口径（前几轮复审反复出现的问题就是"规则只在一条分支成立"），refine 失败时若仍有可交付内容且预算允许就走 generate；`RouteAfterRefine` 相应加一个枚举值与一条条件边。
+- **顺手修掉一处被本任务放大的自相矛盾**：跨轮保留会让"证据在集合里、但没有任何 claim 引用它"明显变多，而 `required_evidence_tail` 原本统一写成"未取得该必需证据"——这与矩阵里的 `present_now=True` 直接打架。改成两种措辞分开：完全没召回 → "未取得"；已在证据集但无人引用 → "已在本次证据集中，但未被任何断言直接引用"。案例九回放里 RagSupport 与 RagConstants 现在各走各的措辞。
+- **另一处收窄**：finalize 的"被挤出"告警只对确定性轨发。evaluator 方面的 `present_now` 只表示"末轮有没有再自报一次"，据此说"证据不在终态证据集"并不是可核验的事实，会制造大量噪声告警。
+- 测试：`tests/unit/test_agent_aspects.py` 23 条（单元 12：两轨分解、单调保留、never-supported、outstanding 去重、空矩阵不充分、共用归一化、单轮不重排、案例九留位、失锚记录、无要求退化、标签 token 绑定、上限与确定性；图级 11：案例九三条 + refine 失败仍 partial + 零可交付仍 refusal + 矩阵不得凑 full + 逐项引用可 full + 缺口措辞区分 + 被挤出告警）。跨 5 个 PYTHONHASHSEED 结果一致。`make ci`（ruff/pyright 0、pytest 532）、`make eval-ci`（65+19）全绿。
+- 契约版本：`AGENT_STATE_SCHEMA_VERSION` v5→**v6**（state 字段增删）；Prompt 未改，`PROMPT_VERSION` 仍 p1.5-agent-v4、`ANSWER_SCHEMA_VERSION` 仍 p1.5-answer-v2。
+- 观察但未改（留给 T25）：`draft is None` 且仍有可交付方面时（预算耗尽/生成上限）拒答文案仍写"现有资料不足以回答该问题"，这在"资料其实有、只是没能生成"时不准确；同理 `_limitations` 的 refusal 文案。属 T25.1"mode/正文/claims/not_found/limitations 相符"的判据范围，不在本任务顺手改。
+- 勾选：T24.1、T24.2 按判据逐条核对后勾选（**自查复核，非独立复审**；同 T22/T23 收尾口径）。证据 commit：本提交。

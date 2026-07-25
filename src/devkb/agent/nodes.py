@@ -14,6 +14,17 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from devkb.agent import prompts
+from devkb.agent.aspects import (
+    AspectStatus,
+    build_matrix,
+    displaced_aspects,
+    is_monotonically_sufficient,
+    observe_round,
+    outstanding_missing,
+    plan_retention,
+    retention_warnings,
+    supported_labels,
+)
 from devkb.agent.evidence_types import (
     TYPE_LABELS,
     RequiredEvidence,
@@ -97,10 +108,21 @@ def _merge_citations(*groups: list[tuple[str, str]]) -> list[tuple[str, str]]:
 _EVIDENCE_MARK = re.compile(r"\[E\d+\]")
 
 
+def monotonic_matrix(state: AgentState) -> tuple[AspectStatus, ...]:
+    """当前状态的跨轮单调覆盖矩阵（T24）；路由与 finalize 共用同一口径。"""
+    return build_matrix(
+        state["required_evidence"],
+        state["aspect_observations"],
+        state["coverage"],
+        current_round=state["retrieval_round"],
+    )
+
+
 def required_evidence_tail(
     required: RequiredEvidence,
     support_citations: list[tuple[str, str]],
     visible_citations: list[tuple[str, str]],
+    retrieved: list[tuple[str, str]] | None = None,
 ) -> tuple[list[str], list[str], bool]:
     """确定性必需证据收尾（所有 finalize 分支共用）→ (not_found 追加项, warnings, 满足)。
 
@@ -115,23 +137,39 @@ def required_evidence_tail(
     - ``visible_citations``——最终交付给用户的全部引用（正文过 L0 后仍保留的 [E#]
       ∪ claim 支撑）。禁止引用类型按这一套判：正文引用了被禁类型即违规，即便 claim
       没申报它——L0/L1 只校验标记存在与引文忠实，不要求正文标记出现在 claim 中。
+
+    ``retrieved``——本次终态证据集（全部 evidence，不限于被引用的）。用来把"未覆盖"
+    拆成两种事实不同的缺口（T24：跨轮保留会让"已召回但未被引用"明显变多，若仍统一
+    写成"未取得"，就与单调覆盖矩阵里的 ``present_now=True`` 自相矛盾）：
+    完全没有该证据 vs 证据在集合里但没有任何 claim 引用它。
     """
     coverage = compute_coverage(required, support_citations)
     uncovered = uncovered_items(required, coverage)
+    in_evidence = {
+        entry.item_id for entry in compute_coverage(required, retrieved or []) if entry.covered
+    }
     violations = forbidden_citation_hits(required, visible_citations)
     notes: list[str] = []
     warnings: list[str] = []
     if uncovered:
         # 按证据类型分组各出一条说明：混在一条里会让 T23 的缺口分类失去分辨率
         # （"数据库迁移(.sql 未摄取)" 与 "生产源码(已索引未召回)" 必须能分开，c10）
-        by_type: dict[str, list[str]] = {}
+        absent: dict[str, list[str]] = {}
+        uncited: list[str] = []
         for item in uncovered:
-            by_type.setdefault(item.type, []).append(
-                f"{TYPE_LABELS[item.type]}:{item.symbol or item.path or item.anchor}"
-            )
-        for labels in by_type.values():
+            label = f"{TYPE_LABELS[item.type]}:{item.symbol or item.path or item.anchor}"
+            if item.item_id in in_evidence:
+                uncited.append(label)
+            else:
+                absent.setdefault(item.type, []).append(label)
+        for labels in absent.values():
             notes.append(
                 f"未取得用户要求的必需证据（{'、'.join(labels)}）；测试/设计/历史材料不能替代"
+            )
+        if uncited:
+            notes.append(
+                f"用户要求的必需证据已在本次证据集中，但未被任何断言直接引用"
+                f"（{'、'.join(uncited)}）；该部分结论未经引用支撑"
             )
         warnings.append(
             "finalize: 必需证据未覆盖（" + ",".join(item.item_id for item in uncovered) + "）"
@@ -436,14 +474,22 @@ class AgentNodes:
 
         # 补检结果优先，旧证据只用于填充剩余槽位；否则首轮 top-k 已满时
         # 第二轮新证据会被截断为零，形成“走了 refine 但证据没变”的假补检。
+        # T24（RT-16）：但"整体优先"不等于"可以把已锚定的方面挤掉"——先按方面留位
+        # 再填普通证据，被容量截断的逐条记录淘汰原因（案例九：补 CitationParser
+        # 时丢掉第一轮的 RagService，覆盖 2→1 后整体假拒答）。
         merged: dict[uuid.UUID, Evidence] = {}
         for evidence in [*fresh, *state["evidences"]]:
             merged.setdefault(evidence.chunk_id, evidence)
+        plan = plan_retention(
+            state["required_evidence"],
+            monotonic_matrix(state),
+            [(item.chunk_id, item.rel_path) for item in fresh],
+            [(item.chunk_id, item.rel_path) for item in state["evidences"]],
+            limit=self._runtime.max_evidences,
+        )
         evidences = [
-            evidence.model_copy(update={"evidence_id": f"E{index}"})
-            for index, evidence in enumerate(
-                list(merged.values())[: self._runtime.max_evidences], start=1
-            )
+            merged[chunk_id].model_copy(update={"evidence_id": f"E{index}"})
+            for index, chunk_id in enumerate(plan.kept, start=1)
         ]
         return {
             "retrieval_round": state["retrieval_round"] + 1,
@@ -452,6 +498,7 @@ class AgentNodes:
             # "任一轮出现过的文件不得被写成不存在"必须看全轮历史，不能只看终态证据
             "evidence_path_history": list(dict.fromkeys(item.rel_path for item in fresh)),
             "node_history": ["retrieve"],
+            "warnings": retention_warnings(plan),
         }
 
     async def evaluate(self, state: AgentState) -> dict[str, Any]:
@@ -494,8 +541,15 @@ class AgentNodes:
             **call.updates,
             "evaluation": call.value,
             "coverage": coverage,
-            # 已支持方面进历史账本：后轮不得把前轮已支持的方面凭空升级为缺失（T23.2）
-            "supported_aspect_history": list(call.value.supported_aspects),
+            # 本轮方面观察进只增账本（T24）：确定性覆盖 + evaluate 自报已支持方面。
+            # 后轮不得把任一轮已支持的方面凭空升级为缺失（T23.2/T24.1 单调性）。
+            "aspect_observations": observe_round(
+                state["required_evidence"],
+                coverage,
+                cited,
+                call.value.supported_aspects,
+                round_index=state["retrieval_round"],
+            ),
             "node_history": ["evaluate"],
             "warnings": warnings,
         }
@@ -610,6 +664,11 @@ class AgentNodes:
         结构：先按 draft/验证状态定出候选终态与正文，再对**所有分支**统一跑必需证据收尾
         （见 required_evidence_tail），最后才裁决 full。避免限制说明只出现在部分分支
         （五审发现5）。
+
+        充分性（T24.1）取自**跨轮单调覆盖矩阵**而非末轮扁平 top-k：末轮 evaluate 因证据
+        集合变化退化为 insufficient，不得抹掉前轮已取得直接证据的方面。矩阵只在存在确定性
+        轨（required items）时接管裁决——没有可确定性判定的方面时，仍沿用末轮 evaluate 的
+        自报充分性（P1 行为不变），避免把纯 LLM 报告升格为权威信号。
         """
         draft = state["answer_draft"]
         evaluation = state["evaluation"]
@@ -621,6 +680,24 @@ class AgentNodes:
         answer = ""
         answer_marks: list[int] = []  # 正文过 L0 后仍保留的有效引用编号（可见引用账本）
         full_candidate = False
+
+        matrix = monotonic_matrix(state)
+        outstanding = outstanding_missing(matrix, missing)
+        if required.items:
+            sufficient = is_monotonically_sufficient(matrix, outstanding=outstanding)
+        else:
+            sufficient = evaluation is not None and evaluation.sufficiency == "sufficient"
+        for row in displaced_aspects(matrix):
+            # 已支持方面的证据不在终态证据集里：仅被挤出不算证伪，矩阵保留已支持状态，
+            # 但必须显式可见（否则"跨轮丢证据"又会变成不可诊断的静默降级）。
+            # 只为**确定性轨**发这条告警：evaluator 方面的 present_now 只表示"末轮是否
+            # 又自报了一次"，据此说"证据不在终态证据集"并非可核验的事实。
+            if row.origin != "required_evidence":
+                continue
+            warnings.append(
+                f"finalize: 方面 {row.aspect_id}({row.label}) 在第 {row.first_supported_round} "
+                "轮已有直接证据，但未出现在终态证据集（被挤出，非证伪），按单调覆盖矩阵保留"
+            )
 
         if draft is None:
             mode: FinalMode = "refusal"
@@ -656,14 +733,10 @@ class AgentNodes:
                 warnings.extend(l0_warnings)
                 verification_ok = verification is None or verification.passed
                 full_candidate = (
-                    evaluation is not None
-                    and evaluation.sufficiency == "sufficient"
-                    and bool(kept)
-                    and not draft.not_found
-                    and verification_ok
+                    sufficient and bool(kept) and not draft.not_found and verification_ok
                 )
                 mode = "partial"
-                if evaluation is not None and evaluation.sufficiency == "sufficient" and not kept:
+                if sufficient and not kept:
                     warnings.append("finalize: 充分判定但无结构化 claim，降级 partial")
 
         # T22 full 硬约束（结构性 fail-closed）：逐项确定性覆盖——每条已解析必需证据都须有
@@ -686,7 +759,10 @@ class AgentNodes:
             ],
         )
         required_notes, required_warnings, satisfied = required_evidence_tail(
-            required, support_citations, visible_citations
+            required,
+            support_citations,
+            visible_citations,
+            [(ev.evidence_id, ev.rel_path) for ev in state["evidences"]],
         )
         warnings.extend(required_warnings)
         if full_candidate and satisfied:
@@ -698,7 +774,8 @@ class AgentNodes:
             [*raw_not_found, *_deterministic_items(required_notes)],
             evidence_paths=state["evidence_path_history"],
             corpus=self._runtime.corpus,
-            supported_aspects_history=state["supported_aspect_history"],
+            # 单调矩阵的诊断轨 = 各轮 evaluate 自报的已支持方面（T23.2 的输入口径不变）
+            supported_aspects_history=supported_labels(matrix, origin="evaluator"),
         )
         not_found = list(calibration.texts)
         warnings.extend(calibration.warnings)

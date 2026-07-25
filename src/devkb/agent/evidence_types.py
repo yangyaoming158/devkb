@@ -898,6 +898,15 @@ def _item_matches(item: RequiredEvidenceItem, rel_path: str) -> bool:
     return True  # type-only：类型已匹配即可
 
 
+def matching_item_ids(required: RequiredEvidence, rel_path: str) -> tuple[str, ...]:
+    """该路径直接命中的 required item_id（与 ``compute_coverage`` 同一 matcher）。
+
+    T24 的跨轮保留要按"这条证据锚定了哪些方面"排序，必须复用同一身份口径：
+    另建一套匹配会让"保留下来的证据"与"覆盖矩阵认可的证据"随修复漂移。
+    """
+    return tuple(item.item_id for item in required.items if _item_matches(item, rel_path))
+
+
 def compute_coverage(
     required: RequiredEvidence,
     cited: Iterable[tuple[str, str]],

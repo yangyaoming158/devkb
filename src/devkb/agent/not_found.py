@@ -36,6 +36,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from devkb.agent.aspects import normalize_aspect_label
 from devkb.agent.evidence_types import (
     iter_path_tokens,
     iter_symbol_tokens,
@@ -174,7 +175,6 @@ _ABSENCE_MARKERS = (
 # 连接处；否则保守不切（宁可少拆一条，也不切碎原文）。
 _PUNCT_CONNECTORS = ("、", "，", ",", "；", ";")
 _WORD_CONNECTORS = ("以及", "或者", "与", "及", "或", "和")
-_PUNCT_STRIP = re.compile(r"[\s。．.，,；;：:、！!？?（）()【】\[\]\"'`]+")
 _MAX_SUBJECT_CHARS = 60
 # 边界修剪字符集：只含空白/标点/结构助词，**不含连接词**——把"与/及/或/和"当边界字符
 # 盲删会把"与此同时 X"削成"此同时 X"（第三轮复审阻断点2 的成因之一）。
@@ -250,10 +250,6 @@ class NotFoundCalibration:
 def coverage_disclosure() -> str:
     """静态摄取覆盖披露（后缀级，与 SUPPORTED_SUFFIXES 同源）。"""
     return "本项目当前摄取的文件类型：" + "、".join(sorted(SUPPORTED_SUFFIXES))
-
-
-def _normalize(text: str) -> str:
-    return _PUNCT_STRIP.sub("", text)
 
 
 def _strip_absence_markers(text: str) -> str:
@@ -557,7 +553,9 @@ def calibrate_not_found(
     ``supported_aspects_history`` 是**前若干轮** evaluate 判为已支持的方面。
     分类只看条目自身文本（见 ``TERM_SUFFIX_HINTS`` 注释），不按整题技术词一刀切。
     """
-    supported = {_normalize(aspect) for aspect in supported_aspects_history if aspect.strip()}
+    supported = {
+        normalize_aspect_label(aspect) for aspect in supported_aspects_history if aspect.strip()
+    }
     texts: list[str] = []
     details: list[NotFoundDetail] = []
     warnings: list[str] = []
@@ -570,7 +568,7 @@ def calibrate_not_found(
         raw = item.text.strip()
         if not raw:
             continue
-        if item.source != "deterministic" and _normalize(raw) in supported:
+        if item.source != "deterministic" and normalize_aspect_label(raw) in supported:
             # 前轮已支持的方面不得凭空升级为缺失（原证据被证伪才可退化，P1.5 无证伪机制）
             dropped.append(raw)
             continue

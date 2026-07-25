@@ -7,7 +7,8 @@ from typing import Any, Literal, cast
 
 from langgraph.graph import END, START, StateGraph
 
-from devkb.agent.nodes import AgentNodes, AgentRuntime
+from devkb.agent.aspects import has_deliverable_aspect
+from devkb.agent.nodes import AgentNodes, AgentRuntime, monotonic_matrix
 from devkb.agent.state import (
     MAX_GENERATE_CALLS,
     MAX_LLM_REQUESTS,
@@ -29,7 +30,7 @@ NodeFn = Callable[[AgentState], Awaitable[dict[str, Any]]]
 
 GRAPH_RECURSION_LIMIT = 20
 RouteAfterEvaluate = Literal["refine", "generate", "finalize"]
-RouteAfterRefine = Literal["retrieve", "finalize"]
+RouteAfterRefine = Literal["retrieve", "generate", "finalize"]
 RouteAfterVerify = Literal["generate", "finalize"]
 
 
@@ -49,6 +50,16 @@ def can_refine(state: AgentState) -> bool:
 
 def _can_generate(state: AgentState) -> bool:
     return remaining_llm_requests(state) >= 1 and state["generate_calls"] < MAX_GENERATE_CALLS
+
+
+def has_deliverable_content(state: AgentState) -> bool:
+    """T24.2：当前证据集非空且跨轮单调矩阵里有取得过直接证据的方面 → 有可交付内容。
+
+    进入 finalize 的**每条**路径都按这一个口径判断，避免"规则只在一条分支成立"
+    （五审发现5 的同类问题）：末轮 evaluate 倒退、refine 解析失败都不得清空
+    前轮已支持的方面。
+    """
+    return bool(state["evidences"]) and has_deliverable_aspect(monotonic_matrix(state))
 
 
 def route_after_evaluate(state: AgentState) -> RouteAfterEvaluate:
@@ -73,13 +84,23 @@ def route_after_evaluate(state: AgentState) -> RouteAfterEvaluate:
         return "generate" if _can_generate(state) else "finalize"
     if can_refine(state):
         return "refine"
-    if evaluation.sufficiency == "partial" and state["evidences"]:
+    # T24.2（RT-20）：补检已不可行时，只要还有可交付内容就必须生成**范围准确的
+    # partial**，refusal 只留给零可交付证据。可交付 = 末轮自报 partial，或跨轮单调
+    # 矩阵里有任一轮取得过直接证据的方面——末轮 evaluate 因证据集合变化退化为
+    # insufficient 时，不得把前轮已支持的方面一起清空（案例九假拒答）。
+    if (evaluation.sufficiency == "partial" and state["evidences"]) or has_deliverable_content(
+        state
+    ):
         return "generate" if _can_generate(state) else "finalize"
     return "finalize"
 
 
 def route_after_refine(state: AgentState) -> RouteAfterRefine:
     if state["refine_failed"] or state["retrieval_round"] >= MAX_RETRIEVAL_ROUNDS:
+        # T24.2：补检不可用 ≠ 没有可交付内容。refine 解析/传输失败此前直接整体拒答，
+        # 把前轮已有直接证据的方面一并丢弃（RT-20 同型缺陷，只是换了一条分支）。
+        if has_deliverable_content(state) and _can_generate(state):
+            return "generate"
         return "finalize"
     return "retrieve"
 
@@ -158,7 +179,7 @@ def build_agent_graph(runtime: AgentRuntime, recorder: TraceRecorder | None = No
     graph.add_conditional_edges(
         "refine",
         route_after_refine,
-        {"retrieve": "retrieve", "finalize": "finalize"},
+        {"retrieve": "retrieve", "generate": "generate", "finalize": "finalize"},
     )
     graph.add_edge("generate", "verify")
     graph.add_conditional_edges(

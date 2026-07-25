@@ -16,6 +16,7 @@ from pydantic import (
     model_validator,
 )
 
+from devkb.agent.aspects import AspectObservation
 from devkb.agent.evidence_types import (
     MAX_REQUIRED_ITEMS,
     CoverageEntry,
@@ -173,10 +174,13 @@ class AgentState(TypedDict):
     queries: list[str]
     retrieval_round: int
     evidences: list[Evidence]
-    # T23.2 事实校验的历史账本：**全部检索轮**出现过的证据路径 / 前轮已支持方面。
+    # T23.2 事实校验的历史账本：**全部检索轮**出现过的证据路径。
     # 只增不减（reducer=operator.add），使"任一轮出现过的文件不得写成不存在"可判定。
     evidence_path_history: Annotated[list[str], operator.add]
-    supported_aspect_history: Annotated[list[str], operator.add]
+    # T24 跨轮方面账本：每轮 evaluate 后追加"该方面本轮已取得直接证据"的观察。
+    # 同为只增账本——覆盖单调性、假拒答判定与 T23 的"前轮已支持方面"都由它折出，
+    # 同一事实不存两份（口径漂移是前几轮复审反复踩的坑）。
+    aspect_observations: Annotated[list[AspectObservation], operator.add]
     evaluation: EvaluateOutput | None
     answer_draft: GenerateOutput | None
     verification: VerificationOutput | None
@@ -217,7 +221,7 @@ def initial_agent_state(agent_input: AgentInput) -> AgentState:
         retrieval_round=0,
         evidences=[],
         evidence_path_history=[],
-        supported_aspect_history=[],
+        aspect_observations=[],
         evaluation=None,
         answer_draft=None,
         verification=None,
