@@ -17,6 +17,7 @@ from devkb.agent import prompts
 from devkb.agent.aspects import (
     MAX_ELIMINATION_RECORDS,
     AspectStatus,
+    EvidenceRef,
     build_matrix,
     displaced_aspects,
     is_monotonically_sufficient,
@@ -32,6 +33,7 @@ from devkb.agent.evidence_types import (
     bound_required_ids,
     compute_coverage,
     forbidden_citation_hits,
+    iter_target_spans,
     required_satisfied,
     uncovered_items,
 )
@@ -40,6 +42,7 @@ from devkb.agent.not_found import (
     NotFoundInput,
     NotFoundSource,
     calibrate_not_found,
+    strip_absence_markers,
 )
 from devkb.agent.state import (
     MAX_GENERATE_CALLS,
@@ -116,7 +119,7 @@ def monotonic_matrix(state: AgentState) -> tuple[AspectStatus, ...]:
         state["required_evidence"],
         state["aspect_observations"],
         state["coverage"],
-        evidence_paths=[evidence.rel_path for evidence in state["evidences"]],
+        present_chunk_ids=[evidence.chunk_id for evidence in state["evidences"]],
     )
 
 
@@ -215,6 +218,47 @@ def required_evidence_tail(
     return notes, warnings, required_satisfied(required, coverage, cited=visible_citations)
 
 
+# 缺口文本去掉目标后允许残留的**封闭**限定词：只覆盖"这条证据本身"的说法。
+# 出现集合外的内容（方法名、行为、条件…）即说明确定性说明覆盖不到，必须原样保留。
+_IDENTITY_QUALIFIERS = frozenset(
+    {
+        "",
+        "生产源码",
+        "生产实现",
+        "生产代码",
+        "实现代码",
+        "源码",
+        "实现",
+        "代码",
+        "文件",
+        "类",
+        "生产配置",
+        "配置",
+        "迁移",
+        "迁移文件",
+        "测试",
+        "文档",
+        "设计文档",
+    }
+)
+# 结构助词/方位词：与标点一起从残余里剥掉，不构成语义内容
+_QUALIFIER_NOISE = re.compile(r"[\s的了中里内之与和及或、，,。；;：:（）()\[\]\"'`]+")
+
+
+def _is_pure_identity_gap(text: str) -> bool:
+    """整句是否只是"某个目标 + 通用限定词"——即确定性三态说明能完整替代的那种缺口。
+
+    先按原文位置摘掉唯一的目标，再用 T23 同一个去标记器剥掉缺失措辞与悬空前缀
+    （"当前证据未覆盖 X 的生产源码" → "生产源码"），剩下的必须落在封闭限定词表里。
+    """
+    spans = iter_target_spans(text)
+    if len(spans) != 1:
+        return False  # 零个目标无从绑定；两个及以上说明还有别的目标，绝不整条吞掉
+    start, end = spans[0]
+    remainder = strip_absence_markers(text[:start] + text[end:])
+    return _QUALIFIER_NOISE.sub("", remainder) in _IDENTITY_QUALIFIERS
+
+
 def strip_items_contradicting_displaced_notes(
     items: list[NotFoundInput],
     required: RequiredEvidence,
@@ -230,12 +274,23 @@ def strip_items_contradicting_displaced_notes(
     **只吸收被挤出这一态**：从未取得（两句同向、只是冗余）与仍在证据集但未引用
     （T23 的事实校验会把它改写成"已出现在本次检索证据中"）都不构成矛盾，继续走 T23，
     以免吞掉方法级细节和 `corpus_index` 这类事实校验来源（c10 要求两类缺口可分辨）。
+
+    **只吸收"纯身份"缺口**（三审发现2）：整句必须只含一个目标，且去掉该目标后只剩
+    封闭的通用限定词（生产源码/实现/文件…）。"RagService 中 NO_ANSWER 的触发条件"含
+    方法级语义、"RagService 和 UnknownService 生产源码"含第二个目标（后者还不是
+    required item，只数 ``bound`` 的长度根本发现不了），两者都必须原样保留——否则确定性
+    说明覆盖不到的信息会被静默删除，直接回归 T23 的"方法级缺口信息保留"要求。
     """
     kept: list[NotFoundInput] = []
     dropped: list[str] = []
     for item in items:
         bound = bound_required_ids(required, item.text)
-        if item.source != "deterministic" and len(bound) == 1 and bound[0] in displaced_ids:
+        if (
+            item.source != "deterministic"
+            and len(bound) == 1
+            and bound[0] in displaced_ids
+            and _is_pure_identity_gap(item.text)
+        ):
             dropped.append(item.text)
             continue
         kept.append(item)
@@ -594,7 +649,14 @@ class AgentNodes:
             "aspect_observations": observe_round(
                 state["required_evidence"],
                 coverage,
-                cited,
+                [
+                    EvidenceRef(
+                        evidence_id=evidence.evidence_id,
+                        chunk_id=evidence.chunk_id,
+                        rel_path=evidence.rel_path,
+                    )
+                    for evidence in state["evidences"]
+                ],
                 call.value.supported_aspects,
                 round_index=state["retrieval_round"],
             ),
@@ -741,8 +803,10 @@ class AgentNodes:
         for row in displaced_aspects(matrix):
             # 已支持方面的证据不在终态证据集里：仅被挤出不算证伪，矩阵保留已支持状态，
             # 但必须显式可见（否则"跨轮丢证据"又会变成不可诊断的静默降级）。
-            # 只为**确定性轨**发这条告警：evaluator 方面的 present_now 只表示"末轮是否
-            # 又自报了一次"，据此说"证据不在终态证据集"并非可核验的事实。
+            # 只为**确定性轨**发这条告警：确定性轨的 present_now 来自权威覆盖矩阵，
+            # "点名的文件不在终态证据集"是可核验的事实；evaluator 方面的 present_now
+            # 建立在粗粒度的整轮绑定上（见 aspects.observe_round），据此对用户断言
+            # "证据被挤出"会超出可证范围。
             if row.origin != "required_evidence":
                 continue
             warnings.append(

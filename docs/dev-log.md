@@ -1014,3 +1014,16 @@
 - **发现4（P2）：淘汰记录仍不能逐条回放。** 账本单轮可达 24 条，step summary 却按 `MAX_SUMMARY_ITEMS` 截成 8 条，而完整 AgentState 不落库——回放只能看到前 8 条。改法：summary 按 `MAX_ELIMINATION_RECORDS` 落盘，并补两处测试：recorder 层 12 条、`_step_output_summary` 持久化映射 12 条（既有集成测试已证明 `output_summary` 原样落库回放）。**未做**的部分如实写在偏差记录里：没有另造 >12 chunk 的真实语料去跑端到端 21 条淘汰的 replay。
 - **发现5（P2）：契约版本。** `evidence_eliminations` 是新增 state 字段，按《P1版本标识》"状态字段改变即递增"应升版——`AGENT_STATE_SCHEMA_VERSION` v6→**v7**，版本断言同步。Prompt 未动，`PROMPT_VERSION` 仍 p1.5-agent-v4。
 - `make ci`（ruff/pyright 0、pytest 550）、`make eval-ci`（65+19）全绿；跨 5 个 PYTHONHASHSEED 一致。**T24.1/T24.2 仍不勾选，待第三轮复审。** 证据 commit：本提交。
+
+## 2026-07-26 · P1.5 T24 第三轮复审整改：chunk 级分组绑定 + 纯身份缺口才吸收
+
+- 复审对 bb1242c 的结论：五条原始反例都已对点修好（确定性代表优先、floor 顺序、简单矛盾态、24 条淘汰摘要、v7），但**把反例泛化一层还有 2×P1**。这一轮我学到的教训很直接：前两轮我都是"照着反例修"，反例过了就以为面上过了；复审每次都在同一处泛化后再找到问题。
+- **发现1（P1）：交集不等于支撑。** 诊断轨绑不到具体证据时我记录"该轮全部路径"，`present_now` 又按任意路径交集算——绑定=[A.java（真支撑）, unrelated.md]、终态只剩 unrelated.md 时仍判"仍被支撑"并路由 generate。这只证明"原证据集合还剩一条"，不证明剩下的正是支撑；而且按路径判定会把同一文件的不同 chunk 当成同一条证据。
+  - 改法（按复审给的最小安全口径）：新增 `EvidenceRef` 携带稳定 `chunk_id`，`AspectObservation` 逐轮记录 `chunk_ids` 绑定集合（**分组保留，不跨轮压平**），`build_matrix` 改判"**某一轮的绑定集合完整保留**才算 present_now"。确定性轨不变，仍由权威覆盖矩阵判定——那里的路径身份就是用户点名的对象，是正确口径。
+  - 代价我写进了 docstring 与偏差记录：绑定粒度粗是因为 `EvaluateOutput` 没有 aspect→evidence 自报字段（加它要动 LLM 契约，属 D6 边界，不在 T24），所以只能用"整组保留"这种严格口径来兜；回退风险是"末轮没再自报 + 绑定集合缺一条"时诊断轨不再算可交付，此时终态取决于确定性轨。
+- **发现2（P1）：吸收会静默删掉第二目标与方法级缺口。** 我的判据只数"匹配到几个 required id"——`RagService 中 NO_ANSWER 的触发条件` 被整条删除（方法/行为语义没了），`RagService 和 UnknownService 生产源码` 也被整条删除（UnknownService 压根不是 required item，所以 `len(bound)==1` 依然成立）。复审指出这与我自己写的注释"多目标保守保留"相反，还回归了 T23 的"方法级缺口信息保留"。确实如此：`bound_required_ids` 只能看见 required item，用它数目标数从原理上就不对。
+  - 改法：新增 `_is_pure_identity_gap`——用 T22 的 `iter_target_spans` 数**原文里的目标个数**（与 required 无关），只有恰好一个才继续；去掉该目标后复用 T23 的 `strip_absence_markers`（顺手把它从 `_strip_absence_markers` 改成公开，不另抄一份，免得两处口径漂移）剥掉"当前证据未覆盖/缺少/未找到"这类措辞，残余必须落在一张封闭限定词表里（生产源码/实现/文件/配置/迁移/测试/文档…）。
+  - 12 条对抗探针逐条核对：纯身份缺口（含带缺失措辞的写法）吸收；`hasGroundedVectorHit 方法`、`NO_ANSWER 的触发条件`、`重试逻辑`、`行号范围`、第二目标（UnknownService / CitationParser）、未绑定目标（OtherService）全部保留。
+- 两处注释漂移一并修正：`plan_retention` 的资格顺序说明补上"本轮新证据里的诊断轨代表"这一层；finalize 里"evaluator 的 present_now 只表示末轮又自报了一次"已过时，改成按绑定粒度解释为什么只给确定性轨发"被挤出"告警。
+- 契约版本：`AspectObservation` 字段语义变更 → `AGENT_STATE_SCHEMA_VERSION` v7→**v8**（Prompt 未动）。
+- `make ci`（ruff/pyright 0、pytest 559）、`make eval-ci`（65+19）全绿；两轨随机探针 4000 例 0 违反；跨 5 个 PYTHONHASHSEED 一致；案例九回放仍是 partial + 保住 RagService。**T24.1/T24.2 仍不勾选，待第四轮复审。** 证据 commit：本提交。

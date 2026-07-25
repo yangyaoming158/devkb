@@ -61,6 +61,16 @@ def normalize_aspect_label(text: str) -> str:
     return _LABEL_NOISE.sub("", text)
 
 
+class EvidenceRef(BaseModel):
+    """一条证据的稳定身份（chunk_id）+ 轮内编号 + 路径；方面观察按它记录绑定。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    evidence_id: str
+    chunk_id: uuid.UUID
+    rel_path: str
+
+
 class AspectObservation(BaseModel):
     """某一检索轮里"该方面已取得直接证据"的观察；缺失由矩阵反推，不单独落库。"""
 
@@ -70,7 +80,9 @@ class AspectObservation(BaseModel):
     label: str
     origin: AspectOrigin
     round_index: int
-    # evidence_id 是轮内编号（每轮重排），跨轮无意义；历史只记稳定的 rel_path
+    # evidence_id 是轮内编号（每轮重排），跨轮无意义。身份用 chunk_id：按路径判定会把
+    # 同一文件的不同 chunk 当成同一条证据（三审发现1）。rel_paths 只用于说明与审计。
+    chunk_ids: tuple[uuid.UUID, ...] = ()
     rel_paths: tuple[str, ...] = ()
 
 
@@ -128,7 +140,7 @@ def label_tokens(label: str) -> tuple[str, ...]:
 def observe_round(
     required: RequiredEvidence,
     coverage: Sequence[CoverageEntry],
-    cited: Sequence[tuple[str, str]],
+    evidence: Sequence[EvidenceRef],
     evaluator_supported: Sequence[str],
     *,
     round_index: int,
@@ -143,10 +155,11 @@ def observe_round(
     evaluate 当时据以判断的证据集）。绑定必须是稳定事实，``present_now`` 才能按"支撑
     证据是否还在"计算；用"本轮是否又自报了一次"代理会让 LLM 在证据未变时撤销历史支持，
     与已裁决的诊断轨单调下界冲突。绑定粒度偏粗是诚实的代价：EvaluateOutput 里没有
-    aspect→evidence 的自报字段，加这个字段要改 LLM 契约（属 D6 边界，不在 T24）。
+    aspect→evidence 的自报字段，加这个字段要改 LLM 契约（属 D6 边界，不在 T24）——
+    正因为绑定粗，矩阵才要求**整组绑定完整保留**才算仍被支撑（见 ``build_matrix``）。
     """
-    path_by_id = dict(cited)
-    round_paths = tuple(dict.fromkeys(path for _evidence_id, path in cited))
+    path_by_id = {ref.evidence_id: ref.rel_path for ref in evidence}
+    chunk_by_id = {ref.evidence_id: ref.chunk_id for ref in evidence}
     item_by_id = {item.item_id: item for item in required.items}
     observations: list[AspectObservation] = []
     for entry in coverage:
@@ -159,6 +172,13 @@ def observe_round(
                 label=item.symbol or item.path or item.anchor,
                 origin="required_evidence",
                 round_index=round_index,
+                chunk_ids=tuple(
+                    dict.fromkeys(
+                        chunk_by_id[evidence_id]
+                        for evidence_id in entry.matched_evidence_ids
+                        if evidence_id in chunk_by_id
+                    )
+                ),
                 rel_paths=tuple(
                     dict.fromkeys(
                         path_by_id[evidence_id]
@@ -175,16 +195,20 @@ def observe_round(
             continue
         seen.add(key)
         tokens = label_tokens(label)
-        bound = tuple(
-            path for path in round_paths if any(path_matches_token(path, token) for token in tokens)
-        )
+        matched = [
+            ref
+            for ref in evidence
+            if any(path_matches_token(ref.rel_path, token) for token in tokens)
+        ]
+        bound = matched or list(evidence)
         observations.append(
             AspectObservation(
                 aspect_id=_evaluator_aspect_id(label),
                 label=_aspect_label(label),
                 origin="evaluator",
                 round_index=round_index,
-                rel_paths=bound or round_paths,
+                chunk_ids=tuple(dict.fromkeys(ref.chunk_id for ref in bound)),
+                rel_paths=tuple(dict.fromkeys(ref.rel_path for ref in bound)),
             )
         )
     return observations
@@ -195,16 +219,20 @@ def build_matrix(
     observations: Sequence[AspectObservation],
     coverage: Sequence[CoverageEntry],
     *,
-    evidence_paths: Sequence[str],
+    present_chunk_ids: Sequence[uuid.UUID],
 ) -> tuple[AspectStatus, ...]:
     """跨轮单调覆盖矩阵：确定性轨（按 required items 顺序）在前，诊断轨在后。
 
     ``supported`` = 任一轮观察到直接证据；``present_now`` = **当前证据集**仍有直接证据
-    ——确定性轨按权威覆盖矩阵 ``coverage`` 判，诊断轨按"绑定证据 ∩ 当前证据集"判
-    （二审发现2：不能用"末轮是否又自报一次"代理，否则证据没变 LLM 也能撤销历史支持）。
-    二者的差就是"被挤出但不算证伪"，由调用方记告警（绝不据此把方面改回缺失）。
+    ——确定性轨按权威覆盖矩阵 ``coverage`` 判（路径身份就是用户点名的对象）；诊断轨按
+    **某一轮的绑定集合是否完整保留**判，身份用 chunk_id。
+
+    两条被复审否过的写法记在这里免得再犯：用"末轮是否又自报一次"代理，会让证据没变时
+    LLM 也能撤销历史支持（二审发现2）；用"绑定集合与当前证据集有交集"判定，则"只剩一条
+    无关证据"也算仍被支撑，且同一文件的不同 chunk 会被当成同一条证据（三审发现1）。
+    绑定粒度粗的代价，由"整组保留"这一严格口径承担。
     """
-    current_paths = set(evidence_paths)
+    present = set(present_chunk_ids)
     by_id: dict[str, list[AspectObservation]] = {}
     for observation in observations:
         by_id.setdefault(observation.aspect_id, []).append(observation)
@@ -228,7 +256,6 @@ def build_matrix(
     for aspect_id, history in by_id.items():
         if not aspect_id.startswith(_EVALUATOR_PREFIX):
             continue
-        bound = tuple(dict.fromkeys(path for obs in history for path in obs.rel_paths))
         rows.append(
             AspectStatus(
                 aspect_id=aspect_id,
@@ -236,8 +263,12 @@ def build_matrix(
                 origin="evaluator",
                 supported=True,  # 只在"自报已支持"时才产生观察
                 first_supported_round=min(observation.round_index for observation in history),
-                present_now=bool(current_paths & set(bound)),
-                rel_paths=bound,
+                # 逐轮分组判定：任一轮的绑定集合**完整**留在当前证据集里才算仍被支撑
+                present_now=any(
+                    observation.chunk_ids and set(observation.chunk_ids) <= present
+                    for observation in history
+                ),
+                rel_paths=tuple(dict.fromkeys(path for obs in history for path in obs.rel_paths)),
             )
         )
     return tuple(rows)
@@ -328,10 +359,11 @@ def plan_retention(
     **先发保留资格、再按原次序输出**，资格优先级（一审发现1、二审发现1）：
 
     1. **确定性轨代表**（T22 点名的必需证据）——绝对优先，容量够就一定保住；
-    2. **补检至少一条**——若上一步没有任何本轮新证据入选，给排名最高的新证据留一个位置，
-       否则一条 LLM 自报的方面标签就能把整轮补检结果清空；
-    3. **诊断轨代表**（evaluate 自报方面，按标签 token 绑定路径）；
-    4. 其余新证据（按召回排名）→ 其余旧证据（按原次序）。
+    2. **本轮新证据里的诊断轨代表**——它本身就是补检结果，占位同时满足下一条；
+    3. **补检至少一条**——若前两步没有任何本轮新证据入选，给排名最高的新证据留一个
+       位置，否则一条 LLM 自报的方面标签就能把整轮补检结果清空；
+    4. **旧轮的诊断轨代表**（evaluate 自报方面，按标签 token 绑定路径）；
+    5. 其余新证据（按召回排名）→ 其余旧证据（按原次序）。
 
     两条不变量：**同一来源内的相对次序永不改变**（重排会改变 ``E#`` 编号进而改变模型
     该引哪条）；**代表资格与容量联合求解**，不先按"全部新证据覆盖了哪些方面"下结论再

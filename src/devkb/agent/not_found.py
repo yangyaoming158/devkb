@@ -252,7 +252,7 @@ def coverage_disclosure() -> str:
     return "本项目当前摄取的文件类型：" + "、".join(sorted(SUPPORTED_SUFFIXES))
 
 
-def _strip_absence_markers(text: str) -> str:
+def strip_absence_markers(text: str) -> str:
     """去掉缺失/否定标记，只留"是哪个方面"。
 
     改写时用它作主语：既让被校准的条目不再带"未找到/不存在"字样（Gate 明确要求
@@ -274,7 +274,7 @@ def _strip_absence_markers(text: str) -> str:
 
 
 def _subject(text: str, tokens: Sequence[str]) -> str:
-    aspect = _strip_absence_markers(text)
+    aspect = strip_absence_markers(text)
     if aspect:
         return aspect
     if tokens:

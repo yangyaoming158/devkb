@@ -14,6 +14,7 @@ import pytest
 from devkb.agent.answer import build_answer
 from devkb.agent.aspects import (
     AspectStatus,
+    EvidenceRef,
     build_matrix,
     displaced_aspects,
     has_deliverable_aspect,
@@ -34,7 +35,11 @@ from devkb.agent.evidence_types import (
     parse_required_evidence,
 )
 from devkb.agent.graph import has_deliverable_content, route_after_evaluate, run_agent
-from devkb.agent.nodes import AgentRuntime
+from devkb.agent.nodes import (
+    AgentRuntime,
+    strip_items_contradicting_displaced_notes,
+)
+from devkb.agent.not_found import NotFoundInput
 from devkb.agent.state import (
     AgentInput,
     AgentState,
@@ -70,16 +75,27 @@ def _pairs(*items: tuple[int, str]) -> list[tuple[uuid.UUID, str]]:
     return [(_uuid(seed), path) for seed, path in items]
 
 
+def _refs(*items: tuple[int, str]) -> list[EvidenceRef]:
+    """(chunk 序号, 路径) → 证据引用；evidence_id 按顺序编号（轮内编号，跨轮无意义）。"""
+    return [
+        EvidenceRef(evidence_id=f"E{index}", chunk_id=_uuid(seed), rel_path=path)
+        for index, (seed, path) in enumerate(items, start=1)
+    ]
+
+
 # ---- 方面分解与观察 --------------------------------------------------------
 
 
 def test_required_items_and_evaluator_aspects_form_two_tracks() -> None:
     required = parse_required_evidence("请引用 RagService 与 CitationParser 的生产实现。")
-    cited = [("E1", RAG_SERVICE)]
-    coverage = compute_coverage(required, cited)
+    coverage = compute_coverage(required, [("E1", RAG_SERVICE)])
 
     observations = observe_round(
-        required, coverage, cited, ["NO_ANSWER 条件", "NO_ANSWER 条件。"], round_index=1
+        required,
+        coverage,
+        _refs((1, RAG_SERVICE)),
+        ["NO_ANSWER 条件", "NO_ANSWER 条件。"],
+        round_index=1,
     )
 
     determinstic = [obs for obs in observations if obs.origin == "required_evidence"]
@@ -94,14 +110,14 @@ def test_matrix_keeps_support_when_later_round_loses_the_evidence() -> None:
     round1 = observe_round(
         required,
         compute_coverage(required, [("E1", RAG_SERVICE)]),
-        [("E1", RAG_SERVICE)],
+        _refs((1, RAG_SERVICE)),
         ["NO_ANSWER 条件"],
         round_index=1,
     )
     round2 = observe_round(
         required,
         compute_coverage(required, [("E1", CITATION_PARSER)]),
-        [("E1", CITATION_PARSER)],
+        _refs((2, CITATION_PARSER)),
         ["非法引用编号处理"],
         round_index=2,
     )
@@ -109,7 +125,7 @@ def test_matrix_keeps_support_when_later_round_loses_the_evidence() -> None:
         required,
         [*round1, *round2],
         compute_coverage(required, [("E1", CITATION_PARSER)]),
-        evidence_paths=[CITATION_PARSER],
+        present_chunk_ids=[_uuid(2)],
     )
 
     by_label = {row.label: row for row in matrix}
@@ -126,9 +142,9 @@ def test_never_supported_aspect_stays_unsupported() -> None:
     coverage = compute_coverage(required, [("E1", RAG_SERVICE)])
     matrix = build_matrix(
         required,
-        observe_round(required, coverage, [("E1", RAG_SERVICE)], [], round_index=1),
+        observe_round(required, coverage, _refs((1, RAG_SERVICE)), [], round_index=1),
         coverage,
-        evidence_paths=[RAG_SERVICE],
+        present_chunk_ids=[_uuid(1)],
     )
 
     assert [(row.label, row.supported) for row in matrix] == [
@@ -172,10 +188,10 @@ def test_diagnostic_track_alone_can_never_grant_sufficiency() -> None:
     required = parse_required_evidence("订单校验和库存扣减分别是怎么做的？")
     assert required.items == ()
     observations = [
-        *observe_round(required, (), [], ["订单校验"], round_index=1),
-        *observe_round(required, (), [], ["库存扣减"], round_index=2),
+        *observe_round(required, (), _refs((1, ARCH_DOC)), ["订单校验"], round_index=1),
+        *observe_round(required, (), _refs((1, ARCH_DOC)), ["库存扣减"], round_index=2),
     ]
-    matrix = build_matrix(required, observations, (), evidence_paths=[])
+    matrix = build_matrix(required, observations, (), present_chunk_ids=[_uuid(1)])
 
     assert [row.origin for row in matrix] == ["evaluator", "evaluator"]
     assert all(row.supported for row in matrix)  # 单调下界仍然成立
@@ -361,17 +377,46 @@ def test_required_representative_outranks_diagnostic_representative() -> None:
     assert plan.kept == (_uuid(1),)
 
 
+def test_partial_binding_overlap_is_not_current_support() -> None:
+    """三审发现1：绑定集合只剩"任意一条"不能证明直接支撑仍在。
+
+    绑定 = [A.java（真正的支撑）, unrelated.md]，终态只剩 unrelated.md 时，
+    present_now 必须为 False；同一文件的**不同 chunk** 也不算同一条证据。
+    """
+    required = parse_required_evidence("订单校验是怎么做的？")
+    service = "backend/src/main/java/svc/OrderService.java"
+    observations = observe_round(
+        required,
+        (),
+        _refs((1, service), (2, ARCH_DOC)),
+        ["订单校验"],
+        round_index=1,
+    )
+
+    kept_all = build_matrix(required, observations, (), present_chunk_ids=[_uuid(1), _uuid(2)])
+    assert kept_all[0].present_now is True  # 绑定集合完整保留 → 仍可交付
+
+    leftover_only = build_matrix(required, observations, (), present_chunk_ids=[_uuid(2)])
+    assert leftover_only[0].supported is True  # 单调下界不变
+    assert leftover_only[0].present_now is False  # 但"还剩一条无关证据"不等于仍被支撑
+
+    other_chunk = build_matrix(required, observations, (), present_chunk_ids=[_uuid(9), _uuid(2)])
+    assert other_chunk[0].present_now is False  # 同文件不同 chunk 不是同一条证据
+
+
 def test_diagnostic_support_survives_evaluator_flip_when_evidence_unchanged() -> None:
     """二审发现2：evaluator 方面的 present_now 不能用"本轮是否又说了一遍"代理——
     证据集没变时 LLM 不该能撤销历史支持（已裁决的诊断轨单调下界）。"""
     required = parse_required_evidence("订单校验是怎么做的？")
-    paths = ["backend/src/main/java/svc/OrderService.java", ARCH_DOC]
-    observations = observe_round(required, (), [("E1", paths[0])], ["订单校验"], round_index=1)
+    service = "backend/src/main/java/svc/OrderService.java"
+    observations = observe_round(
+        required, (), _refs((1, service), (2, ARCH_DOC)), ["订单校验"], round_index=1
+    )
 
-    unchanged = build_matrix(required, observations, (), evidence_paths=paths)
+    unchanged = build_matrix(required, observations, (), present_chunk_ids=[_uuid(1), _uuid(2)])
     assert unchanged[0].supported and unchanged[0].present_now  # 证据未变 → 仍可交付
 
-    replaced = build_matrix(required, observations, (), evidence_paths=[CITATION_PARSER])
+    replaced = build_matrix(required, observations, (), present_chunk_ids=[_uuid(3)])
     assert replaced[0].supported and not replaced[0].present_now  # 支撑证据没了才算被挤出
 
 
@@ -396,6 +441,31 @@ def test_diagnostic_anchor_never_evicts_the_whole_refill_round() -> None:
     assert [record.reason for record in plan.eliminated] == ["aspect_anchor_capacity"]
 
 
+@pytest.mark.parametrize(
+    ("text", "absorbed"),
+    [
+        ("RagService 生产源码", True),  # 单目标 + 封闭通用限定词 → 交给确定性说明
+        ("RagService", True),
+        ("RagService 的生产实现", True),
+        ("当前证据未覆盖 RagService 的生产源码", True),  # 缺失措辞不算语义残余
+        ("缺少 RagService 生产源码", True),
+        ("RagService 中 NO_ANSWER 的触发条件", False),  # 方法/行为语义必须保留（T23）
+        ("RagService 和 UnknownService 生产源码", False),  # 第二目标不得被静默吞掉
+        ("RagService.java 与 CitationParser 的实现", False),
+    ],
+)
+def test_absorption_only_swallows_pure_identity_gaps(text: str, absorbed: bool) -> None:
+    """三审发现2：吸收判据只数"匹配到几个 required id"，会把方法级缺口与未绑定的
+    第二目标一起删掉——UnknownService 不是 required item，`len(bound)==1` 仍成立。"""
+    required = parse_required_evidence("请引用 RagService 的生产实现。")
+    items = [NotFoundInput(text=text, source="evaluator_missing")]
+
+    kept, dropped = strip_items_contradicting_displaced_notes(items, required, frozenset({"R1"}))
+
+    assert bool(dropped) is absorbed
+    assert [item.text for item in kept] == ([] if absorbed else [text])
+
+
 def test_anchor_matcher_is_the_coverage_matcher() -> None:
     # 防漂移：保留用的身份判定与覆盖矩阵必须同一 matcher，否则"保下来的证据"
     # 与"覆盖矩阵认可的证据"会随修复分叉
@@ -412,7 +482,7 @@ def test_matrix_present_now_follows_current_coverage_only() -> None:
     observations = observe_round(
         required,
         compute_coverage(required, [("E1", RAG_SERVICE)]),
-        [("E1", RAG_SERVICE)],
+        _refs((1, RAG_SERVICE)),
         [],
         round_index=1,
     )
@@ -420,7 +490,7 @@ def test_matrix_present_now_follows_current_coverage_only() -> None:
         required,
         observations,
         (CoverageEntry(item_id="R1", covered=False),),
-        evidence_paths=[ARCH_DOC],
+        present_chunk_ids=[_uuid(9)],
     )
 
     assert matrix[0].supported is True and matrix[0].present_now is False
@@ -470,7 +540,7 @@ def test_history_alone_is_not_deliverable_when_current_evidence_lost_it() -> Non
     state["aspect_observations"] = observe_round(
         required,
         compute_coverage(required, [("E1", RAG_SERVICE)]),
-        [("E1", RAG_SERVICE)],
+        _refs((1, RAG_SERVICE)),
         [],
         round_index=1,
     )
