@@ -450,3 +450,30 @@ async def test_gB9_unresolved_note_survives_generate_failure_branch() -> None:
     assert result["generate_failed"] is True
     assert result["final_mode"] == "partial"
     assert any("无法确定性定位" in item for item in result["final_not_found"])
+
+
+# ---- T22.2 判据 Fake 矩阵：替代表述（"用 X 代替 Y"）两个方向 ----
+
+
+async def test_substitution_phrasing_test_only_evidence_not_full() -> None:
+    # 判据"仅测试代替生产→不得 full"的字面表述：Y 侧（生产源码）被强制提取为必需项，
+    # 只召回测试文件时类型不匹配 → 覆盖缺口 → 补检后仍最高 partial
+    result = await _run5(
+        "不要用测试代替生产源码，说明订单校验。", "backend/src/test/java/FooTest.java"
+    )
+    required = result["required_evidence"]
+    assert [item.type for item in required.items] == ["production_source"]
+    assert required.forbidden_substitute_types == ("test",)
+    assert result["final_mode"] == "partial"
+    assert any("测试/设计/历史材料不能替代" in item for item in result["final_not_found"])
+
+
+async def test_substitution_phrasing_production_evidence_allows_full() -> None:
+    # 判据"必需类型齐全→可 full"的同一表述反向：禁止替代不得反过来误伤合法 full
+    result = await run_agent(
+        _runtime([PLAN, EVAL_OK, GEN], "backend/src/main/java/svc/OrderService.java"),
+        _input("请引用生产源码说明订单校验，不要用测试代替。"),
+    )
+    assert result["required_evidence"].forbidden_substitute_types == ("test",)
+    assert result["final_mode"] == "full"
+    assert result["final_not_found"] == []
