@@ -881,3 +881,20 @@
   - **指令作用域**（防自然问句误判）：强指令(引用/参见/参照)直接激活；弱指令(根据/依据/结合/列出…)仅在邻接路径/证据类型词/角色词/`X 类` 时激活——"OrderService 如何结合 RabbitMQ" / "系统根据 OrderStatus" → 无约束；"根据 OrderService 的生产源码" → 有约束。
 - **纪律**：先红后绿——§五.A 图级 8 反例、分类/parser 参数化、自然问法、§五.D 结构不变量（空格无关、增量不减、hashseed 一致、anchor 原文子串）均先在 a6583f8 确认失败再实现。提交前自己又构造组合（未知 ext+已知 ext、集合+具体、参照+连接、多重否定）跑穿。`AGENT_STATE_SCHEMA_VERSION`→v3（RequiredEvidence 形状变化）；Prompt 未改，`PROMPT_VERSION`/快照 SHA 不变。`make ci` 376、`make eval-ci` 65+19 全绿；P0/P1 兼容；跨 5 PYTHONHASHSEED items+unresolved 完全一致。
 - 勾选纪律：T22.1/T22.2/T22.3 **仍全部不勾选**，待下一轮独立复审确认。证据 commit：本提交。
+
+## 2026-07-25 · P1.5 T22 约束跨度账本（第五轮复审：从"整段判定"到"逐段结算"）
+
+- 四次整改（3e18503）经**第五轮复审**：三态 + unresolved 硬门方向被确认正确，但核心性质"解析漏检必进 unresolved"**并未成立**——`_extract` 以整段 `produced` 为准，只要一个目标命中，同一义务下的其余目标就静默消失。复审给了 6 处可复现缺陷与 7 条路线裁决，T22.1/T22.2/T22.3 仍不合格。我先把 6 处全部在 3e18503 上跑出原始输出留证（`请引用 Foo.java 和关键实现` → status=complete/无 unresolved；`请引用 README` 被 `docs/architecture.md` 覆盖；`src/main/java/AuditService.java` → historical_plan；否定约束无任何消费者），再按裁决重写。
+- **架构改动：约束跨度账本（constraint span ledger）**。义务检测与目标解析彻底解耦：
+  - `_detect_obligations` 独立识别义务跨度——强指令（引用/参见/参照/援引，对象在标记后）、弱指令（根据/依据/列出…，须邻接证据信号）、**核验比较谓词**（声称/是否一致/是否支持…，对象在标记**左侧**）。第三类是 c02（"README 声称…；Java 配置和 Provider 实现是否支持这个说法"）此前整题 status=none、硬门真空化的原因。
+  - `_resolve_region`/`_resolve_one` 把义务对象按连接词拆成目标段，每段各自结算为 **resolved item / unresolved 约束 / 明确的非目标尾语**（整段不含目标名词，如"说明订单如何校验"）。再没有"整段 produced=True"，`请引用 Foo.java 和关键实现` 现在得到 1 item + 1 unresolved(`关键实现`)。
+  - **身份优先**：裸 `README/PROGRESS/CHANGELOG…` 保留身份（`symbol=README`，类型由 `classify_path` 反推），不再退化成"任意 current_doc 都能顶替"；`相关 Java 配置` 这类无身份类别直接 unresolved（c08 三个具体文件全引用也不得 full）。
+  - **点名类型语境**：`_infer_symbol_type` 让显式生产语境优先于 `*Test` 命名约定——"请引用 OrderTest 的生产实现"只产生 1 条 production_source:OrderTest，不再是"test:OrderTest + 泛化 production"被 `src/test/OrderTest.java + 任意生产文件` 组合满足。
+  - **分类先目录后扩展名**：audit/changelog/plan/review 等**文件名**约定只作用于文档扩展名，`AuditService.java`/`ChangelogService.java` 不再冒充 historical_plan/dev_log；`Test*` 改词边界规则（`^Test(?![a-z])`、`[a-z0-9]Tests?$`、`(?<![A-Z])ITs?$`），Testing/Testimony/SPLIT 不是测试，`TestOrderService`/`FooSpec`/`AuditIT` 仍是。
+  - **两类否定分开执行**：`forbidden_substitute_types`（可作补充、不能替代）与 `forbidden_citation_types`（不得直接引用）。"只能作为补充"/"不要用 X 代替 Y"/"不要只引用 X" 归前者；"不要引用 X" 归后者，并新增 `forbidden_citation_hits` 让它真正生效——`required_satisfied` 现在同时要求"无被禁类型被引用"，generate Prompt 也收到该清单（此前否定纯属死信号）。
+  - **schema 上限对齐**：`MAX_REQUIRED_ITEMS=10` 成为 `PlanOutput.required_evidence` 与 `EvaluateOutput.coverage` 的同源上限；解析超限时截断 + 记 `partial_enumeration`，不再"11 项却报 complete"（有防漂移单测）。
+  - **finalize 公共收尾**：抽出 `required_evidence_tail`，覆盖缺口 / unresolved / 禁止引用三类说明对**所有**终态分支统一生成——此前只在"无 claim 被移除"那一条分支里，draft is None、generate_failed、有 claim 被移除时全部静默丢失（发现5）。
+- **自查补洞（提交前主动构造组合）**：①顿号切开的否定列表被截断——"不要用 README、架构文档或测试代替实现"只吃到 `不要用 README`，丢掉 test 禁止且把替代结构误判成禁止引用；改为否定跨度向后合并不开启新义务的续段，并用原文区间切片保住 anchor 是原文子串。②`引用` 作名词误当祈使指令——"历史会话中的引用是否还能显示"凭空产出 unresolved 噪声；加祈使锚定（非祈使位置的强指令退回弱指令口径，须邻接证据信号）。两处都补了参数化测试。
+- **纪律**：先红后绿——10 条图级反例（§五.B：残余目标、c08 三引用、c02 核验句、README 身份、OrderTest 生产语境、生产文件冒充历史计划、禁止引用、claim 移除分支、generate 失败分支、零证据 refusal 分支）在 3e18503 上 **10/10 失败**、修复后 10/10 通过（`git stash push -- src/` 逐条验证）；解析/分类/不变量层另加约 30 条（含账本不变量：多一个无法定位目标必多一条 unresolved、追加非目标尾语不改变结果、枚举 N 项至少结算 N 条）与 5 条自然问法反例。`PROMPT_VERSION` p1.5-agent-v2→v3（GENERATE_SYSTEM 增禁止引用类型指令）、`AGENT_STATE_SCHEMA_VERSION`→v4（RequiredEvidence 增字段），快照 SHA → `6c838462…`。`make ci`（ruff/pyright 0、pytest 434）、`make eval-ci`（65+19）全绿；P0/P1 兼容；跨 5 个 `PYTHONHASHSEED` 的 items+unresolved+两类禁止清单完全一致。复审提到的两个图级测试超时未能复现（本机 `tests/unit/test_agent_graph.py` 22 项 0.58s，最慢单项 0.02s）。
+- 口径取舍：README 的 full 触发条件表暂不改（T32.1 才是 README/文档口径任务，且 T22 未验收、契约可能再变），本轮不写入未验收能力。
+- 勾选纪律：T22.1/T22.2/T22.3 **仍全部不勾选**，待第六轮独立复审确认。证据 commit：本提交。

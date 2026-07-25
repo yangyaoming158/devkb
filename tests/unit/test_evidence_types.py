@@ -9,11 +9,14 @@ from __future__ import annotations
 import pytest
 
 from devkb.agent.evidence_types import (
+    MAX_REQUIRED_ITEMS,
     RequiredEvidence,
     all_required_covered,
     classify_path,
     compute_coverage,
+    forbidden_citation_hits,
     parse_required_evidence,
+    required_satisfied,
 )
 
 
@@ -93,8 +96,10 @@ def test_parse_c05_test_required_devlog_and_plan_forbidden() -> None:
 
 def test_parse_negation_do_not_cite_design_is_forbidden_not_required() -> None:
     # 复审发现4：否定语义反转 —— "不要引用设计文档" 不得反而把 design_doc 设为必需
+    # 五审发现4：明确的"不要引用"是**禁止引用**（强于禁止替代），须分开记录
     r = parse_required_evidence("不要引用设计文档，只引用生产源码。")
-    assert "design_doc" in r.forbidden_substitute_types
+    assert "design_doc" in r.forbidden_citation_types
+    assert "design_doc" in r.non_substitutable_types
     assert "design_doc" not in _types(r)
     assert "production_source" in _types(r)
 
@@ -252,7 +257,7 @@ def test_negation_period_does_not_leak_across_sentences() -> None:
     # 三审发现1：删 "." 会让否定跨句污染；须遮蔽路径后按句点分句
     r = parse_required_evidence("不要引用测试. 请引用 backend/src/main/java/foo/Foo.java.")
     assert "production_source" in _types(r)  # Foo.java 仍是必需，未被否定吞掉
-    assert "test" in r.forbidden_substitute_types
+    assert "test" in r.forbidden_citation_types
     cov = compute_coverage(r, [("E1", "backend/src/test/java/foo/FooTest.java")])
     assert not all_required_covered(cov)  # 只引测试文件不得 full
 
@@ -373,3 +378,203 @@ def test_role_word_category_is_unresolved_not_resolved_symbol() -> None:
     r = parse_required_evidence("请引用生产 Repository 实现。")
     assert "Repository" not in _symbols(r)
     assert r.status == "ambiguous"
+
+
+# ---- 第五轮复审：约束跨度账本（逐段结算、身份、分类、两类否定、schema 上限） ----
+
+
+def test_partial_parse_keeps_remaining_target_as_unresolved() -> None:
+    # 五审发现1：解析出一个目标后，同一义务下剩余目标不得静默消失
+    r = parse_required_evidence("请引用 Foo.java 和关键实现。")
+    assert {i.path for i in r.items if i.path} == {"Foo.java"}
+    assert [uc.anchor for uc in r.unresolved_constraints] == ["关键实现"]
+    assert r.status == "ambiguous"
+
+
+def test_vague_type_category_in_enumeration_is_unresolved() -> None:
+    # 五审发现1（c08）："相关 Java 配置"无身份 → unresolved，不得只留 3 个具体项后报 complete
+    r = parse_required_evidence(
+        "请区分本地裸 JVM 与 Docker Compose 的生效范围，"
+        "并引用 README、docker-compose.yml、application.yml 和相关 Java 配置。"
+    )
+    assert {i.path for i in r.items if i.path} == {"docker-compose.yml", "application.yml"}
+    assert "README" in _symbols(r)
+    assert any(uc.anchor == "相关 Java 配置" for uc in r.unresolved_constraints)
+    assert r.status == "ambiguous"
+
+
+def test_verification_style_question_is_an_evidence_obligation() -> None:
+    # 五审发现1（c02）：比较/核验表达（"README 声称…""…是否支持这个说法"）也是证据义务，
+    # 整题不得解析为 status=none 使硬门真空化
+    r = parse_required_evidence(
+        "README 声称默认 Mock Provider 不配置模型 key 也能运行。"
+        "Java 配置和 Provider 实现是否支持这个说法？如果文档与实现不一致，请明确指出。"
+    )
+    assert r.status == "ambiguous"
+    assert "README" in _symbols(r)
+    anchors = {uc.anchor for uc in r.unresolved_constraints}
+    assert "Java 配置" in anchors
+    assert "Provider" in anchors
+
+
+def test_non_target_tail_clause_creates_no_constraint() -> None:
+    # 逐段结算不得把谓语/说明部分当目标：只有含目标名词的段才结算为 unresolved
+    r = parse_required_evidence("请引用生产 Java 源码，说明订单如何校验。")
+    assert _types(r) == {"production_source"}
+    assert r.unresolved_constraints == ()
+    assert r.status == "complete"
+
+
+def test_canonical_doc_name_keeps_identity() -> None:
+    # 五审发现2：裸 README 不得退化为 type-only current_doc（否则任意文档都能顶替）
+    r = parse_required_evidence("请引用 README。")
+    assert _symbols(r) == {"README"}
+    assert not all_required_covered(compute_coverage(r, [("E1", "docs/architecture.md")]))
+    assert all_required_covered(compute_coverage(r, [("E1", "README.md")]))
+
+
+def test_named_test_symbol_with_production_context_requires_production_file() -> None:
+    # 五审发现2："OrderTest 的生产实现"要求生产文件 OrderTest.java，
+    # 不得被 src/test/OrderTest.java + 任意生产文件的组合满足
+    r = parse_required_evidence("请引用 OrderTest 的生产实现。")
+    assert [(i.type, i.symbol) for i in r.items] == [("production_source", "OrderTest")]
+    assert not all_required_covered(
+        compute_coverage(
+            r, [("E1", "src/test/java/OrderTest.java"), ("E2", "src/main/java/Foo.java")]
+        )
+    )
+    assert all_required_covered(compute_coverage(r, [("E1", "src/main/java/OrderTest.java")]))
+
+
+@pytest.mark.parametrize(
+    ("rel_path", "expected"),
+    [
+        # 五审发现3：文件名约定只应用于文档扩展名，生产源码不得冒充非生产证据
+        ("src/main/java/AuditService.java", "production_source"),
+        ("src/main/java/ChangelogService.java", "production_source"),
+        ("src/main/java/review/ReviewService.java", "production_source"),
+        ("src/main/java/design/DesignService.java", "production_source"),
+        ("src/main/java/plan/PlanService.java", "production_source"),
+        # Test* 词边界：Testing/Testimony 不是测试；Test 开头的真测试仍是测试
+        ("Testimony.java", "production_source"),
+        ("Testing.java", "production_source"),
+        ("TestOrderService.java", "test"),
+        ("OrderServiceSpec.java", "test"),
+        ("OrderServiceIT.java", "test"),
+        ("SPLIT.java", "production_source"),
+        # 文档仍按约定分层
+        ("docs/CHANGELOG.md", "dev_log"),
+        ("docs/audit-2026.md", "historical_plan"),
+    ],
+)
+def test_classify_path_filename_conventions_are_doc_only(rel_path: str, expected: str) -> None:
+    assert classify_path(rel_path) == expected
+
+
+def test_production_file_cannot_satisfy_non_production_requirement() -> None:
+    # 分类修复的连锁效果：AuditService.java 不再能满足"历史计划"类要求
+    r = parse_required_evidence("请引用计划文档说明规划过。")
+    assert "historical_plan" in _types(r)
+    assert not all_required_covered(
+        compute_coverage(r, [("E1", "src/main/java/AuditService.java")])
+    )
+
+
+def test_forbidden_citation_is_enforced_not_a_dead_signal() -> None:
+    # 五审发现4：禁止引用必须真正执行——直接引用被禁类型时 required_satisfied 为假
+    r = parse_required_evidence("不要引用设计文档，只引用生产源码。")
+    both = [("E1", "backend/src/main/java/Foo.java"), ("E2", "docs/design/hybrid.md")]
+    assert all_required_covered(compute_coverage(r, both))  # 生产源码本身已覆盖
+    assert forbidden_citation_hits(r, both) == (("E2", "docs/design/hybrid.md", "design_doc"),)
+    assert not required_satisfied(r, compute_coverage(r, both), cited=both)
+    only_production = [("E1", "backend/src/main/java/Foo.java")]
+    assert required_satisfied(r, compute_coverage(r, only_production), cited=only_production)
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "请引用生产源码，测试只能作为补充。",
+        "不要用测试代替生产源码，请引用生产源码。",
+        "不要只引用测试，请引用生产源码。",
+    ],
+)
+def test_supplement_and_substitution_are_not_citation_bans(question: str) -> None:
+    # 五审发现4："只能作为补充"/"不要用 X 代替 Y"/"不要只引用 X" ≠ 禁止引用
+    r = parse_required_evidence(question)
+    assert "test" in r.forbidden_substitute_types
+    assert r.forbidden_citation_types == ()
+    cited = [("E1", "backend/src/main/java/Foo.java"), ("E2", "src/test/java/FooTest.java")]
+    assert forbidden_citation_hits(r, cited) == ()
+    assert required_satisfied(r, compute_coverage(r, cited), cited=cited)
+
+
+def test_negation_list_across_commas_keeps_every_forbidden_type() -> None:
+    # 自查补洞：顿号切开的否定列表 + 替代结构不得被截断成"不要用 README"
+    # （否则丢掉 test 禁止、且把替代结构误判成禁止引用）
+    r = parse_required_evidence("不要用 README、架构文档或测试代替实现。请引用 RagService。")
+    assert "current_doc" in r.forbidden_substitute_types
+    assert "test" in r.forbidden_substitute_types
+    assert r.forbidden_citation_types == ()
+    assert "RagService" in _symbols(r)
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "删除源文档后，历史会话中的引用是否还能显示？",
+        "非法引用编号如何处理？",
+        "这些引用是从哪里来的？",
+    ],
+)
+def test_noun_use_of_citation_word_is_not_an_obligation(question: str) -> None:
+    # 自查补洞：'引用' 作名词（"…中的引用""非法引用编号"）不得当祈使指令，
+    # 否则会凭空产出 unresolved 噪声（"是否还能显示"）
+    r = parse_required_evidence(question)
+    assert r.items == ()
+    assert r.unresolved_constraints == ()
+
+
+def test_imperative_connectives_still_activate_strong_directive() -> None:
+    # 祈使锚定不得误杀"并引用 X""请分别引用 X"
+    assert "README" in _symbols(parse_required_evidence("并引用 README。"))
+    assert "README" in _symbols(parse_required_evidence("请分别引用 README 和生产源码。"))
+    # 非祈使但邻接证据信号（"在回答中引用生产源码"）仍按证据约束处理
+    assert "production_source" in _types(parse_required_evidence("在回答中引用生产源码。"))
+
+
+def test_required_items_over_schema_limit_are_not_reported_complete() -> None:
+    # 五审发现6：resolved 项数不得超过 plan/evaluate schema 上限却仍报 complete
+    paths = "、".join(f"A{i}.java" for i in range(1, MAX_REQUIRED_ITEMS + 3))
+    r = parse_required_evidence(f"请引用 {paths}。")
+    assert len(r.items) == MAX_REQUIRED_ITEMS
+    assert r.status == "ambiguous"
+    assert any(uc.reason == "partial_enumeration" for uc in r.unresolved_constraints)
+
+
+def test_required_item_limit_matches_llm_schema_capacity() -> None:
+    # 防漂移：确定性上限必须与 plan 回显/evaluate coverage 的 schema 上限同源
+    from devkb.agent.state import EvaluateOutput, PlanOutput
+
+    assert PlanOutput.model_fields["required_evidence"].metadata[0].max_length == (
+        MAX_REQUIRED_ITEMS
+    )
+    assert EvaluateOutput.model_fields["coverage"].metadata[0].max_length == MAX_REQUIRED_ITEMS
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "后端是怎么把向量检索和关键词检索的结果合到一起排序的？隔离是怎么保证的？",
+        "作为开发者，我应该怎么安全地管理这个项目的 API key 和 JWT secret？有什么最佳实践？",
+        "项目的 .env.example 里列了哪些配置项？各自是做什么用的？",
+        "这个后端有没有用到消息队列（如 Kafka/RabbitMQ）？",
+        "系统启动时会不会自动建表？",
+    ],
+)
+def test_natural_phrasing_still_has_no_explicit_constraint(question: str) -> None:
+    # 反过拟合：新增的核验谓词/目标名词规则不得让自然问法凭空产生约束
+    r = parse_required_evidence(question)
+    assert r.items == ()
+    assert r.unresolved_constraints == ()
+    assert r.status == "none"

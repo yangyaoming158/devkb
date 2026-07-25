@@ -16,7 +16,12 @@ from pydantic import (
     model_validator,
 )
 
-from devkb.agent.evidence_types import CoverageEntry, RequiredEvidence, parse_required_evidence
+from devkb.agent.evidence_types import (
+    MAX_REQUIRED_ITEMS,
+    CoverageEntry,
+    RequiredEvidence,
+    parse_required_evidence,
+)
 
 MAX_QUESTION_CHARS = 4000
 MAX_QUERY_CHARS = 4000
@@ -72,7 +77,9 @@ class AgentInput(StrictModel):
 class PlanOutput(StrictModel):
     intent: Intent
     queries: list[QueryText] = Field(min_length=1, max_length=MAX_SUBQUERIES)
-    required_evidence: list[ShortText] = Field(default_factory=list, max_length=10)
+    # 上限与确定性解析的 items 上限同源（MAX_REQUIRED_ITEMS）：否则 required 可多于
+    # 模型能回显的条数，"完整逐项回填"成为不可能满足的契约（五审发现6）
+    required_evidence: list[ShortText] = Field(default_factory=list, max_length=MAX_REQUIRED_ITEMS)
 
     @field_validator("queries")
     @classmethod
@@ -92,7 +99,7 @@ class EvaluateOutput(StrictModel):
     sufficiency: Sufficiency
     supported_aspects: list[ShortText] = Field(default_factory=list, max_length=10)
     missing_aspects: list[ShortText] = Field(default_factory=list, max_length=10)
-    coverage: list[CoverageReport] = Field(default_factory=list, max_length=10)
+    coverage: list[CoverageReport] = Field(default_factory=list, max_length=MAX_REQUIRED_ITEMS)
 
 
 class RefineOutput(StrictModel):

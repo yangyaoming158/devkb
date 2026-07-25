@@ -108,3 +108,43 @@ def test_every_anchor_is_a_question_substring() -> None:
         assert item.anchor in q
     for uc in r.unresolved_constraints:
         assert uc.anchor in q
+
+
+# ---- 约束跨度账本不变量（第五轮复审路线裁决 1–2） ----
+
+_BASE_QUESTIONS = [
+    "请引用 Foo.java。",
+    "请引用 OrderService 的生产实现。",
+    "请引用 README。",
+    "请根据数据库迁移说明级联删除。",
+]
+
+
+@pytest.mark.parametrize("base", _BASE_QUESTIONS)
+def test_adding_unlocatable_target_adds_exactly_one_unresolved(base: str) -> None:
+    """义务里多一个无法定位的目标段，就必须多一条 unresolved——不允许静默吞掉。"""
+    before = parse_required_evidence(base)
+    after = parse_required_evidence(base.rstrip("。") + "和关键实现。")
+    assert len(after.items) >= len(before.items)
+    assert len(after.unresolved_constraints) == len(before.unresolved_constraints) + 1
+    assert after.status == "ambiguous"
+
+
+@pytest.mark.parametrize("base", _BASE_QUESTIONS)
+def test_appending_non_target_tail_changes_nothing(base: str) -> None:
+    """非目标尾语（谓语/说明）不得产生约束，也不得改变已解析项。"""
+    before = parse_required_evidence(base)
+    after = parse_required_evidence(base.rstrip("。") + "，说明订单如何校验。")
+    assert [(i.type, i.path, i.symbol) for i in after.items] == [
+        (i.type, i.path, i.symbol) for i in before.items
+    ]
+    assert after.unresolved_constraints == before.unresolved_constraints
+
+
+@pytest.mark.parametrize("count", [1, 2, 3, 5])
+def test_enumerated_targets_are_all_accounted_for(count: int) -> None:
+    """强指令下枚举 N 个目标 → items + unresolved 至少 N 条（逐段结算，不丢项）。"""
+    names = "、".join(f"Svc{i}.java" for i in range(1, count + 1))
+    r = parse_required_evidence(f"请引用 {names}。")
+    assert len(r.items) + len(r.unresolved_constraints) >= count
+    assert {i.path for i in r.items if i.path} == {f"Svc{i}.java" for i in range(1, count + 1)}

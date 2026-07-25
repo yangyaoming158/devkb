@@ -1,28 +1,35 @@
 """P1.5 T22：证据类型分层、逐项 required-evidence 解析与确定性 coverage（RT-01/05）。
 
-裁决语义：A 的 schema + B 的确定性裁决（2026-07-24）；**结构性 fail-closed**（2026-07-25，
-第四轮复审裁决）。
+裁决语义：A 的 schema + B 的确定性裁决（2026-07-24）；**结构性 fail-closed**（2026-07-25
+第四轮复审）；**约束跨度账本**（2026-07-25 第五轮复审裁决）。
 
-错误 full 的共同根因是"用户给出显式证据约束，但确定性解析器漏掉全部或部分目标 →
-空/不完整 required 清单使 full 门错误放行"。故引入**确定性三态**：
+第五轮复审确认："三态 + unresolved 硬门"方向对，但"解析漏检必进 unresolved"尚未成立——
+旧 ``_extract`` 以整段为单位判"是否解析出目标"，只要一个目标命中，同一义务下的其余目标
+就静默消失（``请引用 Foo.java 和关键实现`` → 只剩 Foo.java 且 status=complete）。故改为
+**约束跨度账本（constraint span ledger）**：
 
-- ``RequiredEvidence.status``：``none``（无显式证据约束）/ ``complete``（显式约束全部
-  被确定性解析）/ ``ambiguous``（至少一个目标未解析或只解析了一部分）。
-- 已解析的 ``items`` 走 ``compute_coverage`` 逐项匹配；未解析/部分解析的目标进入
-  ``unresolved_constraints``（原文 anchor + 固定 reason 枚举），**永不进入 coverage、
-  也不用 type=other 伪造可被任意文件满足的 item**。
-- ``full`` 的必要条件 = 每个 resolved item 被直接引用覆盖 **且** ``unresolved_constraints``
-  为空。route/finalize 把 unresolved 视作覆盖缺口（见 graph/nodes）。
+1. **义务跨度独立检测**（``_detect_obligations``）：证据义务与"目标是否解析成功"解耦。
+   三类义务标记——强指令（引用/参见/参照/援引，对象在标记之后）、弱指令（根据/依据/
+   列出…，须邻接证据信号）、核验比较谓词（声称/是否一致/是否支持…，**对象在标记之前**，
+   覆盖 c02 这类"文档声称 X，实现是否支持"表达）。
+2. **逐目标段结算**（``_resolve_region`` / ``_resolve_one``）：义务对象按列表连接词拆成
+   目标段，每段各自结算为 resolved item / unresolved 约束 / 明确的非目标尾语（整段不含
+   任何目标名词），不存在"整段 produced=True"。
+3. **身份优先**：裸 ``README``/``PROGRESS`` 等规范文档名保留身份（不退化为 type-only，
+   否则任意 current_doc 都能顶替）；``相关 Java 配置`` 这类无身份类别直接 unresolved。
+4. **分类先目录后扩展名**（``classify_path``）：audit/changelog/plan 等文件名约定只作用于
+   文档扩展名，生产源码不再被误判；``Test*`` 用词边界规则（Testing/Testimony/Contest 不是
+   测试），大小写敏感。
+5. **两类否定分开执行**：``forbidden_substitute_types``（不能替代必需证据、可作补充）与
+   ``forbidden_citation_types``（不得直接引用，出现即不得 full）。"只能作为补充"、
+   "不要只引用 X"、"不要用 X 代替 Y"都属前者，"不要引用 X"属后者。
+6. resolved 项数超过 LLM schema 上限 ``MAX_REQUIRED_ITEMS`` 时记 ``partial_enumeration``，
+   不得仍报 complete。
 
-解析设计（防过拟合、防组合错误 full）：
-
-- **路径遮蔽**：先用有明确 ASCII 边界的 file-token 扫描器把路径遮蔽成无点占位符，
-  再按句界（含英文 ``.``）分句——无空格中文不被吞、否定不跨句、显式路径不被截断。
-- **指令作用域**：点名/类型硬约束只在带证据指令的子句生效；强指令（引用/参见/参照）
-  直接激活，弱指令（根据/依据/结合/列出…）仅在邻接路径/证据类型词/角色词/"X 类"时激活。
-- **枚举列表**：句号/分号/换行是强句界；逗号/顿号是同一指令下的列表连接符（后续项
-  作为延续解析，不要求重复指令），避免"引用 A，B"丢掉 B。
-- **集合/类别/模糊/未知语法** → unresolved，而非静默空 required。
+三态与硬门（第四轮裁决，保留）：``RequiredEvidence.status`` = ``none``/``complete``/
+``ambiguous``；``full`` 的必要条件 = 每个 resolved item 被直接引用覆盖 **且** 无
+``unresolved_constraints`` **且** 无禁止引用类型被引用。unresolved 永不进入 coverage、
+也不用 type=other 伪造可被任意文件满足的 item。
 
 全部零 LLM、仓库无关、可单测；大小写敏感（ext4）。
 """
@@ -49,6 +56,11 @@ EvidenceType = Literal[
     "other",
 ]
 UnresolvedReason = Literal["unparsed_target", "partial_enumeration", "unsupported_syntax"]
+
+# resolved required 项的硬上限：plan/evaluate 的结构化 schema 只能逐项回显这么多条
+# （见 state.PlanOutput.required_evidence / EvaluateOutput.coverage，有防漂移单测）。
+# 超出部分记 partial_enumeration，绝不静默丢弃后仍报 complete。
+MAX_REQUIRED_ITEMS = 10
 
 # 可满足"必需生产证据"的类型；测试/设计/历史计划/dev-log 不在其中（权威性分层）。
 PRODUCTION_TYPES: frozenset[EvidenceType] = frozenset(
@@ -86,6 +98,8 @@ _SOURCE_EXTS = (
 )
 _CONFIG_EXTS = (".yml", ".yaml", ".properties", ".toml")
 _FRONTEND_EXTS = (".vue", ".ts", ".tsx", ".jsx")
+# 文档扩展名：只有文档才应用 audit/changelog/plan 等**文件名**约定（三/五审发现3）
+_DOC_EXTS = (".md", ".txt", ".rst", ".adoc")
 
 # required-path lexer 认识的后缀。已摄取集合必须与 ingest.SUPPORTED_SUFFIXES 对齐
 # （有 test_ingested_ext_lexer_matches_supported_suffixes 防漂移）；另加 P1.5 识别但
@@ -94,67 +108,85 @@ _INGESTED_EXTS: frozenset[str] = frozenset({"md", "txt", "java", "yml", "yaml", 
 _RECOGNIZED_UNINGESTED_EXTS: frozenset[str] = frozenset({"sql", "vue", "ts", "tsx", "jsx"})
 _KNOWN_EXTS: frozenset[str] = _INGESTED_EXTS | _RECOGNIZED_UNINGESTED_EXTS
 
+# *Test 命名约定的词边界规则（大小写敏感）：
+# - 前缀 Test 后不得紧跟小写字母 → Testing/Testimony 不是测试；
+# - 后缀 Test/Tests/Spec 前须是小写或数字 → Contest/Latest（结尾 test 小写）本就不命中；
+# - 后缀 IT/ITs 前不得是大写 → SPLIT 不是集成测试。
+_TEST_STEM_PREFIX = re.compile(r"^Test(?![a-z])")
+_TEST_STEM_SUFFIX = re.compile(r"(?:[a-z0-9](?:Tests?|Spec)|(?<![A-Z])ITs?)$")
+
+
+def _is_test_stem(stem: str) -> bool:
+    return bool(_TEST_STEM_PREFIX.search(stem) or _TEST_STEM_SUFFIX.search(stem))
+
 
 def classify_path(rel_path: str) -> EvidenceType:
-    """rel_path → 证据类型。可信目录优先、生产目录优先于文件名约定、Test 约定大小写敏感。"""
+    """rel_path → 证据类型。测试目录 > 文档名约定（仅文档扩展名） > 扩展名/生产目录大类。"""
     lower = rel_path.lower()
-    segs = lower.strip("/").split("/")
+    segs = [seg for seg in lower.strip("/").split("/") if seg]
     base = segs[-1] if segs else lower
     orig_base = rel_path.strip("/").split("/")[-1] if rel_path.strip("/") else rel_path
     stem = orig_base.rsplit(".", 1)[0]  # 原始大小写，用于 Test 约定判断
+    ext = "." + base.rsplit(".", 1)[-1] if "." in base else ""
 
-    # 1) 可信（非生产）目录优先——目录语义强于文件名约定
+    # 1) 测试目录：目录语义最强（src/test 下的 .sql fixture 也不是生产 migration）
     if "test" in segs or "tests" in segs:
         return "test"
-    if "dev-log" in lower or "devlog" in lower or base.startswith("changelog"):
-        return "dev_log"
-    if "design" in segs:
-        return "design_doc"
-    if (
-        "plans" in segs
-        or "plan" in segs
-        or base.startswith("roadmap")
-        or "phase-" in base
-        or "规划" in rel_path
-        or "计划" in rel_path
-        or "路线图" in rel_path
-    ):
-        return "historical_plan"
-    if "review" in segs or "audit" in segs or "audits" in base or base.startswith("audit"):
-        return "historical_plan"
-    if "docs" in segs and lower.endswith(".md"):
-        return "current_doc"
 
-    # 2) 生产目录（src/main）优先于 *Test 命名约定：main 下的 OrderTest.java 仍是生产源码
-    in_production_dir = lower.startswith("src/main/") or "/src/main/" in ("/" + lower)
+    in_production_dir = lower.startswith("src/main/") or "/src/main/" in "/" + lower
 
-    # 3) 命名约定 test：仅在非生产目录、且大小写敏感——不把 Contest/Latest 当 Test
-    if not in_production_dir and (
-        stem.endswith(("Test", "Tests", "IT", "ITs", "Spec"))
-        or stem.startswith("Test")
-        or ".test." in orig_base
-        or ".spec." in orig_base
-    ):
-        return "test"
+    # 2) 文档专属目录/文件名约定——只对文档扩展名生效，避免 AuditService.java /
+    #    ChangelogService.java 这类生产源码被文件名规则吞成非生产证据（五审发现3）
+    if ext in _DOC_EXTS:
+        if "dev-log" in segs or "devlog" in segs or base.startswith(("dev-log", "devlog")):
+            return "dev_log"
+        if base.startswith("changelog"):
+            return "dev_log"
+        if "design" in segs:
+            return "design_doc"
+        if (
+            "plans" in segs
+            or "plan" in segs
+            or "review" in segs
+            or "reviews" in segs
+            or "audit" in segs
+            or "audits" in segs
+            or base.startswith(("roadmap", "audit"))
+            or "audit" in base
+            or "phase-" in base
+            or "规划" in rel_path
+            or "计划" in rel_path
+            or "路线图" in rel_path
+        ):
+            return "historical_plan"
+        if base.startswith(("readme", "progress")):
+            return "current_doc"
+        if "docs" in segs and ext == ".md":
+            return "current_doc"
 
-    # 4) 生产目录内 / 通用扩展名识别
-    if lower.endswith(".sql") or "/migration/" in lower or "flyway" in segs:
+    # 3) 精确扩展名/目录定大类
+    if ext == ".sql" or "migration" in segs or "migrations" in segs or "flyway" in segs:
         return "migration"
-    if lower.endswith(_FRONTEND_EXTS):
+    if ext in _FRONTEND_EXTS:
         return "frontend_source"
-    # application.* 只按配置扩展名（.yml/.yaml/.properties）计入，不用裸前缀（三审发现3）
+    # application.* 只按配置扩展名（.yml/.yaml/.properties/.toml）计入，不用裸前缀（三审发现3）
     if (
-        lower.endswith(_CONFIG_EXTS)
+        ext in _CONFIG_EXTS
         or "docker-compose" in base
         or base == ".env"
         or base.startswith(".env.")
     ):
         return "production_config"
-    if base.startswith("readme") or base.startswith("progress"):
-        return "current_doc"
-    if lower.endswith(_SOURCE_EXTS) or "/src/main/" in lower:
+
+    # 4) 命名约定 test：仅在非生产目录、词边界、大小写敏感（四/五审发现5）
+    if not in_production_dir and (
+        _is_test_stem(stem) or ".test." in orig_base or ".spec." in orig_base
+    ):
+        return "test"
+
+    if ext in _SOURCE_EXTS or in_production_dir:
         return "production_source"
-    if lower.endswith(".md"):
+    if ext == ".md":
         return "current_doc"
     return "other"
 
@@ -174,7 +206,7 @@ class RequiredEvidenceItem(BaseModel):
 class UnresolvedConstraint(BaseModel):
     """一条**未解析/部分解析**的显式证据约束——存在但无法确定性定位到具体文件。
 
-    只要非空，整体 status 即 ambiguous、full 门必然关闭；absolutely 不进入 coverage。
+    只要非空，整体 status 即 ambiguous、full 门必然关闭；绝不进入 coverage。
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
@@ -187,7 +219,10 @@ class RequiredEvidence(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     items: tuple[RequiredEvidenceItem, ...] = ()
+    # 不能替代必需证据，但允许作为补充引用（"只能作为补充"/"不要用 X 代替 Y"/"不要只引用 X"）
     forbidden_substitute_types: tuple[EvidenceType, ...] = ()
+    # 不得直接引用（"不要引用 X"/"不得引用 X"）；被引用即不得 full
+    forbidden_citation_types: tuple[EvidenceType, ...] = ()
     unresolved_constraints: tuple[UnresolvedConstraint, ...] = ()
 
     @property
@@ -200,11 +235,16 @@ class RequiredEvidence(BaseModel):
 
     @property
     def has_requirements(self) -> bool:
-        return bool(self.items) or bool(self.unresolved_constraints)
+        return bool(self.items or self.unresolved_constraints or self.forbidden_citation_types)
 
     @property
     def item_ids(self) -> frozenset[str]:
         return frozenset(item.item_id for item in self.items)
+
+    @property
+    def non_substitutable_types(self) -> frozenset[EvidenceType]:
+        """不得占用必需证据预算的类型：禁止引用蕴含禁止替代。"""
+        return frozenset(self.forbidden_substitute_types) | frozenset(self.forbidden_citation_types)
 
 
 class CoverageEntry(BaseModel):
@@ -217,17 +257,36 @@ class CoverageEntry(BaseModel):
     matched_evidence_ids: tuple[str, ...] = ()
 
 
-# ---- 解析 ----------------------------------------------------------------
+# ---- 解析：词法与标记 ----------------------------------------------------
 
 # 句界含英文 "."，但 file-token 会先被遮蔽再分句；不切顿号"、"，让枚举留同句。
 _SENTENCE_SPLIT = re.compile(r"[。；;！？!?.\n]")
+# 逗号/顿号：同一义务下的列表连接符（后续项按延续解析）
 _SUB_SPLIT = re.compile(r"[，,、]")
+# 义务对象内部的目标段连接词
+_TARGET_SPLIT = re.compile(r"以及|和|与|及|或")
+
 _NEG_TRIGGERS = ("不要", "请勿", "不得", "禁止", "勿使用", "勿引用")
 _NEG_SOFT = ("不能用", "不能引用", "不应引用")
 _SUPPLEMENT = ("只能作为补充", "仅作补充", "只作补充", "只能补充", "作为补充")
 _SUBSTITUTE_MARKERS = ("代替", "替代", "冒充", "顶替", "充当", "当作", "当成")
+# "不要只引用 X"/"不要仅依据 X"：X 不能独立支撑，但并非禁止引用
+_ONLY_MARKER = re.compile(r"[只仅]")
+
 _STRONG_DIRECTIVES = ("引用", "参见", "参照", "援引")
-_WEAK_DIRECTIVES = ("根据", "依据", "结合", "基于", "列出", "枚举", "罗列", "给出")
+# 祈使前缀：强指令只有在祈使位置（"请分别引用…""并引用…"）才无条件成为义务；
+# 名词用法（"历史会话中的引用是否还能显示""非法引用编号"）退回弱指令口径，须邻接证据信号。
+_IMPERATIVE_PREFIX = re.compile(
+    r"^(?:请|麻烦|务必|需要|需|须|必须|应该|应|要|你|您|能否|可否|帮我|帮忙"
+    r"|并|且|也|同时|再|还|另外|然后|最后|分别|逐一|逐个|具体|实际|直接|一并|都|各|尽量"
+    r"|\s|:|：|-|\*)*$"
+)
+_WEAK_DIRECTIVES = ("根据", "依据", "结合", "基于", "按照", "列出", "枚举", "罗列", "给出")
+# 核验/比较谓词：其**左侧**是被要求核对的证据对象（"README 声称…""Java 配置…是否支持"）
+_VERIFY_MARKERS = re.compile(
+    r"是否(?:支持|一致|相符|符合|构成|属实|真|已|矛盾|冲突)"
+    r"|声称|自称|宣称|号称|核对|核验|求证|对比|不一致|一致吗|矛盾吗"
+)
 
 # ASCII 边界的 file-token：起始必须是 ASCII 字母/数字/下划线（不吞中文），扩展名 2-11 位。
 _FILE_TOKEN = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./\-]*\.[A-Za-z][A-Za-z0-9]{1,10}")
@@ -235,6 +294,17 @@ _FILE_TOKEN = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./\-]*\.[A-Za-z][A-Za-z0-9]{1,
 _IDENT_SYMBOL = re.compile(r"[A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*")
 # "X 类" / "X 文件" → 明确点名（即便 X 是角色词，如 DTO 类）。
 _CLASS_WORD = re.compile(r"([A-Za-z][A-Za-z0-9]*)\s*(?:类|文件)")
+# 仓库约定的规范文档名（裸写即有身份，不退化为 type-only）；类型由 classify_path 推出。
+_CANONICAL_DOCS = (
+    "README",
+    "PROGRESS",
+    "CHANGELOG",
+    "CONTRIBUTING",
+    "LICENSE",
+    "ROADMAP",
+    "SECURITY",
+)
+_CANONICAL_DOC = re.compile(r"(?<![A-Za-z])(?:" + "|".join(_CANONICAL_DOCS) + r")(?![A-Za-z])")
 # 泛化角色词（standalone）→ 集合/类别，无法定位具体文件 → unresolved。
 _ROLE_WORDS = (
     "Repository",
@@ -252,13 +322,43 @@ _ROLE_WORDS = (
     "Interceptor",
     "Listener",
     "Endpoint",
+    "Provider",
+    "Factory",
+    "Manager",
+    "Runner",
+    "Worker",
+    "Adapter",
+    "Validator",
 )
 _ROLE_WORD = re.compile(r"(?<![A-Za-z])(?:" + "|".join(_ROLE_WORDS) + r")(?![A-Za-z])")
 # 集合/枚举量词 → partial_enumeration；模糊指代 → unparsed_target。
 _COLLECTIVE = re.compile(
-    r"(?:每个|每一个|所有|全部|各个|逐个|列出|枚举|穷举|罗列)[^，。；、\n]{0,12}"
+    r"(?:每个|每一个|所有|全部|各个|逐个|列出|枚举|穷举|罗列)[^，。；、\n]{0,12}[A-Za-z0-9_]*"
 )
 _VAGUE = re.compile(r"(?:某个|某些|某一个|某几个|某项)[^，。；、\n]{0,12}")
+# 目标名词：段内出现即"这是一个证据目标"，解析不出具体文件就必须记 unresolved；
+# 完全不含目标名词的段是非目标尾语（谓语/说明部分），忽略。
+_TARGET_NOUNS = (
+    "实现",
+    "源码",
+    "代码",
+    "文件",
+    "配置",
+    "文档",
+    "测试",
+    "迁移",
+    "脚本",
+    "类",
+    "接口",
+    "方法",
+    "注解",
+    "模块",
+    "组件",
+    "映射",
+    "日志",
+    "SQL",
+    "schema",
+)
 _SYMBOL_STOP = frozenset(
     {
         "Java",
@@ -273,7 +373,6 @@ _SYMBOL_STOP = frozenset(
         "Mock",
     }
 )
-_TEST_SUFFIX = ("Test", "Tests", "IT", "ITs", "Spec")
 
 _TYPE_PATTERNS: list[tuple[re.Pattern[str], EvidenceType]] = [
     (re.compile(r"设计文档|设计说明"), "design_doc"),
@@ -294,6 +393,9 @@ _TYPE_PATTERNS: list[tuple[re.Pattern[str], EvidenceType]] = [
     (re.compile(r"README|PROGRESS|当前文档"), "current_doc"),
     (re.compile(r"测试"), "test"),
 ]
+
+_ANCHOR_TRIM = " \t的了：:，,。、；;和与及或\n"
+_MAX_ANCHOR_CHARS = 30
 
 
 def _is_forbidding(seg: str) -> bool:
@@ -327,13 +429,18 @@ def _detect_type_hits(seg: str) -> list[tuple[int, EvidenceType, str]]:
     return hits
 
 
-def _has_evidence_context(seg: str) -> bool:
-    """弱指令/延续项是否邻接可解析的证据信号（路径/类型词/角色词/X 类）。"""
+def _has_target_signal(seg: str) -> bool:
+    """是否邻接可解析的证据信号（路径/类型词/角色词/X 类/规范文档名）。
+
+    只用于**弱指令与核验谓词的激活判定**：不含目标名词，避免"结合 RabbitMQ 实现异步"
+    这类自然问法被当成证据约束（三审发现4）。
+    """
     return bool(
         _FILE_TOKEN.search(seg)
         or _detect_type_hits(seg)
         or _ROLE_WORD.search(seg)
         or _CLASS_WORD.search(seg)
+        or _CANONICAL_DOC.search(seg)
     )
 
 
@@ -342,20 +449,52 @@ def _strong_directive_pos(seg: str) -> int:
     return min(positions) if positions else -1
 
 
-def _is_activated(seg: str) -> bool:
-    if _strong_directive_pos(seg) != -1:
-        return True
-    return any(d in seg for d in _WEAK_DIRECTIVES) and _has_evidence_context(seg)
+def _detect_obligations(part: str) -> list[tuple[int, str]]:
+    """检测证据义务跨度 → [(对象在 part 中的起点, 对象文本)]。
+
+    与"目标能否解析"完全解耦（五审路线裁决1）：祈使位置的强指令无条件激活，
+    非祈使强指令（"…的引用是否还能显示"的名词用法）与弱指令/核验谓词一样须邻接证据
+    信号。核验谓词的对象在标记**左侧**（"Java 配置和 Provider 实现是否支持…"）。
+    """
+    pos = _strong_directive_pos(part)
+    if pos != -1 and (_IMPERATIVE_PREFIX.match(part[:pos]) or _has_target_signal(part)):
+        start = pos
+        for directive in _STRONG_DIRECTIVES:
+            if part.startswith(directive, pos):
+                start = pos + len(directive)
+                break
+        return [(start, part[start:])]
+    weak_hits = [(part.find(d), len(d)) for d in _WEAK_DIRECTIVES if d in part]
+    if weak_hits and _has_target_signal(part):
+        index, length = min(weak_hits)
+        return [(index + length, part[index + length :])]
+    verify = _VERIFY_MARKERS.search(part)
+    if verify is not None and _has_target_signal(part[: verify.start()]):
+        return [(0, part[: verify.start()])]
+    return []
 
 
-def _looks_like_list_item(seg: str) -> bool:
-    """延续子句是否像列表项（连接词/空白后紧跟 ASCII 标识符或路径）。"""
-    return re.match(r"^(?:和|与|及|以及|或|、|\s)*[A-Za-z0-9_]", seg) is not None
+def _split_targets(region: str) -> list[tuple[int, str]]:
+    """义务对象 → [(段起点, 段文本)]；按列表连接词逐段结算（五审路线裁决2）。"""
+    segments: list[tuple[int, str]] = []
+    pos = 0
+    for match in _TARGET_SPLIT.finditer(region):
+        segments.append((pos, region[pos : match.start()]))
+        pos = match.end()
+    segments.append((pos, region[pos:]))
+    return segments
 
 
-def _infer_symbol_type(symbol: str, seg_types: set[EvidenceType]) -> EvidenceType:
-    """点名类默认生产源码；测试后缀归 test；明显前端上下文归前端。绝不判 migration/config。"""
-    if symbol.endswith(_TEST_SUFFIX):
+def _infer_symbol_type(
+    symbol: str, seg_types: set[EvidenceType], sentence_types: set[EvidenceType]
+) -> EvidenceType:
+    """点名类默认生产源码；测试命名约定归 test，但**显式生产语境优先**（五审发现2）。
+
+    "请引用 OrderTest 的生产实现" 要求的是生产文件 OrderTest.java，不是同名测试；
+    命名约定与 classify_path 共用词边界规则，保证解析与分类口径一致。
+    """
+    explicit_production = "production_source" in seg_types or "production_source" in sentence_types
+    if _is_test_stem(symbol) and not explicit_production:
         return "test"
     if "frontend_source" in seg_types and "production_source" not in seg_types:
         return "frontend_source"
@@ -365,102 +504,185 @@ def _infer_symbol_type(symbol: str, seg_types: set[EvidenceType]) -> EvidenceTyp
 _RawItem = tuple[tuple[int, ...], EvidenceType, str, str | None, str | None]
 
 
-def _extract(
+class _Ledger:
+    """约束跨度账本：resolved items + unresolved 约束 + 两类否定，按原文位置稳定排序。"""
+
+    def __init__(self) -> None:
+        self.raw: list[_RawItem] = []
+        self.unresolved: list[UnresolvedConstraint] = []
+        self.forbidden_substitute: list[EvidenceType] = []
+        self.forbidden_citation: list[EvidenceType] = []
+        self._seen_anchors: set[str] = set()
+
+    def add_item(
+        self,
+        key: tuple[int, ...],
+        etype: EvidenceType,
+        anchor: str,
+        *,
+        path: str | None = None,
+        symbol: str | None = None,
+    ) -> None:
+        self.raw.append((key, etype, anchor, path, symbol))
+
+    def add_unresolved(self, anchor: str, reason: UnresolvedReason) -> None:
+        anchor = anchor.strip(_ANCHOR_TRIM)[:_MAX_ANCHOR_CHARS].strip(_ANCHOR_TRIM)
+        if anchor and anchor not in self._seen_anchors:
+            self._seen_anchors.add(anchor)
+            self.unresolved.append(UnresolvedConstraint(anchor=anchor, reason=reason))
+
+    def forbid_substitute(self, etype: EvidenceType) -> None:
+        if etype not in self.forbidden_substitute:
+            self.forbidden_substitute.append(etype)
+
+    def forbid_citation(self, etype: EvidenceType) -> None:
+        if etype not in self.forbidden_citation:
+            self.forbidden_citation.append(etype)
+
+
+def _resolve_one(
     key: tuple[int, ...],
-    span: str,
-    seg_types: set[EvidenceType],
-    raw: list[_RawItem],
-    unresolved: list[UnresolvedConstraint],
-    seen_unresolved: set[str],
-) -> None:
-    """从已激活子句提取 resolved items 与 unresolved 约束（key 前缀用于稳定排序）。"""
-
-    def add_unresolved(anchor: str, reason: UnresolvedReason) -> None:
-        anchor = anchor.strip()
-        if anchor and anchor not in seen_unresolved:
-            seen_unresolved.add(anchor)
-            unresolved.append(UnresolvedConstraint(anchor=anchor, reason=reason))
-
+    seg: str,
+    ledger: _Ledger,
+    sentence_types: set[EvidenceType],
+) -> bool:
+    """结算单个目标段：resolved / unresolved / 非目标尾语。返回是否产出约束。"""
+    consumed: list[tuple[int, int]] = []
+    seg_types: set[EvidenceType] = {t for _s, t, _a in _detect_type_hits(seg)}
     produced = False
-    consumed_spans: list[tuple[int, int]] = []
 
-    # 1) file tokens：已知扩展名 → resolved path；未知扩展名 → unsupported_syntax
-    for match in _FILE_TOKEN.finditer(span):
+    def _free(match: re.Match[str]) -> bool:
+        return not any(start <= match.start() < end for start, end in consumed)
+
+    # 1) 显式路径/文件名：已知扩展名 → resolved path；未知扩展名 → unsupported_syntax
+    for match in _FILE_TOKEN.finditer(seg):
         token = match.group()
-        consumed_spans.append((match.start(), match.end()))
+        consumed.append(match.span())
         produced = True
         ext = token.rsplit(".", 1)[-1].lower()
         if ext in _KNOWN_EXTS:
-            raw.append(((*key, match.start()), classify_path(token), token, token, None))
+            ledger.add_item((*key, match.start()), classify_path(token), token, path=token)
         else:
-            add_unresolved(token, "unsupported_syntax")
+            ledger.add_unresolved(token, "unsupported_syntax")
 
-    # 2) "X 类 / X 文件" → 明确点名 symbol（含 DTO 类等缩写）
-    for match in _CLASS_WORD.finditer(span):
-        if any(s <= match.start() < e for s, e in consumed_spans):
+    # 2) 规范文档名（裸 README/PROGRESS…）保留身份，不退化为 type-only（五审发现2）
+    for match in _CANONICAL_DOC.finditer(seg):
+        if not _free(match):
             continue
-        consumed_spans.append((match.start(), match.end()))
+        consumed.append(match.span())
+        produced = True
+        name = match.group()
+        ledger.add_item((*key, match.start()), classify_path(f"{name}.md"), name, symbol=name)
+
+    # 3) "X 类 / X 文件" → 明确点名 symbol（含 DTO 类等缩写）
+    for match in _CLASS_WORD.finditer(seg):
+        if not _free(match):
+            continue
         symbol = match.group(1)
         if symbol in _SYMBOL_STOP:
             continue
+        consumed.append(match.span())
         produced = True
-        raw.append(
-            ((*key, match.start()), _infer_symbol_type(symbol, seg_types), symbol, None, symbol)
+        ledger.add_item(
+            (*key, match.start()),
+            _infer_symbol_type(symbol, seg_types, sentence_types),
+            symbol,
+            symbol=symbol,
         )
 
-    # 3) 独立角色词（Repository/Controller/DTO…）→ 集合/类别 → unresolved
-    #    标记已消费，避免 step 4 又把它当作已解析 symbol。
-    for match in _ROLE_WORD.finditer(span):
-        if any(s <= match.start() < e for s, e in consumed_spans):
+    # 4) 独立角色词（Repository/Controller/Provider…）→ 集合/类别 → unresolved
+    for match in _ROLE_WORD.finditer(seg):
+        if not _free(match):
             continue
-        consumed_spans.append((match.start(), match.end()))
+        consumed.append(match.span())
         produced = True
-        add_unresolved(match.group(), "unparsed_target")
+        ledger.add_unresolved(match.group(), "unparsed_target")
 
-    # 4) PascalCase 标识符 symbol（排除已消费片段与 stop 词）
-    for match in _IDENT_SYMBOL.finditer(span):
+    # 5) PascalCase 标识符 symbol（排除已消费片段与 stop 词）
+    for match in _IDENT_SYMBOL.finditer(seg):
         token = match.group()
-        if any(s <= match.start() < e for s, e in consumed_spans):
+        if not _free(match) or token in _SYMBOL_STOP:
             continue
-        if token in _SYMBOL_STOP:
-            continue
-        consumed_spans.append((match.start(), match.end()))
+        consumed.append(match.span())
         produced = True
-        raw.append(
-            ((*key, match.start()), _infer_symbol_type(token, seg_types), token, None, token)
+        ledger.add_item(
+            (*key, match.start()),
+            _infer_symbol_type(token, seg_types, sentence_types),
+            token,
+            symbol=token,
         )
 
-    # 5) 集合/枚举量词 → partial_enumeration；模糊指代 → unparsed_target
-    for match in _COLLECTIVE.finditer(span):
+    # 6) 集合/枚举量词 → partial_enumeration；模糊指代 → unparsed_target
+    for match in _COLLECTIVE.finditer(seg):
         produced = True
-        add_unresolved(match.group(), "partial_enumeration")
-    for match in _VAGUE.finditer(span):
+        ledger.add_unresolved(match.group(), "partial_enumeration")
+    for match in _VAGUE.finditer(seg):
         produced = True
-        add_unresolved(match.group(), "unparsed_target")
+        ledger.add_unresolved(match.group(), "unparsed_target")
 
-    # 6) 类型词 → type-only item
-    for local_span, etype, anchor in _detect_type_hits(span):
+    # 7) 类型词 → type-only item
+    for local_span, etype, anchor in _detect_type_hits(seg):
         produced = True
-        raw.append(((*key, local_span), etype, anchor, None, None))
+        ledger.add_item((*key, local_span), etype, anchor)
 
-    # 7) fail-closed 兜底：强指令激活但完全没解析出任何目标 → 视为未解析目标
-    if not produced:
-        pos = _strong_directive_pos(span)
-        if pos != -1:
-            obj = span[pos:]
-            for d in _STRONG_DIRECTIVES:
-                if span.startswith(d, pos):
-                    obj = span[pos + len(d) :]
-                    break
-            add_unresolved(obj.strip(" 的了：:，,。")[:30], "unparsed_target")
+    # 8) 段结算兜底：含目标名词却无法定位 → unresolved（"关键实现""相关 Java 配置"）；
+    #    完全不含目标名词 → 非目标尾语（"说明订单如何校验"），不产生约束。
+    if not produced and any(noun in seg for noun in _TARGET_NOUNS):
+        ledger.add_unresolved(seg, "unparsed_target")
+        produced = True
+    return produced
+
+
+def _handle_forbidding(
+    key: tuple[int, ...],
+    part: str,
+    ledger: _Ledger,
+    sentence_types: set[EvidenceType],
+) -> None:
+    """否定子句：区分"不能替代"与"不得引用"，并保护替代结构的 Y 侧（隐含必需）。"""
+    x_side, y_side = _split_substitution(part)
+    substitute_only = y_side is not None or _ONLY_MARKER.search(part) is not None
+    for _span, etype, _anchor in _detect_type_hits(x_side):
+        if substitute_only:
+            ledger.forbid_substitute(etype)
+        else:
+            ledger.forbid_citation(etype)
+    if y_side is not None:
+        _resolve_region((*key, len(x_side)), y_side, ledger, sentence_types, strict=False)
+
+
+def _resolve_region(
+    key: tuple[int, ...],
+    region: str,
+    ledger: _Ledger,
+    sentence_types: set[EvidenceType],
+    *,
+    strict: bool,
+) -> None:
+    """逐目标段结算义务对象；strict（强/弱指令义务）下整段零产出也必须记 unresolved。"""
+    handled = False
+    for offset, segment in _split_targets(region):
+        seg = segment.strip()
+        if not seg:
+            continue
+        if _is_forbidding(seg):
+            _handle_forbidding((*key, offset), seg, ledger, sentence_types)
+            handled = True
+            continue
+        if _is_supplement(seg):
+            for _span, etype, _anchor in _detect_type_hits(seg):
+                ledger.forbid_substitute(etype)
+            handled = True
+            continue
+        if _resolve_one((*key, offset), seg, ledger, sentence_types):
+            handled = True
+    if strict and not handled:
+        ledger.add_unresolved(region, "unparsed_target")
 
 
 def parse_required_evidence(question: str) -> RequiredEvidence:
-    """确定性解析 → 权威 items + 禁止替代类型 + unresolved 约束（三态 fail-closed）。"""
-    forbidden: list[EvidenceType] = []
-    raw: list[_RawItem] = []
-    unresolved: list[UnresolvedConstraint] = []
-    seen_unresolved: set[str] = set()
+    """确定性解析 → 权威 items + 两类禁止类型 + unresolved 约束（三态 fail-closed）。"""
+    ledger = _Ledger()
 
     # 先遮蔽 file-token（无点占位符），保护显式路径不被句点截断、否定不跨句。
     placeholders: dict[str, str] = {}
@@ -479,58 +701,113 @@ def parse_required_evidence(question: str) -> RequiredEvidence:
         return text
 
     for si, sentence in enumerate(_SENTENCE_SPLIT.split(masked)):
-        mode_positive = False
-        for bi, raw_sub in enumerate(_SUB_SPLIT.split(sentence)):
-            sub = _restore(raw_sub).strip()
-            if not sub:
+        # 类型语境按整句取（枚举项常把"的生产实现"留在最后一段）
+        sentence_types: set[EvidenceType] = {
+            t for _s, t, _a in _detect_type_hits(_restore(sentence))
+        }
+        spans = _split_clauses(sentence)
+        parts = [_restore(sentence[s:e]).strip() for s, e in spans]
+        in_obligation = False
+        bi = 0
+        while bi < len(parts):
+            part = parts[bi]
+            if not part:
+                bi += 1
                 continue
-            seg_types: set[EvidenceType] = {t for _s, t, _a in _detect_type_hits(sub)}
-            if _is_forbidding(sub):
-                mode_positive = False
-                x_side, y_side = _split_substitution(sub)
-                for _s, etype, _a in _detect_type_hits(x_side):
-                    if etype not in forbidden:
-                        forbidden.append(etype)
-                if y_side is not None:  # 被保护侧是肯定必需（替代结构即隐含引用要求）
-                    y_types: set[EvidenceType] = {t for _s, t, _a in _detect_type_hits(y_side)}
-                    _extract((si, bi), y_side, y_types, raw, unresolved, seen_unresolved)
+            if _is_forbidding(part):
+                in_obligation = False
+                end = _forbidding_scope_end(parts, bi)
+                # 用原文区间切片，保证 anchor 仍是问题原文子串（分隔符原样保留）
+                scope = _restore(sentence[spans[bi][0] : spans[end - 1][1]]).strip()
+                _handle_forbidding((si, bi), scope, ledger, sentence_types)
+                bi = end
                 continue
-            if _is_supplement(sub):
-                mode_positive = False
-                for _s, etype, _a in _detect_type_hits(sub):
-                    if etype not in forbidden:
-                        forbidden.append(etype)
+            if _is_supplement(part):
+                in_obligation = False
+                for _span, etype, _anchor in _detect_type_hits(part):
+                    ledger.forbid_substitute(etype)
+                bi += 1
                 continue
-            if _is_activated(sub):
-                mode_positive = True
-                _extract((si, bi), sub, seg_types, raw, unresolved, seen_unresolved)
-            elif mode_positive and (_has_evidence_context(sub) or _looks_like_list_item(sub)):
-                _extract((si, bi), sub, seg_types, raw, unresolved, seen_unresolved)
-            # 否则：无指令、非延续 → 不产生约束
+            obligations = _detect_obligations(part)
+            if obligations:
+                in_obligation = True
+                for start, region in obligations:
+                    _resolve_region((si, bi, start), region, ledger, sentence_types, strict=True)
+            elif in_obligation:
+                # 逗号/顿号列表的延续项：同一义务下的后续目标段，不要求重复指令
+                _resolve_region((si, bi, 0), part, ledger, sentence_types, strict=False)
+            # 否则：无义务、非延续 → 不产生约束
+            bi += 1
 
-    raw.sort(key=lambda item: item[0])
+    return _build(ledger)
+
+
+def _split_clauses(sentence: str) -> list[tuple[int, int]]:
+    """句内按逗号/顿号切子句 → [(start, end)]（保留区间以便原文切片）。"""
+    spans: list[tuple[int, int]] = []
+    pos = 0
+    for match in _SUB_SPLIT.finditer(sentence):
+        spans.append((pos, match.start()))
+        pos = match.end()
+    spans.append((pos, len(sentence)))
+    return spans
+
+
+def _forbidding_scope_end(parts: list[str], start: int) -> int:
+    """否定子句的作用范围终点（不含）：向后吞掉不开启新义务的列表续段。
+
+    否定的列表与替代结构常被逗号/顿号切开（"不要用 README、架构文档或测试代替实现"）；
+    按 clause 逐段处理会把 X 侧截断成"不要用 README"、丢掉后续禁止类型，还会把
+    "代替 Y" 结构误判成禁止引用。故把续段合回同一否定跨度。
+    """
+    index = start + 1
+    while index < len(parts):
+        nxt = parts[index]
+        if not nxt:
+            index += 1
+            continue
+        if _is_forbidding(nxt) or _is_supplement(nxt) or _detect_obligations(nxt):
+            break
+        index += 1
+        if any(marker in nxt for marker in _SUBSTITUTE_MARKERS):
+            break  # 替代结构已闭合，Y 侧到此为止
+    return index
+
+
+def _build(ledger: _Ledger) -> RequiredEvidence:
+    ledger.raw.sort(key=lambda item: item[0])
     named_types = {
-        etype for _k, etype, _a, path, symbol in raw if path is not None or symbol is not None
+        etype
+        for _k, etype, _a, path, symbol in ledger.raw
+        if path is not None or symbol is not None
     }
     ids = count(1)
     seen: set[tuple[EvidenceType, str | None, str | None]] = set()
     items: list[RequiredEvidenceItem] = []
-    for _key, etype, anchor, path, symbol in raw:
+    overflow_anchor: str | None = None
+    for _key, etype, anchor, path, symbol in ledger.raw:
         if symbol is None and path is None and etype in named_types:
             continue  # 该类型已有具体点名，丢弃 type-only
         dedup_key = (etype, path, symbol)
         if dedup_key in seen:
             continue
         seen.add(dedup_key)
+        if len(items) >= MAX_REQUIRED_ITEMS:
+            # 超出 plan/evaluate schema 上限：记 partial_enumeration，不得仍报 complete
+            overflow_anchor = overflow_anchor or anchor
+            continue
         items.append(
             RequiredEvidenceItem(
                 item_id=f"R{next(ids)}", type=etype, anchor=anchor, path=path, symbol=symbol
             )
         )
+    if overflow_anchor is not None:
+        ledger.add_unresolved(overflow_anchor, "partial_enumeration")
     return RequiredEvidence(
         items=tuple(items),
-        forbidden_substitute_types=tuple(dict.fromkeys(forbidden)),
-        unresolved_constraints=tuple(unresolved),
+        forbidden_substitute_types=tuple(ledger.forbidden_substitute),
+        forbidden_citation_types=tuple(ledger.forbidden_citation),
+        unresolved_constraints=tuple(ledger.unresolved),
     )
 
 
@@ -578,6 +855,31 @@ def all_required_covered(coverage: tuple[CoverageEntry, ...]) -> bool:
     return all(entry.covered for entry in coverage)
 
 
-def required_satisfied(required: RequiredEvidence, coverage: tuple[CoverageEntry, ...]) -> bool:
-    """full 的必要条件：resolved 全覆盖 **且** 无 unresolved（结构性 fail-closed）。"""
-    return not required.unresolved_constraints and all_required_covered(coverage)
+def forbidden_citation_hits(
+    required: RequiredEvidence,
+    cited: Iterable[tuple[str, str]],
+) -> tuple[tuple[str, str, EvidenceType], ...]:
+    """用户明确禁止直接引用的类型却出现在最终引用中 → (evidence_id, rel_path, type)。"""
+    banned = set(required.forbidden_citation_types)
+    if not banned:
+        return ()
+    hits: list[tuple[str, str, EvidenceType]] = []
+    for evidence_id, rel_path in cited:
+        etype = classify_path(rel_path)
+        if etype in banned:
+            hits.append((evidence_id, rel_path, etype))
+    return tuple(hits)
+
+
+def required_satisfied(
+    required: RequiredEvidence,
+    coverage: tuple[CoverageEntry, ...],
+    *,
+    cited: Iterable[tuple[str, str]],
+) -> bool:
+    """full 的必要条件：resolved 全覆盖、无 unresolved、无禁止引用类型被引用。"""
+    return (
+        not required.unresolved_constraints
+        and all_required_covered(coverage)
+        and not forbidden_citation_hits(required, cited)
+    )

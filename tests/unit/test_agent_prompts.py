@@ -14,7 +14,7 @@ from devkb.contracts import PROMPT_VERSION
 
 def test_prompt_snapshot_locks_version_security_and_output_contract() -> None:
     snapshot = prompt_snapshot()
-    assert snapshot["version"] == PROMPT_VERSION == "p1.5-agent-v2"
+    assert snapshot["version"] == PROMPT_VERSION == "p1.5-agent-v3"
     assert set(snapshot) == {"version", "plan", "evaluate", "refine", "generate"}
     for name in ("plan", "evaluate", "refine", "generate"):
         prompt = snapshot[name]
@@ -31,7 +31,7 @@ def test_prompt_snapshot_locks_version_security_and_output_contract() -> None:
     serialized = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     assert (
         hashlib.sha256(serialized.encode()).hexdigest()
-        == "5d2c6ec462b9844f62f6aab65f90fb32a2ef4ebea2e074ada8ef3ff1b5669885"
+        == "6c83846230056d899b1706fe3291867f35eca13cc9e1484b21e676f4275bda09"
     )
 
 

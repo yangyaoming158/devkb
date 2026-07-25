@@ -211,3 +211,172 @@ async def test_gA8_resolved_plus_unresolved_target_not_full() -> None:
     result = await _run5("请引用 Foo.java 和某个关键实现。", "backend/src/main/java/foo/Foo.java")
     assert "refine" in result["node_history"]
     assert result["final_mode"] == "partial"
+
+
+# ---- 第五轮复审 §五.B：约束跨度账本的图级错误 full 反例 ----
+
+
+def _runtime_multi(script: list[str | Exception], rel_paths: list[str]) -> AgentRuntime:
+    async def retriever(_project_id: uuid.UUID, _queries: tuple[str, ...]) -> list[Evidence]:
+        return [
+            Evidence(
+                evidence_id=f"E{index}",
+                chunk_id=uuid.UUID(int=index),
+                rel_path=rel_path,
+                title_path="",
+                content=_CONTENT,
+                start_line=1,
+                end_line=3,
+                score=0.5,
+            )
+            for index, rel_path in enumerate(rel_paths, start=1)
+        ]
+
+    return AgentRuntime(llm=FakeLLM(script), retriever=retriever)
+
+
+def _gen_citing(*evidence_ids: str) -> str:
+    marks = "".join(f"[{eid}]" for eid in evidence_ids)
+    ids = ",".join(f'"{eid}"' for eid in evidence_ids)
+    return (
+        f'{{"answer_text":"订单校验由 owner 过滤保护 {marks}。",'
+        '"claims":[{"text":"订单校验由 owner 过滤保护",'
+        f'"evidence_ids":[{ids}],'
+        f'"quotes":["{_CONTENT}"]}}],"not_found":[]}}'
+    )
+
+
+async def test_gB1_partial_parse_leftover_target_blocks_full() -> None:
+    # 五审发现1：引用了 Foo.java 但"关键实现"未解析 → 不得 full，且须给出确定性限制说明
+    result = await _run5("请引用 Foo.java 和关键实现。", "backend/src/main/java/foo/Foo.java")
+    assert [uc.anchor for uc in result["required_evidence"].unresolved_constraints] == ["关键实现"]
+    assert result["final_mode"] == "partial"
+    assert any("无法确定性定位" in item for item in result["final_not_found"])
+
+
+async def test_gB2_vague_config_target_blocks_full_even_with_three_exact_citations() -> None:
+    # 五审发现1（c08）：README/docker-compose.yml/application.yml 全部直接引用，
+    # 但"相关 Java 配置"未解析 → 仍不得 full
+    question = (
+        "请区分本地裸 JVM 与 Docker Compose 的生效范围，"
+        "并引用 README、docker-compose.yml、application.yml 和相关 Java 配置。"
+    )
+    paths = ["README.md", "docker-compose.yml", "backend/src/main/resources/application.yml"]
+    result = await run_agent(
+        _runtime_multi(
+            [PLAN, EVAL_OK, REFINE, EVAL_OK, _gen_citing("E1", "E2", "E3")],
+            paths,
+        ),
+        _input(question),
+    )
+    assert result["final_mode"] == "partial"
+    assert any("相关 Java 配置" in item for item in result["final_not_found"])
+
+
+async def test_gB3_verification_style_question_cannot_be_full_on_arbitrary_evidence() -> None:
+    # 五审发现1（c02）：整题曾解析为 none → 任意证据即 full；现在必须 ambiguous
+    question = (
+        "README 声称默认 Mock Provider 不配置模型 key 也能运行。"
+        "Java 配置和 Provider 实现是否支持这个说法？"
+    )
+    result = await _run5(question, "backend/src/main/java/other/Other.java")
+    assert result["required_evidence"].status == "ambiguous"
+    assert result["final_mode"] == "partial"
+
+
+async def test_gB4_named_readme_not_satisfied_by_other_current_doc() -> None:
+    # 五审发现2：点名 README 必须带身份（symbol），不得退化为任意 current_doc 都能满足
+    result = await _run5("请引用 README。", "docs/architecture.md")
+    assert [(i.type, i.symbol) for i in result["required_evidence"].items] == [
+        ("current_doc", "README")
+    ]
+    assert not all(entry.covered for entry in result["coverage"])
+    assert result["final_mode"] == "partial"
+
+
+async def test_gB5_named_test_symbol_with_production_context_not_full() -> None:
+    # 五审发现2：src/test/OrderTest.java + 任意生产文件不得满足"OrderTest 的生产实现"
+    result = await run_agent(
+        _runtime_multi(
+            [PLAN, EVAL_OK, REFINE, EVAL_OK, _gen_citing("E1", "E2")],
+            ["backend/src/test/java/OrderTest.java", "backend/src/main/java/Foo.java"],
+        ),
+        _input("请引用 OrderTest 的生产实现。"),
+    )
+    assert [(i.type, i.symbol) for i in result["required_evidence"].items] == [
+        ("production_source", "OrderTest")
+    ]
+    assert not all(entry.covered for entry in result["coverage"])
+    assert result["final_mode"] == "partial"
+
+
+async def test_gB6_production_file_cannot_pose_as_historical_plan() -> None:
+    # 五审发现3：src/main 下的 AuditService.java 不再是 historical_plan，不能满足计划文档要求
+    result = await _run5("请引用计划文档说明规划过。", "src/main/java/AuditService.java")
+    assert not all(entry.covered for entry in result["coverage"])
+    assert result["final_mode"] == "partial"
+
+
+async def test_gB7_forbidden_citation_type_blocks_full_and_warns() -> None:
+    # 五审发现4：否定约束必须真正执行——同时引用生产源码与被禁止的设计文档 → 不得 full
+    result = await run_agent(
+        _runtime_multi(
+            [PLAN, EVAL_OK, _gen_citing("E1", "E2")],
+            ["backend/src/main/java/Foo.java", "docs/design/hybrid-search.md"],
+        ),
+        _input("不要引用设计文档，只引用生产源码。"),
+    )
+    assert result["required_evidence"].forbidden_citation_types == ("design_doc",)
+    assert result["final_mode"] == "partial"
+    assert any("被禁止的证据类型" in w for w in result["warnings"])
+
+
+async def test_gB8_unresolved_note_survives_claim_removal_branch() -> None:
+    # 五审发现5：有 claim 被验证移除时，unresolved 限制说明不得消失
+    mixed = (
+        '{"answer_text":"订单校验由 owner 过滤保护 [E1]。",'
+        '"claims":[{"text":"订单校验由 owner 过滤保护","evidence_ids":["E1"],'
+        f'"quotes":["{_CONTENT}"]}},'
+        '{"text":"编造的说法","evidence_ids":["E1"],"quotes":["订单不需要任何校验"]}],'
+        '"not_found":[]}'
+    )
+    result = await run_agent(
+        _runtime([PLAN, EVAL_OK, REFINE, EVAL_OK, mixed, mixed], "backend/src/main/java/Foo.java"),
+        _input("请引用 Foo.java 和关键实现。"),
+    )
+    assert result["final_mode"] == "partial"
+    assert any("已移除" in w for w in result["warnings"])
+    assert any("无法确定性定位" in item for item in result["final_not_found"])
+
+
+async def test_gB9a_unresolved_note_survives_refusal_without_draft() -> None:
+    # 五审发现5：零证据直奔 finalize（draft is None）时，必需证据说明同样不得缺失
+    async def empty_retriever(_pid: uuid.UUID, _q: tuple[str, ...]) -> list[Evidence]:
+        return []
+
+    eval_insufficient = (
+        '{"sufficiency":"insufficient","supported_aspects":[],"missing_aspects":["证据不足"]}'
+    )
+    runtime = AgentRuntime(
+        llm=FakeLLM([PLAN, eval_insufficient, REFINE, eval_insufficient]),
+        retriever=empty_retriever,
+    )
+    result = await run_agent(runtime, _input("请引用 Foo.java 和关键实现。"))
+    assert result["answer_draft"] is None
+    assert result["final_mode"] == "refusal"
+    assert any("无法确定性定位" in item for item in result["final_not_found"])
+    assert any("必需证据未覆盖" in w for w in result["warnings"])
+
+
+async def test_gB9_unresolved_note_survives_generate_failure_branch() -> None:
+    # 五审发现5：generate 两次格式失败走冻结默认值时，限制说明同样必须出现
+    result = await run_agent(
+        _runtime(
+            [PLAN, EVAL_OK, REFINE, EVAL_OK, "not json", "not json"],
+            "backend/src/main/java/Foo.java",
+        ),
+        _input("请引用 Foo.java 和关键实现。"),
+    )
+    assert result["generate_failed"] is True
+    assert result["final_mode"] == "partial"
+    assert any("无法确定性定位" in item for item in result["final_not_found"])

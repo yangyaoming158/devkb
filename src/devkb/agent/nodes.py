@@ -16,7 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from devkb.agent import prompts
 from devkb.agent.evidence_types import (
     TYPE_LABELS,
+    RequiredEvidence,
     compute_coverage,
+    forbidden_citation_hits,
     required_satisfied,
     uncovered_items,
 )
@@ -65,6 +67,52 @@ def _merge_unique(*groups: list[str]) -> list[str]:
 
 
 _EVIDENCE_MARK = re.compile(r"\[E\d+\]")
+
+
+def required_evidence_tail(
+    required: RequiredEvidence,
+    cited: list[tuple[str, str]],
+) -> tuple[list[str], list[str], bool]:
+    """确定性必需证据收尾（所有 finalize 分支共用）→ (not_found 追加项, warnings, 满足)。
+
+    第五轮复审发现5：unresolved/未覆盖说明只写在"无 claim 被移除"的一条分支里，
+    draft is None / generate_failed / 有 claim 被移除时都会静默丢失。故收敛为公共收尾：
+    任何终态都按同一口径披露"必需证据未取得 / 约束无法定位 / 引用了被禁止的类型"。
+    """
+    coverage = compute_coverage(required, cited)
+    uncovered = uncovered_items(required, coverage)
+    violations = forbidden_citation_hits(required, cited)
+    notes: list[str] = []
+    warnings: list[str] = []
+    if uncovered:
+        labels = "、".join(
+            f"{TYPE_LABELS[item.type]}:{item.symbol or item.path or item.anchor}"
+            for item in uncovered
+        )
+        notes.append(f"未取得用户要求的必需证据（{labels}）；测试/设计/历史材料不能替代")
+        warnings.append(
+            "finalize: 必需证据未覆盖（" + ",".join(item.item_id for item in uncovered) + "）"
+        )
+    if required.unresolved_constraints:
+        anchors = "、".join(uc.anchor for uc in required.unresolved_constraints)
+        notes.append(
+            f"用户要求的部分证据目标无法确定性定位（{anchors}）；"
+            "当前证据不足以穷举确认，最高 partial"
+        )
+        warnings.append(
+            "finalize: 存在未解析证据约束（"
+            + ",".join(uc.reason for uc in required.unresolved_constraints)
+            + "）"
+        )
+    if violations:
+        labels = "、".join(f"{TYPE_LABELS[etype]}:{path}" for _eid, path, etype in violations)
+        notes.append(f"用户明确要求不引用的证据类型被引用（{labels}）；该部分不作为支撑依据")
+        warnings.append(
+            "finalize: 引用了被禁止的证据类型（"
+            + ",".join(sorted({etype for _eid, _path, etype in violations}))
+            + "）"
+        )
+    return notes, warnings, required_satisfied(required, coverage, cited=cited)
 
 
 def _rebuild_answer_from_claims(kept: list[ClaimOutput]) -> str:
@@ -461,6 +509,13 @@ class AgentNodes:
                     for item in state["required_evidence"].items
                 ]
                 or None,
+                # 禁止直接引用的类型也进 Prompt：确定性门是最终防线，但先让 generate
+                # 避免踩线，否则只能被降级（五审发现4：否定约束此前是死信号）
+                forbidden_citation_hints=[
+                    TYPE_LABELS[etype]
+                    for etype in state["required_evidence"].forbidden_citation_types
+                ]
+                or None,
             ),
             schema=GenerateOutput,
             default=default,
@@ -499,108 +554,76 @@ class AgentNodes:
         }
 
     async def finalize(self, state: AgentState) -> dict[str, Any]:
-        """三态确定性收尾（规格 §10）：只读结构化状态，不发起任何 LLM 调用。"""
+        """三态确定性收尾（规格 §10）：只读结构化状态，不发起任何 LLM 调用。
+
+        结构：先按 draft/验证状态定出候选终态与正文，再对**所有分支**统一跑必需证据收尾
+        （见 required_evidence_tail），最后才裁决 full。避免限制说明只出现在部分分支
+        （五审发现5）。
+        """
         draft = state["answer_draft"]
         evaluation = state["evaluation"]
         verification = state["verification"]
+        required = state["required_evidence"]
         missing = list(evaluation.missing_aspects) if evaluation else []
         warnings: list[str] = []
+        kept: list[ClaimOutput] = []
+        answer = ""
+        full_candidate = False
 
         if draft is None:
-            return {
-                "final_answer": _refusal_text(missing),
-                "final_mode": "refusal",
-                "final_claims": [],
-                "final_not_found": missing,
-                "status": "succeeded",
-                "node_history": ["finalize"],
-            }
-
-        if state["generate_failed"]:
-            mode: FinalMode = "partial" if state["evidences"] else "refusal"
-            answer = draft.answer_text if mode == "partial" else _refusal_text(missing)
-            return {
-                "final_answer": answer,
-                "final_mode": mode,
-                "final_claims": [],
-                "final_not_found": _merge_unique(draft.not_found, missing),
-                "status": "succeeded",
-                "node_history": ["finalize"],
-            }
-
-        failed = set(verification.failed_claims) if verification else set()
-        kept = [claim for index, claim in enumerate(draft.claims) if index not in failed]
-        removed = len(draft.claims) - len(kept)
-
-        not_found = _merge_unique(draft.not_found, missing)
-        verification_ok = verification is None or verification.passed
-        if removed:
-            # 不可信 claim 的正文与其 [E#] 标记不得残留：正文按保留 claim 确定性重建
-            warnings.append(
-                f"finalize: 已移除 {removed} 个未通过验证的 claim，正文按保留 claim 重建"
-            )
-            # 重建后再过一次确定性 L0，作为越界标记的最终防线
-            answer, _, rebuild_l0_warnings = apply_l0(
-                _rebuild_answer_from_claims(kept), len(state["evidences"])
-            )
-            warnings.extend(rebuild_l0_warnings)
-            mode: FinalMode = "partial" if kept else "refusal"
+            mode: FinalMode = "refusal"
+            not_found = list(missing)
+        elif state["generate_failed"]:
+            mode = "partial" if state["evidences"] else "refusal"
+            answer = draft.answer_text
+            not_found = _merge_unique(draft.not_found, missing)
         else:
-            answer, _, l0_warnings = apply_l0(draft.answer_text, len(state["evidences"]))
-            warnings.extend(l0_warnings)
-            # T22 full 硬约束（结构性 fail-closed）：逐项确定性覆盖——每条已解析必需证据
-            # 都须有匹配的直接引用，且无 unresolved 约束（解析器漏检/部分解析时绝不 full）。
-            # 测试/设计/历史材料因类型不同无法替代必需生产证据。
-            required = state["required_evidence"]
-            evidence_by_id = {ev.evidence_id: ev for ev in state["evidences"]}
-            cited = [
-                (evidence_id, evidence_by_id[evidence_id].rel_path)
-                for claim in kept
-                for evidence_id in claim.evidence_ids
-                if evidence_id in evidence_by_id
-            ]
-            final_coverage = compute_coverage(required, cited)
-            uncovered = uncovered_items(required, final_coverage)
-            if (
-                evaluation is not None
-                and evaluation.sufficiency == "sufficient"
-                and kept
-                and not draft.not_found
-                and verification_ok
-                and required_satisfied(required, final_coverage)
-            ):
-                mode = "full"
+            failed = set(verification.failed_claims) if verification else set()
+            kept = [claim for index, claim in enumerate(draft.claims) if index not in failed]
+            removed = len(draft.claims) - len(kept)
+            not_found = _merge_unique(draft.not_found, missing)
+            if removed:
+                # 不可信 claim 的正文与其 [E#] 标记不得残留：正文按保留 claim 确定性重建
+                warnings.append(
+                    f"finalize: 已移除 {removed} 个未通过验证的 claim，正文按保留 claim 重建"
+                )
+                # 重建后再过一次确定性 L0，作为越界标记的最终防线
+                answer, _, rebuild_l0_warnings = apply_l0(
+                    _rebuild_answer_from_claims(kept), len(state["evidences"])
+                )
+                warnings.extend(rebuild_l0_warnings)
+                mode = "partial" if kept else "refusal"
             else:
+                answer, _, l0_warnings = apply_l0(draft.answer_text, len(state["evidences"]))
+                warnings.extend(l0_warnings)
+                verification_ok = verification is None or verification.passed
+                full_candidate = (
+                    evaluation is not None
+                    and evaluation.sufficiency == "sufficient"
+                    and bool(kept)
+                    and not draft.not_found
+                    and verification_ok
+                )
                 mode = "partial"
                 if evaluation is not None and evaluation.sufficiency == "sufficient" and not kept:
                     warnings.append("finalize: 充分判定但无结构化 claim，降级 partial")
-                if uncovered:
-                    labels = "、".join(
-                        f"{TYPE_LABELS[item.type]}:{item.symbol or item.path or item.anchor}"
-                        for item in uncovered
-                    )
-                    note = f"未取得用户要求的必需证据（{labels}）；测试/设计/历史材料不能替代"
-                    if note not in not_found:
-                        not_found = [*not_found, note]
-                    warnings.append(
-                        "finalize: 必需证据未覆盖，降级 partial（"
-                        + ",".join(item.item_id for item in uncovered)
-                        + "）"
-                    )
-                if required.unresolved_constraints:
-                    # 未解析/部分解析的显式约束 → 确定性限制说明；不静默降级
-                    anchors = "、".join(uc.anchor for uc in required.unresolved_constraints)
-                    note = (
-                        f"用户要求的部分证据目标无法确定性定位（{anchors}）；"
-                        "当前证据不足以穷举确认，最高 partial"
-                    )
-                    if note not in not_found:
-                        not_found = [*not_found, note]
-                    warnings.append(
-                        "finalize: 存在未解析证据约束，降级 partial（"
-                        + ",".join(uc.reason for uc in required.unresolved_constraints)
-                        + "）"
-                    )
+
+        # T22 full 硬约束（结构性 fail-closed）：逐项确定性覆盖——每条已解析必需证据都须有
+        # 匹配的直接引用，且无 unresolved 约束（解析器漏检/部分解析绝不 full），且没有引用
+        # 用户禁止直接引用的类型。测试/设计/历史材料因类型不同无法替代必需生产证据。
+        evidence_by_id = {ev.evidence_id: ev for ev in state["evidences"]}
+        cited = [
+            (evidence_id, evidence_by_id[evidence_id].rel_path)
+            for claim in kept
+            for evidence_id in claim.evidence_ids
+            if evidence_id in evidence_by_id
+        ]
+        required_notes, required_warnings, satisfied = required_evidence_tail(required, cited)
+        not_found = _merge_unique(not_found, required_notes)
+        warnings.extend(required_warnings)
+        if full_candidate and satisfied:
+            mode = "full"
+
         if mode == "refusal":
             answer = _refusal_text(not_found)
             kept = []
