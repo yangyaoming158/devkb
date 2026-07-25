@@ -29,6 +29,7 @@ from devkb.agent.aspects import (
 from devkb.agent.evidence_types import (
     TYPE_LABELS,
     RequiredEvidence,
+    bound_required_ids,
     compute_coverage,
     forbidden_citation_hits,
     required_satisfied,
@@ -115,7 +116,7 @@ def monotonic_matrix(state: AgentState) -> tuple[AspectStatus, ...]:
         state["required_evidence"],
         state["aspect_observations"],
         state["coverage"],
-        current_round=state["retrieval_round"],
+        evidence_paths=[evidence.rel_path for evidence in state["evidences"]],
     )
 
 
@@ -212,6 +213,33 @@ def required_evidence_tail(
             + "）"
         )
     return notes, warnings, required_satisfied(required, coverage, cited=visible_citations)
+
+
+def strip_items_contradicting_displaced_notes(
+    items: list[NotFoundInput],
+    required: RequiredEvidence,
+    displaced_ids: frozenset[str],
+) -> tuple[list[NotFoundInput], list[str]]:
+    """LLM 报的缺口若**唯一绑定**到"前轮已取得、终态被挤出"的必需证据项，就只留确定性说明。
+
+    二审发现3：已被挤出的 RagService 若被末轮报成"RagService 生产源码"，终态会同时出现
+    原始缺失项与"前几轮已取得、受容量上限被挤出"的三态说明——两句话对同一方面给出相反
+    印象（一句说没有、一句说取得过）。T23 的归一化全等比较建立不了跨轨身份（限定词一变
+    即失效），故改用 T22 的路径/符号 matcher 绑定；一句话提了多个目标时保守保留原文。
+
+    **只吸收被挤出这一态**：从未取得（两句同向、只是冗余）与仍在证据集但未引用
+    （T23 的事实校验会把它改写成"已出现在本次检索证据中"）都不构成矛盾，继续走 T23，
+    以免吞掉方法级细节和 `corpus_index` 这类事实校验来源（c10 要求两类缺口可分辨）。
+    """
+    kept: list[NotFoundInput] = []
+    dropped: list[str] = []
+    for item in items:
+        bound = bound_required_ids(required, item.text)
+        if item.source != "deterministic" and len(bound) == 1 and bound[0] in displaced_ids:
+            dropped.append(item.text)
+            continue
+        kept.append(item)
+    return kept, dropped
 
 
 def _rebuild_answer_from_claims(kept: list[ClaimOutput]) -> str:
@@ -703,6 +731,9 @@ class AgentNodes:
 
         matrix = monotonic_matrix(state)
         outstanding = outstanding_missing(matrix, missing)
+        displaced_ids = frozenset(
+            row.aspect_id for row in displaced_aspects(matrix) if row.origin == "required_evidence"
+        )
         if required.items:
             sufficient = is_monotonically_sufficient(matrix, outstanding=outstanding)
         else:
@@ -791,6 +822,11 @@ class AgentNodes:
 
         # T23 确定性收尾：四分类 + 全轮历史事实校验（只读结构化状态，零 LLM 调用）。
         # 必须在 refusal 文案生成之前——拒答正文由校准后的缺口清单确定性拼出。
+        raw_not_found, absorbed = strip_items_contradicting_displaced_notes(
+            raw_not_found, required, displaced_ids
+        )
+        if absorbed:
+            warnings.append("finalize: 缺失项已由确定性说明覆盖（" + "；".join(absorbed) + "）")
         calibration = calibrate_not_found(
             [*raw_not_found, *_deterministic_items(required_notes)],
             evidence_paths=state["evidence_path_history"],

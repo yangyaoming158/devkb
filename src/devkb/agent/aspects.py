@@ -137,8 +137,16 @@ def observe_round(
 
     确定性轨用 ``coverage``（权威覆盖矩阵）而非 LLM 的 coverage 报告；诊断轨按
     归一化标签去重，同一方面在同轮重复自报只算一次。
+
+    **诊断轨的证据绑定（二审发现2）**：evaluator 方面同样记 ``rel_paths``——标签里的
+    路径/类名 token 能匹配到本轮证据时绑定那几条，否则绑定本轮**全部**证据（那就是
+    evaluate 当时据以判断的证据集）。绑定必须是稳定事实，``present_now`` 才能按"支撑
+    证据是否还在"计算；用"本轮是否又自报了一次"代理会让 LLM 在证据未变时撤销历史支持，
+    与已裁决的诊断轨单调下界冲突。绑定粒度偏粗是诚实的代价：EvaluateOutput 里没有
+    aspect→evidence 的自报字段，加这个字段要改 LLM 契约（属 D6 边界，不在 T24）。
     """
     path_by_id = dict(cited)
+    round_paths = tuple(dict.fromkeys(path for _evidence_id, path in cited))
     item_by_id = {item.item_id: item for item in required.items}
     observations: list[AspectObservation] = []
     for entry in coverage:
@@ -166,12 +174,17 @@ def observe_round(
         if not key or key in seen:
             continue
         seen.add(key)
+        tokens = label_tokens(label)
+        bound = tuple(
+            path for path in round_paths if any(path_matches_token(path, token) for token in tokens)
+        )
         observations.append(
             AspectObservation(
                 aspect_id=_evaluator_aspect_id(label),
                 label=_aspect_label(label),
                 origin="evaluator",
                 round_index=round_index,
+                rel_paths=bound or round_paths,
             )
         )
     return observations
@@ -182,13 +195,16 @@ def build_matrix(
     observations: Sequence[AspectObservation],
     coverage: Sequence[CoverageEntry],
     *,
-    current_round: int,
+    evidence_paths: Sequence[str],
 ) -> tuple[AspectStatus, ...]:
     """跨轮单调覆盖矩阵：确定性轨（按 required items 顺序）在前，诊断轨在后。
 
-    ``supported`` = 任一轮观察到直接证据；``present_now`` = 当前证据集仍有直接证据。
+    ``supported`` = 任一轮观察到直接证据；``present_now`` = **当前证据集**仍有直接证据
+    ——确定性轨按权威覆盖矩阵 ``coverage`` 判，诊断轨按"绑定证据 ∩ 当前证据集"判
+    （二审发现2：不能用"末轮是否又自报一次"代理，否则证据没变 LLM 也能撤销历史支持）。
     二者的差就是"被挤出但不算证伪"，由调用方记告警（绝不据此把方面改回缺失）。
     """
+    current_paths = set(evidence_paths)
     by_id: dict[str, list[AspectObservation]] = {}
     for observation in observations:
         by_id.setdefault(observation.aspect_id, []).append(observation)
@@ -212,6 +228,7 @@ def build_matrix(
     for aspect_id, history in by_id.items():
         if not aspect_id.startswith(_EVALUATOR_PREFIX):
             continue
+        bound = tuple(dict.fromkeys(path for obs in history for path in obs.rel_paths))
         rows.append(
             AspectStatus(
                 aspect_id=aspect_id,
@@ -219,9 +236,8 @@ def build_matrix(
                 origin="evaluator",
                 supported=True,  # 只在"自报已支持"时才产生观察
                 first_supported_round=min(observation.round_index for observation in history),
-                present_now=any(
-                    observation.round_index == current_round for observation in history
-                ),
+                present_now=bool(current_paths & set(bound)),
+                rel_paths=bound,
             )
         )
     return tuple(rows)
@@ -309,16 +325,17 @@ def plan_retention(
 ) -> RetentionPlan:
     """跨轮证据合并：为每个方面留住一条代表证据，避免补检把已覆盖方面挤出（RT-16）。
 
-    分配顺序：**先给每个方面选一条代表证据**（优先本轮新证据里排名最高的一条，没有才
-    取旧轮排名最高的一条），再让非代表证据按原排名填满剩余槽位。三条纪律：
+    **先发保留资格、再按原次序输出**，资格优先级（一审发现1、二审发现1）：
 
-    - **本轮内不改顺序**：入选的新证据保持召回排名的相对次序，容量不足时只**丢弃**
-      非代表证据，绝不把代表证据提到前面——重排会改变 ``E#`` 编号进而改变模型该引哪条。
-    - **代表与预留联合求解**：不能先按"全部 fresh 覆盖了哪些方面"决定预留、再回头缩短
-      实际入选的 fresh 前缀（复审发现1）——那会让落在前缀外的新锚点与同方面的旧锚点
-      一起被截掉，容量明明够。故 fresh 代表先占位，非代表才用剩余预算。
-    - **补检结果至少留一个位置**：旧轮锚点最多占 ``limit - max(len(新锚点), 1)`` 个槽位，
-      否则会出现"走了 refine 却看不见任何新结果"；被挤掉的锚点记 ``aspect_anchor_capacity``。
+    1. **确定性轨代表**（T22 点名的必需证据）——绝对优先，容量够就一定保住；
+    2. **补检至少一条**——若上一步没有任何本轮新证据入选，给排名最高的新证据留一个位置，
+       否则一条 LLM 自报的方面标签就能把整轮补检结果清空；
+    3. **诊断轨代表**（evaluate 自报方面，按标签 token 绑定路径）；
+    4. 其余新证据（按召回排名）→ 其余旧证据（按原次序）。
+
+    两条不变量：**同一来源内的相对次序永不改变**（重排会改变 ``E#`` 编号进而改变模型
+    该引哪条）；**代表资格与容量联合求解**，不先按"全部新证据覆盖了哪些方面"下结论再
+    回头截断（一审发现1 的成因）。被容量挤掉的代表记 ``aspect_anchor_capacity``。
 
     ``protected`` 是本轮之前的单调矩阵行（用于给 evaluator 方面做路径绑定）。
     """
@@ -339,67 +356,64 @@ def plan_retention(
         if chunk_id not in fresh_set
     ]
 
-    # ① 逐方面选代表：新证据优先（同为本轮结果，不额外占用旧证据槽位）。
-    #    确定性轨（required items）在前、诊断轨在后——预算不足时先牺牲后者。
+    # ① 逐方面选代表（新证据优先），**按轨分桶**：确定性轨与诊断轨的代表不能混在
+    #    一个桶里按召回排名截断，否则诊断轨的新代表会把确定性轨代表挤掉（二审发现1）。
     required_ids = [item.item_id for item in required.items]
     diagnostic_ids = [
         row.aspect_id for row in protected if row.origin == "evaluator" and row.supported
     ]
+    required_set = set(required_ids)
     anchored: set[str] = set()
-    fresh_anchors: list[uuid.UUID] = []
-    required_anchors: list[uuid.UUID] = []
-    diagnostic_anchors: list[uuid.UUID] = []
+    required_reps: list[uuid.UUID] = []
+    diagnostic_reps: list[uuid.UUID] = []
     for aspect_id in [*required_ids, *diagnostic_ids]:
         if aspect_id in anchored:
             continue  # 已被某条代表顺带覆盖
         pick = next((cid for cid in fresh_ids if aspect_id in aspects_of[cid]), None)
-        bucket = fresh_anchors
         if pick is None:
             pick = next((cid for cid in carried_ids if aspect_id in aspects_of[cid]), None)
-            bucket = required_anchors if aspect_id in set(required_ids) else diagnostic_anchors
         if pick is None:
             continue  # 该方面本轮无任何可保留的证据
+        bucket = required_reps if aspect_id in required_set else diagnostic_reps
         if pick not in bucket:
             bucket.append(pick)
         anchored.update(aspects_of[pick])
+    # 轨内次序：新证据代表（按召回排名）在前、旧证据代表（按原序）在后——容量不足时
+    # 优先保住本轮补检的成果，否则"补到了却没进终态证据集"。
+    rank = {chunk_id: index for index, chunk_id in enumerate([*fresh_ids, *carried_ids])}
+    required_reps.sort(key=lambda chunk_id: rank[chunk_id])
+    diagnostic_reps.sort(key=lambda chunk_id: rank[chunk_id])
 
-    # ② 旧轮锚点的槽位预算：确定性轨代表**绝对优先**（容量够就一定保住，复审发现1 的
-    #    同类问题——不能为了"留一个新证据位"把够放的方面锚点挤掉）；诊断轨代表则要
-    #    先给本轮新证据让出一个位置，否则一条 LLM 自报的方面标签就能把整轮补检结果清空。
-    room = max(limit - len(fresh_anchors), 0)
-    reserved_carried = required_anchors[:room]
-    diagnostic_floor = 1 if fresh_ids and not fresh_anchors else 0
-    reserved_carried += diagnostic_anchors[
-        : max(room - len(reserved_carried) - diagnostic_floor, 0)
+    # ② 先发保留资格再排序：确定性轨代表 → 本轮新证据里的诊断轨代表 → 补检至少一条 →
+    #    旧轮的诊断轨代表 → 其余新证据（按排名）→ 其余旧证据（按原序）。
+    #    "补检至少一条"排在**新证据代表之后**：代表本身就是新证据，用它同时满足两个目标，
+    #    否则会出现"floor 抓走一条无关新证据、同轮的诊断轨代表反被饿死"（随机探针发现）。
+    selected: set[uuid.UUID] = set()
+
+    def take(chunk_id: uuid.UUID) -> None:
+        if len(selected) < limit:
+            selected.add(chunk_id)
+
+    for chunk_id in required_reps:
+        take(chunk_id)
+    for chunk_id in diagnostic_reps:
+        if chunk_id in fresh_set:
+            take(chunk_id)
+    if fresh_ids and not selected & fresh_set:
+        take(fresh_ids[0])  # 一条 LLM 自报标签不得把整轮补检结果清空
+    for chunk_id in [*diagnostic_reps, *fresh_ids, *carried_ids]:
+        take(chunk_id)
+
+    # ③ 输出按各来源原次序（只丢弃、不重排）
+    kept = [
+        *(chunk_id for chunk_id in fresh_ids if chunk_id in selected),
+        *(chunk_id for chunk_id in carried_ids if chunk_id in selected),
     ]
-
-    # ③ 新证据按原排名入选：代表必进，非代表用完剩余预算即止（只丢弃、不重排）
-    fresh_budget = max(limit - len(reserved_carried), 0)
-    spare = max(fresh_budget - len(fresh_anchors), 0)
-    fresh_anchor_set = set(fresh_anchors)
-    selected_fresh: list[uuid.UUID] = []
-    for chunk_id in fresh_ids:
-        if len(selected_fresh) >= fresh_budget:
-            break
-        if chunk_id in fresh_anchor_set:
-            selected_fresh.append(chunk_id)
-        elif spare:
-            spare -= 1
-            selected_fresh.append(chunk_id)
-
-    # ④ 旧证据：先保锚点，再按原顺序补满；输出仍按旧集合的原次序
-    carried_slots = max(limit - len(selected_fresh), 0)
-    keep_carried = set(reserved_carried[:carried_slots])
-    room = carried_slots - len(keep_carried)
-    for chunk_id in carried_ids:
-        if room <= 0:
-            break
-        if chunk_id in keep_carried:
-            continue
-        keep_carried.add(chunk_id)
-        room -= 1
-    kept = [*selected_fresh, *(cid for cid in carried_ids if cid in keep_carried)]
     kept_set = set(kept)
+    carried_set = set(carried_ids)
+    reserved_carried = [
+        chunk_id for chunk_id in [*required_reps, *diagnostic_reps] if chunk_id in carried_set
+    ]
     kept_aspects = {aspect_id for chunk_id in kept for aspect_id in aspects_of[chunk_id]}
     eliminated = tuple(
         EliminationRecord(

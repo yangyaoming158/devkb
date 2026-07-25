@@ -109,7 +109,7 @@ def test_matrix_keeps_support_when_later_round_loses_the_evidence() -> None:
         required,
         [*round1, *round2],
         compute_coverage(required, [("E1", CITATION_PARSER)]),
-        current_round=2,
+        evidence_paths=[CITATION_PARSER],
     )
 
     by_label = {row.label: row for row in matrix}
@@ -128,7 +128,7 @@ def test_never_supported_aspect_stays_unsupported() -> None:
         required,
         observe_round(required, coverage, [("E1", RAG_SERVICE)], [], round_index=1),
         coverage,
-        current_round=1,
+        evidence_paths=[RAG_SERVICE],
     )
 
     assert [(row.label, row.supported) for row in matrix] == [
@@ -175,7 +175,7 @@ def test_diagnostic_track_alone_can_never_grant_sufficiency() -> None:
         *observe_round(required, (), [], ["订单校验"], round_index=1),
         *observe_round(required, (), [], ["库存扣减"], round_index=2),
     ]
-    matrix = build_matrix(required, observations, (), current_round=2)
+    matrix = build_matrix(required, observations, (), evidence_paths=[])
 
     assert [row.origin for row in matrix] == ["evaluator", "evaluator"]
     assert all(row.supported for row in matrix)  # 单调下界仍然成立
@@ -334,6 +334,47 @@ def test_deterministic_aspects_are_never_starved_while_capacity_allows(limit: in
         assert [c for c in plan.kept if c in set(order)] == order
 
 
+def test_required_representative_outranks_diagnostic_representative() -> None:
+    """二审发现1：两轨的新证据代表被合并进同一个桶后按召回排名截断，诊断轨代表会把
+    确定性轨代表挤掉——保留资格必须先按"确定性轨 → 诊断轨"分配，再按各来源原序输出。"""
+    required = parse_required_evidence("请引用 RagService 的生产实现。")
+    protected = (
+        AspectStatus(
+            aspect_id="evaluator:CitationParser处理",
+            label="CitationParser 处理",
+            origin="evaluator",
+            supported=True,
+            first_supported_round=1,
+        ),
+    )
+
+    # ① 两轨代表都在本轮新证据里，诊断轨排名更高
+    plan = plan_retention(
+        required, protected, _pairs((11, CITATION_PARSER), (12, RAG_SERVICE)), [], limit=1
+    )
+    assert plan.kept == (_uuid(12),)
+
+    # ② 诊断轨代表是新证据、确定性轨代表是旧证据：旧的点名类同样不得被挤掉
+    plan = plan_retention(
+        required, protected, _pairs((11, CITATION_PARSER)), _pairs((1, RAG_SERVICE)), limit=1
+    )
+    assert plan.kept == (_uuid(1),)
+
+
+def test_diagnostic_support_survives_evaluator_flip_when_evidence_unchanged() -> None:
+    """二审发现2：evaluator 方面的 present_now 不能用"本轮是否又说了一遍"代理——
+    证据集没变时 LLM 不该能撤销历史支持（已裁决的诊断轨单调下界）。"""
+    required = parse_required_evidence("订单校验是怎么做的？")
+    paths = ["backend/src/main/java/svc/OrderService.java", ARCH_DOC]
+    observations = observe_round(required, (), [("E1", paths[0])], ["订单校验"], round_index=1)
+
+    unchanged = build_matrix(required, observations, (), evidence_paths=paths)
+    assert unchanged[0].supported and unchanged[0].present_now  # 证据未变 → 仍可交付
+
+    replaced = build_matrix(required, observations, (), evidence_paths=[CITATION_PARSER])
+    assert replaced[0].supported and not replaced[0].present_now  # 支撑证据没了才算被挤出
+
+
 def test_diagnostic_anchor_never_evicts_the_whole_refill_round() -> None:
     """诊断轨代表要给新证据让位：一条 LLM 自报标签不得把整轮补检结果清空。"""
     required = parse_required_evidence("非法引用编号是怎么处理的？")
@@ -376,7 +417,10 @@ def test_matrix_present_now_follows_current_coverage_only() -> None:
         round_index=1,
     )
     matrix = build_matrix(
-        required, observations, (CoverageEntry(item_id="R1", covered=False),), current_round=2
+        required,
+        observations,
+        (CoverageEntry(item_id="R1", covered=False),),
+        evidence_paths=[ARCH_DOC],
     )
 
     assert matrix[0].supported is True and matrix[0].present_now is False
@@ -565,6 +609,32 @@ async def test_gap_wording_separates_absent_from_retrieved_but_uncited() -> None
     )
 
 
+async def test_evaluator_flip_with_unchanged_evidence_still_delivers_partial() -> None:
+    """二审发现2 的端到端版：证据集一模一样，末轮 evaluate 却撤回自报支持并判 insufficient。
+
+    诊断轨的单调下界必须扛住——证据没变，LLM 不能靠"这轮不提了"把已支持方面清空、
+    把整个 run 推进 refusal。
+    """
+    order_service = "backend/src/main/java/svc/OrderService.java"
+    eval1 = (
+        '{"sufficiency":"partial","supported_aspects":["订单校验"],"missing_aspects":["库存扣减"]}'
+    )
+    eval2 = '{"sufficiency":"insufficient","supported_aspects":[],"missing_aspects":["订单校验"]}'
+    gen = (
+        '{"answer_text":"订单校验由 owner 过滤保护 [E1]。",'
+        '"claims":[{"text":"订单校验由 owner 过滤保护","evidence_ids":["E1"],'
+        f'"quotes":["{_content(order_service)}"]}}],"not_found":[]}}'
+    )
+    runtime = _rounds_runtime([PLAN, eval1, REFINE, eval2, gen], [[order_service]], max_evidences=3)
+
+    result = await run_agent(runtime, _input("订单校验是怎么做的？"))
+
+    assert {evidence.rel_path for evidence in result["evidences"]} == {order_service}
+    assert result["final_mode"] == "partial"
+    assert [claim.text for claim in result["final_claims"]] == ["订单校验由 owner 过滤保护"]
+    assert "订单校验" not in result["final_not_found"]
+
+
 async def test_zero_deliverable_evidence_still_refuses() -> None:
     # refusal 仅用于零可交付证据：没有任何方面取得过直接证据时不得假 partial
     eval_none = (
@@ -700,6 +770,55 @@ async def test_displaced_aspect_is_never_worded_as_never_obtained() -> None:
         for item in result["final_not_found"]
     )
     assert result["final_mode"] == "partial"
+
+
+async def test_evaluator_missing_bound_to_required_item_yields_one_statement() -> None:
+    """二审发现3：末轮把已被挤出的 RagService 报成"RagService 生产源码"时，终态会同时
+    出现原始缺失项与三态说明——限定词一变，归一化全等比较就失效。能由 T22 matcher
+    唯一绑定到某条 required item 的缺失项，交给确定性三态说明，不再保留原文。"""
+    eval2_names_ragservice = (
+        '{"sufficiency":"insufficient","supported_aspects":["非法引用编号处理"],'
+        '"missing_aspects":["RagService 生产源码","RagSupport 生产源码"]}'
+    )
+    runtime = _rounds_runtime(
+        [PLAN, EVAL_ROUND1, REFINE, eval2_names_ragservice, GEN_PARTIAL],
+        [[RAG_SERVICE], [CITATION_PARSER]],
+        max_evidences=1,
+    )
+    result = await run_agent(runtime, _input(CASE9_QUESTION))
+
+    # 被挤出的 RagService：原始缺失项被吸收，只留"取得过但被挤出"一句
+    assert not any(item.strip() == "RagService 生产源码" for item in result["final_not_found"])
+    displaced = [item for item in result["final_not_found"] if "RagService" in item]
+    assert len(displaced) == 1 and "被挤出" in displaced[0]
+    assert any("缺失项已由确定性说明覆盖" in warning for warning in result["warnings"])
+    # 从未取得的 RagSupport 不属于矛盾态：LLM 原文继续走 T23 事实校验，不被吞掉
+    # （吞掉会连方法级细节与 corpus_index 事实来源一起丢，c10 要求两类缺口可分辨）
+    assert any(
+        "未取得用户要求的必需证据" in item and "RagSupport" in item
+        for item in result["final_not_found"]
+    )
+
+
+async def test_elimination_records_are_replayable_beyond_summary_clip() -> None:
+    """二审发现4：单轮账本可达 24 条，step summary 却只落前 8 条 → 回放看不全。"""
+    recorder = TraceRecorder()
+    extra = [f"docs/filler-{index}.md" for index in range(12)]
+    runtime = _rounds_runtime(
+        [PLAN, EVAL_ROUND1, REFINE, EVAL_ROUND2_REGRESSED, GEN_PARTIAL],
+        [[RAG_SERVICE, *extra], [CITATION_PARSER, *extra]],
+        max_evidences=1,
+    )
+    result = await run_agent(runtime, _input(CASE9_QUESTION), recorder)
+
+    first_round = next(step for step in recorder.steps if step.node == "retrieve")
+    summary = first_round.output_summary
+    assert summary is not None
+    # 首轮 13 条候选、容量 1 → 12 条淘汰；落盘摘要按账本上限保留，
+    # 不得被 MAX_SUMMARY_ITEMS 截成 8 条（否则回放看不全）
+    assert len(summary["eliminated"]) == 12
+    assert {item["rel_path"] for item in summary["eliminated"]} == set(extra)
+    assert len(result["evidence_eliminations"]) >= 12
 
 
 async def test_elimination_records_are_auditable_per_candidate() -> None:

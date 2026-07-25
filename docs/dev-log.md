@@ -1001,3 +1001,16 @@
 - **发现3（P2）：`EliminationRecord` 没进状态或轨迹。** 生成后即丢弃，只剩一条汇总 warning，"逐条记录淘汰原因"名不副实。改法：`AgentState.evidence_eliminations`（只增账本，硬上限 `MAX_ELIMINATION_RECORDS = 2×MAX_FINAL_TOP_K`，与"单轮合并输入 = 新证据 + 上轮保留"同源）+ retrieve 的 step `output_summary` 里逐条带 `chunk_id/rel_path/aspect_ids/reason`。这样运行结束后能回放"这条证据为什么不在终态证据集"，而不是只知道被砍了几条。T30 要做的 per-query 候选轨迹（rank/score/融合原因）仍未提前实现。
 - 用户裁决同时正式确认：**诊断轨矩阵只提供 partial/refusal 的单调下界和缺口防回退，不得授予 full**。已把它从"调用方的 `if required.items` 分支"提升为 `is_monotonically_sufficient` 内部的显式规则（只看确定性轨），并按复审给的反例加锁：无 required item 的双方面题，两轮各自报支持一个方面、终稿只引用其一 —— 矩阵仍判两方面 supported（下界成立），但**不得**据此判充分。
 - `make ci`（ruff/pyright 0、pytest 544）、`make eval-ci`（65+19）全绿；跨 5 个 PYTHONHASHSEED 一致。契约版本不变（state 已在上一提交升到 v6，本轮只增字段不改 Prompt）。**T24.1/T24.2 仍不勾选，待下一轮独立复审。** 证据 commit：本提交。
+
+## 2026-07-26 · P1.5 T24 第二轮复审整改：两轨发资格、诊断轨证据绑定、跨轨目标身份
+
+- 复审对 f243c86 的结论：一审的最小反例、carried 保序、三态措辞、`is_monotonically_sufficient` 只让确定性轨裁决 full 都已确认，但**仍有 3×P1 + 2×P2**，T24.1/T24.2 继续不勾选。5 条红测先在 f243c86 上跑失败再改。
+- **发现1（P1）：确定性代表并非"绝对优先"。** 我把两轨的**新证据**代表都塞进同一个 `fresh_anchors`，最后又按召回排名截断——`limit=1`、required=RagService、diagnostic=CitationParser、fresh=[CitationParser, RagService] 时保留的是 CitationParser。改法：**先按轨发保留资格、再按各来源原序输出**。资格顺序：确定性轨代表 → 本轮新证据里的诊断轨代表 → 补检至少一条 → 旧轮诊断轨代表 → 其余新证据 → 其余旧证据。
+  - "补检至少一条"从第二位挪到新证据代表之后是我自己探针发现的：floor 会抓走一条无关新证据，而同轮的诊断轨代表反被饿死；代表本身就是新证据，用它同时满足两个目标。
+  - 复审说得对——上一轮的随机探针没覆盖两轨竞争。补上诊断轨（带类名 token 的标签）后，整改前 **43 例违反**（全是诊断轨被饿死，确定性轨未出现饿死/驱逐），整改后 **0**；新增两条不变量：确定性方面容量放得下就一个都不许丢、诊断轨在本轮有代表时不得被饿死。
+- **发现2（P1）：诊断轨仍可被末轮 LLM 自报回退。** 我把 evaluator 方面的 `present_now` 定义成"本轮又自报了一次"——证据集一字未变，evaluator 返回 `supported=[]/insufficient` 就能把整个 run 推进 refusal，正好违反刚裁决的诊断轨单调下界。改法：`observe_round` 给 evaluator 方面记**稳定证据绑定**（标签里的路径/类名 token 命中本轮证据就绑那几条，否则绑该轮全部证据——那就是 evaluate 当时据以判断的集合），`build_matrix` 改按"绑定证据 ∩ 当前证据集"算 `present_now`，`current_round` 参数随之删除。绑定偏粗是诚实的代价：`EvaluateOutput` 里没有 aspect→evidence 的自报字段，加它要动 LLM 契约（D6 边界，不在 T24）。补了端到端红测：证据不变 + 末轮撤回自报 → 仍交付 partial。
+- **发现3（P1）：限定词一变，跨轨身份就失效。** 被挤出的 RagService 若被末轮报成"RagService 生产源码"，终态会同时出现原始缺失项与"前几轮已取得、被容量挤出"的三态说明——一句说没有、一句说取得过。根因是 T23 只做归一化全等比较，传两轨标签也建立不了身份。改法：`bound_required_ids` 用 T22 的路径/符号 matcher 建立跨轨目标身份，唯一绑定到必需项的 LLM 缺口交给确定性说明。
+  - **收窄了一次**：我第一版把所有"绑定到有说明的必需项"的缺口都吸收掉，结果 T23 的 c10 用例立刻红了——`corpus_index`（证明文件已索引、只是没召回）这一类事实来源被连锅端。最终只吸收**被挤出**这一矛盾态；"从未取得"（两句同向、只是冗余）与"仍在证据集但未引用"（T23 会改写成"已出现在本次检索证据中"）继续走 T23，方法级细节和事实来源都保住。
+- **发现4（P2）：淘汰记录仍不能逐条回放。** 账本单轮可达 24 条，step summary 却按 `MAX_SUMMARY_ITEMS` 截成 8 条，而完整 AgentState 不落库——回放只能看到前 8 条。改法：summary 按 `MAX_ELIMINATION_RECORDS` 落盘，并补两处测试：recorder 层 12 条、`_step_output_summary` 持久化映射 12 条（既有集成测试已证明 `output_summary` 原样落库回放）。**未做**的部分如实写在偏差记录里：没有另造 >12 chunk 的真实语料去跑端到端 21 条淘汰的 replay。
+- **发现5（P2）：契约版本。** `evidence_eliminations` 是新增 state 字段，按《P1版本标识》"状态字段改变即递增"应升版——`AGENT_STATE_SCHEMA_VERSION` v6→**v7**，版本断言同步。Prompt 未动，`PROMPT_VERSION` 仍 p1.5-agent-v4。
+- `make ci`（ruff/pyright 0、pytest 550）、`make eval-ci`（65+19）全绿；跨 5 个 PYTHONHASHSEED 一致。**T24.1/T24.2 仍不勾选，待第三轮复审。** 证据 commit：本提交。

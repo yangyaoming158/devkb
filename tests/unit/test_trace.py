@@ -12,7 +12,7 @@ import pytest
 from devkb.agent.graph import run_agent
 from devkb.agent.nodes import AgentRuntime
 from devkb.agent.state import AgentInput, Evidence
-from devkb.agent.trace import TraceRecorder
+from devkb.agent.trace import StepRecord, TraceRecorder
 from devkb.llm import FakeLLM
 
 PLAN = '{"intent":"knowledge_qa","queries":["库存扣减"]}'
@@ -183,3 +183,38 @@ async def test_recorder_none_keeps_graph_behaviour_unchanged() -> None:
     assert with_trace["llm_calls"] == without_trace["llm_calls"]
     # fake-llm 不在价目表：cost 不编造，聚合与单次记录均为 None
     assert with_trace["cost"] is None and without_trace["cost"] is None
+
+
+def test_persisted_step_summary_keeps_every_elimination_record() -> None:
+    """T24 二审发现4：step summary 是淘汰记录**唯一**的持久化载体（完整 AgentState 不落库），
+    落库映射不得再按 MAX_SUMMARY_ITEMS 截断，否则回放看不全。"""
+    from devkb.agent.service import _step_output_summary
+
+    record = StepRecord(
+        seq=1,
+        node="retrieve",
+        attempt=1,
+        status="ok",
+        input_summary={"queries": ["q"]},
+        output_summary={
+            "eliminated": [
+                {
+                    "chunk_id": str(uuid.UUID(int=index)),
+                    "rel_path": f"docs/f{index}.md",
+                    "aspect_ids": [],
+                    "reason": "capacity_limit",
+                }
+                for index in range(12)
+            ]
+        },
+        latency_ms=1,
+        error=None,
+        llm_requests=(),
+        tools=(),
+    )
+
+    persisted = _step_output_summary(record)
+
+    assert persisted is not None
+    assert len(persisted["eliminated"]) == 12
+    assert json.loads(json.dumps(persisted))["eliminated"][-1]["rel_path"] == "docs/f11.md"

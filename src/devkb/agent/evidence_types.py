@@ -898,6 +898,36 @@ def _item_matches(item: RequiredEvidenceItem, rel_path: str) -> bool:
     return True  # type-only：类型已匹配即可
 
 
+def _item_matches_token(item: RequiredEvidenceItem, token: str) -> bool:
+    """token（缺口文本里的路径/符号）是否指向这条 required item。
+
+    type-only 项（既无 path 也无 symbol）没有具体身份，永不参与绑定——否则"生产源码"
+    这类泛化说法会把任意缺口都吸附过去。
+    """
+    if item.symbol is not None:
+        return token.rsplit("/", 1)[-1].rsplit(".", 1)[0] == item.symbol
+    if item.path is not None:
+        return path_matches_token(item.path, token)
+    return False
+
+
+def bound_required_ids(required: RequiredEvidence, text: str) -> tuple[str, ...]:
+    """文本里的路径/符号 token 指向哪些 required item（与覆盖 matcher 同一身份口径）。
+
+    T24 二审发现3 用它做**跨轨目标身份**：LLM 把"RagService 生产源码"报成缺口时，
+    仅靠归一化全等比较无法与确定性轨的 ``RagService`` 对上（限定词一变就失效），
+    于是同一方面会既出现原始缺失项、又出现确定性三态说明，自相矛盾。
+    """
+    tokens = [*iter_path_tokens(text), *iter_symbol_tokens(text)]
+    if not tokens:
+        return ()
+    return tuple(
+        item.item_id
+        for item in required.items
+        if any(_item_matches_token(item, token) for token in tokens)
+    )
+
+
 def matching_item_ids(required: RequiredEvidence, rel_path: str) -> tuple[str, ...]:
     """该路径直接命中的 required item_id（与 ``compute_coverage`` 同一 matcher）。
 

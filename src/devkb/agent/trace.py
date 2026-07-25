@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Literal
 
+from devkb.agent.aspects import MAX_ELIMINATION_RECORDS
+
 MAX_SUMMARY_ITEMS = 8
 MAX_SUMMARY_CHARS = 200
 
@@ -227,7 +229,9 @@ def summarize_output(node: str, updates: dict[str, Any]) -> dict[str, Any]:
                     "aspect_ids": list(record.aspect_ids)[:MAX_SUMMARY_ITEMS],
                     "reason": record.reason,
                 }
-                for record in eliminated[:MAX_SUMMARY_ITEMS]
+                # 按账本硬上限落盘（不是 MAX_SUMMARY_ITEMS）：step summary 是唯一持久化
+                # 载体，截成 8 条会让"逐条回放淘汰原因"不成立（T24 二审发现4）
+                for record in eliminated[:MAX_ELIMINATION_RECORDS]
             ]
         return summary
     if node == "evaluate":
