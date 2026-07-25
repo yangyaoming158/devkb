@@ -66,22 +66,36 @@ def _merge_unique(*groups: list[str]) -> list[str]:
     return list(dict.fromkeys(item for group in groups for item in group))
 
 
+def _merge_citations(*groups: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """按 evidence_id 去重合并引用账本，保持出现顺序（确定性）。"""
+    return list(dict.fromkeys(item for group in groups for item in group))
+
+
 _EVIDENCE_MARK = re.compile(r"\[E\d+\]")
 
 
 def required_evidence_tail(
     required: RequiredEvidence,
-    cited: list[tuple[str, str]],
+    support_citations: list[tuple[str, str]],
+    visible_citations: list[tuple[str, str]],
 ) -> tuple[list[str], list[str], bool]:
     """确定性必需证据收尾（所有 finalize 分支共用）→ (not_found 追加项, warnings, 满足)。
 
     第五轮复审发现5：unresolved/未覆盖说明只写在"无 claim 被移除"的一条分支里，
     draft is None / generate_failed / 有 claim 被移除时都会静默丢失。故收敛为公共收尾：
     任何终态都按同一口径披露"必需证据未取得 / 约束无法定位 / 引用了被禁止的类型"。
+
+    **两套引用账本（第六轮复审 P1）**：
+
+    - ``support_citations``——保留 claim 申报的 evidence，只有它能满足必需证据；正文
+      裸标记不得反过来充当支撑（否则 [E#] 就能凭空满足点名要求）。
+    - ``visible_citations``——最终交付给用户的全部引用（正文过 L0 后仍保留的 [E#]
+      ∪ claim 支撑）。禁止引用类型按这一套判：正文引用了被禁类型即违规，即便 claim
+      没申报它——L0/L1 只校验标记存在与引文忠实，不要求正文标记出现在 claim 中。
     """
-    coverage = compute_coverage(required, cited)
+    coverage = compute_coverage(required, support_citations)
     uncovered = uncovered_items(required, coverage)
-    violations = forbidden_citation_hits(required, cited)
+    violations = forbidden_citation_hits(required, visible_citations)
     notes: list[str] = []
     warnings: list[str] = []
     if uncovered:
@@ -112,7 +126,7 @@ def required_evidence_tail(
             + ",".join(sorted({etype for _eid, _path, etype in violations}))
             + "）"
         )
-    return notes, warnings, required_satisfied(required, coverage, cited=cited)
+    return notes, warnings, required_satisfied(required, coverage, cited=visible_citations)
 
 
 def _rebuild_answer_from_claims(kept: list[ClaimOutput]) -> str:
@@ -568,6 +582,7 @@ class AgentNodes:
         warnings: list[str] = []
         kept: list[ClaimOutput] = []
         answer = ""
+        answer_marks: list[int] = []  # 正文过 L0 后仍保留的有效引用编号（可见引用账本）
         full_candidate = False
 
         if draft is None:
@@ -575,7 +590,11 @@ class AgentNodes:
             not_found = list(missing)
         elif state["generate_failed"]:
             mode = "partial" if state["evidences"] else "refusal"
-            answer = draft.answer_text
+            # 冻结默认值/上一稿正文同样过 L0：越界标记不得随降级路径漏出
+            answer, answer_marks, failed_l0_warnings = apply_l0(
+                draft.answer_text, len(state["evidences"])
+            )
+            warnings.extend(failed_l0_warnings)
             not_found = _merge_unique(draft.not_found, missing)
         else:
             failed = set(verification.failed_claims) if verification else set()
@@ -588,13 +607,15 @@ class AgentNodes:
                     f"finalize: 已移除 {removed} 个未通过验证的 claim，正文按保留 claim 重建"
                 )
                 # 重建后再过一次确定性 L0，作为越界标记的最终防线
-                answer, _, rebuild_l0_warnings = apply_l0(
+                answer, answer_marks, rebuild_l0_warnings = apply_l0(
                     _rebuild_answer_from_claims(kept), len(state["evidences"])
                 )
                 warnings.extend(rebuild_l0_warnings)
                 mode = "partial" if kept else "refusal"
             else:
-                answer, _, l0_warnings = apply_l0(draft.answer_text, len(state["evidences"]))
+                answer, answer_marks, l0_warnings = apply_l0(
+                    draft.answer_text, len(state["evidences"])
+                )
                 warnings.extend(l0_warnings)
                 verification_ok = verification is None or verification.passed
                 full_candidate = (
@@ -609,16 +630,27 @@ class AgentNodes:
                     warnings.append("finalize: 充分判定但无结构化 claim，降级 partial")
 
         # T22 full 硬约束（结构性 fail-closed）：逐项确定性覆盖——每条已解析必需证据都须有
-        # 匹配的直接引用，且无 unresolved 约束（解析器漏检/部分解析绝不 full），且没有引用
-        # 用户禁止直接引用的类型。测试/设计/历史材料因类型不同无法替代必需生产证据。
+        # 匹配的**保留 claim** 直接引用，且无 unresolved 约束（解析器漏检/部分解析绝不
+        # full），且**最终可见引用**里没有用户禁止直接引用的类型（正文裸标记也算可见引用，
+        # 六审 P1）。测试/设计/历史材料因类型不同无法替代必需生产证据。
         evidence_by_id = {ev.evidence_id: ev for ev in state["evidences"]}
-        cited = [
+        support_citations = [
             (evidence_id, evidence_by_id[evidence_id].rel_path)
             for claim in kept
             for evidence_id in claim.evidence_ids
             if evidence_id in evidence_by_id
         ]
-        required_notes, required_warnings, satisfied = required_evidence_tail(required, cited)
+        visible_citations = _merge_citations(
+            support_citations,
+            [
+                (f"E{num}", evidence_by_id[f"E{num}"].rel_path)
+                for num in answer_marks
+                if f"E{num}" in evidence_by_id
+            ],
+        )
+        required_notes, required_warnings, satisfied = required_evidence_tail(
+            required, support_citations, visible_citations
+        )
         not_found = _merge_unique(not_found, required_notes)
         warnings.extend(required_warnings)
         if full_candidate and satisfied:

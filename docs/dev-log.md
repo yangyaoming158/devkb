@@ -898,3 +898,12 @@
 - **纪律**：先红后绿——10 条图级反例（§五.B：残余目标、c08 三引用、c02 核验句、README 身份、OrderTest 生产语境、生产文件冒充历史计划、禁止引用、claim 移除分支、generate 失败分支、零证据 refusal 分支）在 3e18503 上 **10/10 失败**、修复后 10/10 通过（`git stash push -- src/` 逐条验证）；解析/分类/不变量层另加约 30 条（含账本不变量：多一个无法定位目标必多一条 unresolved、追加非目标尾语不改变结果、枚举 N 项至少结算 N 条）与 5 条自然问法反例。`PROMPT_VERSION` p1.5-agent-v2→v3（GENERATE_SYSTEM 增禁止引用类型指令）、`AGENT_STATE_SCHEMA_VERSION`→v4（RequiredEvidence 增字段），快照 SHA → `6c838462…`。`make ci`（ruff/pyright 0、pytest 434）、`make eval-ci`（65+19）全绿；P0/P1 兼容；跨 5 个 `PYTHONHASHSEED` 的 items+unresolved+两类禁止清单完全一致。复审提到的两个图级测试超时未能复现（本机 `tests/unit/test_agent_graph.py` 22 项 0.58s，最慢单项 0.02s）。
 - 口径取舍：README 的 full 触发条件表暂不改（T32.1 才是 README/文档口径任务，且 T22 未验收、契约可能再变），本轮不写入未验收能力。
 - 勾选纪律：T22.1/T22.2/T22.3 **仍全部不勾选**，待第六轮独立复审确认。证据 commit：本提交。
+
+## 2026-07-25 · P1.5 T22 双引用账本（第六轮复审 P1：正文引用绕过禁引硬门）
+
+- 第六轮复审确认五审整改基本合格（T22.1/T22.3 可验收），但抓到一处仍能稳定错误 full 的账本不一致：`finalize` 把 `apply_l0` 的第二个返回值（正文中有效的引用编号）丢掉了，禁引检查只看保留 claim 的 `evidence_ids`；而 `verification.l0_errors` 只校验正文 `[E#]` 存在性，**不要求正文标记同时出现在 claim 中**。于是"正文引 [E1][E2]、claim 只申报 E1"时：verification 通过、最终答案带着被禁的设计文档 `[E2]` 交付、`final_mode=full`、连告警都没有。我先按复审给的场景跑出这个输出（full / `[E2]` 保留 / warnings 只有两条 LLM 诊断），确认不是纸面问题。
+- 根因归纳：**一个"引用"概念被当成两件事用**。支撑账本（claim 申报、用于证明必需证据）与可见账本（正文最终保留的标记、用户真正看到的引用）语义不同，混用哪一套都会漏：只用 claim → 正文可绕过禁引；只用正文 → 裸标记能反过来"满足"点名要求。
+- 最小整改（不动解析器，只修收尾层）：`required_evidence_tail(required, support_citations, visible_citations)` 明确拆两参——`compute_coverage`/`uncovered_items` 只吃 support，`forbidden_citation_hits` 与 `required_satisfied` 吃 visible（= support ∪ 正文过 L0 后仍保留的 `[E#]`）。顺带把 `generate_failed` 分支缺的 `apply_l0` 补上：该分支此前直接交付 `draft.answer_text`，越界标记会沿降级路径漏出（默认值文案无标记所以没暴露，但属同一账本纪律）。
+- 红测：①图级"正文含 E2、claim 仅 E1"→ 必须 partial + `finalize: 引用了被禁止的证据类型` + 用户可见说明；②图级反向守卫"正文标记不得替 claim 覆盖必需项"；③两条 `required_evidence_tail` 单元测试直接锁两套账本语义。①③在 3576bf0 上确认失败、修复后全绿；②在修复前后都绿（它锁的是不能被"顺手改松"的方向）。
+- `PROMPT_VERSION`/`AGENT_STATE_SCHEMA_VERSION` 不变（无 Prompt、无 state 形状变化，只是收尾判定口径）。`make ci`（ruff/pyright 0、pytest 438）、`make eval-ci`（65+19）全绿。
+- 勾选：按第六轮复审裁定勾选 T22.1 与 T22.3；**T22.2 仍不勾选**——它的唯一阻塞项已修并有红测，但复审给的口径是"修完并跑全套 CI 后 T22 应可进入最终验收"，最终验收权在用户/复审，不由我自认。

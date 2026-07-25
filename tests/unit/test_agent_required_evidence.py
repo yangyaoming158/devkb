@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import uuid
 
+from devkb.agent.evidence_types import parse_required_evidence
 from devkb.agent.graph import run_agent
-from devkb.agent.nodes import AgentRuntime
+from devkb.agent.nodes import AgentRuntime, required_evidence_tail
 from devkb.agent.state import AgentInput, AgentState, Evidence
 from devkb.llm import FakeLLM
 
@@ -329,6 +330,75 @@ async def test_gB7_forbidden_citation_type_blocks_full_and_warns() -> None:
     assert result["required_evidence"].forbidden_citation_types == ("design_doc",)
     assert result["final_mode"] == "partial"
     assert any("被禁止的证据类型" in w for w in result["warnings"])
+
+
+async def test_gB7a_answer_text_only_citation_of_forbidden_type_blocks_full() -> None:
+    # 六审 P1：L0/L1 不要求正文 [E#] 出现在 claim 中——正文引用被禁类型、claim 只申报
+    # 生产源码时，禁引硬门此前被绕过（verification 通过 → full，正文仍带 [E2]）
+    gen_visible_only = (
+        '{"answer_text":"订单校验由 owner 过滤保护 [E1]。另见设计文档 [E2]。",'
+        '"claims":[{"text":"订单校验由 owner 过滤保护","evidence_ids":["E1"],'
+        f'"quotes":["{_CONTENT}"]}}],"not_found":[]}}'
+    )
+    result = await run_agent(
+        _runtime_multi(
+            [PLAN, EVAL_OK, gen_visible_only],
+            ["backend/src/main/java/Foo.java", "docs/design/hybrid-search.md"],
+        ),
+        _input("不要引用设计文档，只引用生产源码。"),
+    )
+    assert result["verification"] is not None and result["verification"].passed
+    assert "[E2]" in (result["final_answer"] or "")  # 正文确实把被禁证据交付给用户
+    assert result["final_mode"] == "partial"
+    assert any("被禁止的证据类型" in w for w in result["warnings"])
+    assert any("不引用的证据类型被引用" in item for item in result["final_not_found"])
+
+
+async def test_gB7b_answer_text_only_citation_cannot_satisfy_required_item() -> None:
+    # 两套账本的另一半：可见引用只用于禁引判定，**不得**反过来满足必需证据——
+    # claim 只申报无关生产文件时，正文里的 [E2] 不能替它覆盖点名的 OrderService
+    gen_visible_only = (
+        '{"answer_text":"订单校验由 owner 过滤保护 [E1]。参见 [E2]。",'
+        '"claims":[{"text":"订单校验由 owner 过滤保护","evidence_ids":["E1"],'
+        f'"quotes":["{_CONTENT}"]}}],"not_found":[]}}'
+    )
+    result = await run_agent(
+        _runtime_multi(
+            [PLAN, EVAL_OK, gen_visible_only],
+            [
+                "backend/src/main/java/other/Other.java",
+                "backend/src/main/java/svc/OrderService.java",
+            ],
+        ),
+        _input(_NAMED_Q),
+    )
+    assert result["final_mode"] == "partial"
+    assert any("必需证据未覆盖" in w for w in result["warnings"])
+
+
+def test_required_evidence_tail_separates_support_and_visible_ledgers() -> None:
+    # 单元级锁定：覆盖只认 support，禁引只认 visible
+    required = parse_required_evidence("不要引用设计文档，只引用生产源码。")
+    support = [("E1", "backend/src/main/java/Foo.java")]
+    visible = [*support, ("E2", "docs/design/hybrid-search.md")]
+
+    _notes, _warnings, satisfied_support_only = required_evidence_tail(required, support, support)
+    assert satisfied_support_only is True
+
+    notes, warnings, satisfied = required_evidence_tail(required, support, visible)
+    assert satisfied is False
+    assert any("不引用的证据类型被引用" in note for note in notes)
+    assert any("被禁止的证据类型" in w for w in warnings)
+
+
+def test_required_evidence_tail_visible_marks_do_not_cover_required() -> None:
+    required = parse_required_evidence(_NAMED_Q)
+    support = [("E1", "backend/src/main/java/other/Other.java")]
+    visible = [*support, ("E2", "backend/src/main/java/svc/OrderService.java")]
+
+    notes, _warnings, satisfied = required_evidence_tail(required, support, visible)
+    assert satisfied is False
+    assert any("未取得用户要求的必需证据" in note for note in notes)
 
 
 async def test_gB8_unresolved_note_survives_claim_removal_branch() -> None:
