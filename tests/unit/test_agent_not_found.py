@@ -290,6 +290,73 @@ def test_deterministic_items_are_never_dropped_by_aspect_history() -> None:
     assert result.texts == (note,)
 
 
+def test_mixed_reason_item_is_split_into_one_reason_per_entry() -> None:
+    # 用户裁决（2026-07-25）：一条 not_found 只能有一个原因。LLM 把两类缺口合并成一句时
+    # 必须确定性拆分，否则会出现 category=unsupported 却 basis=corpus_index 的自相矛盾条目
+    corpus = CorpusProfile.from_paths(["backend/src/main/java/svc/DocumentService.java"])
+    result = _calibrate("当前证据未覆盖数据库迁移与 DocumentService 的删除实现", corpus=corpus)
+
+    assert len(result.details) == 2
+    by_category = {detail.category: detail for detail in result.details}
+    uningested = by_category["unsupported_or_not_ingested"]
+    assert uningested.basis == "static_suffix_rule"
+    assert uningested.refs == (".sql",)
+    assert "DocumentService" not in uningested.text
+    indexed = by_category["missing_from_current_evidence"]
+    assert indexed.basis == "corpus_index"
+    assert indexed.refs == ("backend/src/main/java/svc/DocumentService.java",)
+    assert ".sql" not in indexed.text
+    # 两条都留原始合并文本，便于事后审计"它们来自同一句"
+    for detail in result.details:
+        assert detail.original_text == "当前证据未覆盖数据库迁移与 DocumentService 的删除实现"
+
+
+@pytest.mark.parametrize(
+    ("text", "evidence", "indexed"),
+    [
+        (
+            "未找到 V1__init_schema.sql 与 DocumentService 的删除实现",
+            (),
+            ("svc/DocumentService.java",),
+        ),
+        ("未找到 RagService 与前端 Vue 组件的渲染逻辑", ("svc/RagService.java",), ()),
+        (
+            "缺少迁移文件、DocumentService 与 README 的说明",
+            ("README.md",),
+            ("svc/DocumentService.java",),
+        ),
+        ("未找到 OrderService.java 与 PaymentService 的实现", (), ()),
+        ("当前证据未覆盖事务边界", (), ()),
+    ],
+)
+def test_every_detail_is_internally_consistent(
+    text: str, evidence: tuple[str, ...], indexed: tuple[str, ...]
+) -> None:
+    # 结构不变量：category 与 basis/refs 必须自洽——未摄取类只能由后缀规则得出且
+    # refs 是后缀；证据/索引类只能是当前证据缺口且 refs 是路径
+    result = _calibrate(
+        text,
+        evidence_paths=evidence,
+        corpus=CorpusProfile.from_paths(indexed) if indexed else CorpusProfile.unknown(),
+    )
+    for detail in result.details:
+        if detail.category == "unsupported_or_not_ingested":
+            assert detail.basis == "static_suffix_rule"
+            assert all(ref.startswith(".") for ref in detail.refs)
+        else:
+            assert detail.category == "missing_from_current_evidence"
+            assert detail.basis != "static_suffix_rule"
+            assert all(not ref.startswith(".") or "/" in ref for ref in detail.refs)
+
+
+def test_single_reason_item_is_not_split() -> None:
+    # 不得过度拆分：同类目标合并成一句时仍是一条（文本原样保留）
+    result = _calibrate("未找到 OrderService 与 PaymentService 的生产实现")
+    assert len(result.details) == 1
+    assert result.details[0].text == "未找到 OrderService 与 PaymentService 的生产实现"
+    assert result.details[0].original_text is None
+
+
 def test_details_align_with_texts_and_deduplicate() -> None:
     result = calibrate_not_found(
         [

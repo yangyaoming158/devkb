@@ -933,3 +933,15 @@
 - **契约版本**：`PROMPT_VERSION` p1.5-agent-v3→**v4**（generate 增一条"not_found 只写当前证据范围、不得断言仓库不存在"的指令；确定性校准仍是最终防线，Prompt 只是少让它触发），快照 SHA→`96242198…`；`AGENT_STATE_SCHEMA_VERSION`→**v5**（state 增 3 字段）；`ANSWER_SCHEMA_VERSION` p1-answer-v1→**p1.5-answer-v2**（Answer JSON 加 `not_found_details`，纯加法）。
 - 测试：`tests/unit/test_agent_not_found.py` 36 条（分类矩阵、封闭词表边界、包名/隐藏文件、事实校验三态、改写 vs 追加、去重与对齐、`confirmed_undocumented` 永不产出）+ 图级 4 条 + 集成 2 条（真实 PG）。`make ci`（ruff/pyright 0、pytest 482）、`make eval-ci`（65+19）全绿；P0/P1 兼容回归未动。
 - 勾选：T23.1、T23.2 按判据逐条核对后勾选（自查复核，非独立复审；同 T22 收尾口径）。证据 commit：本提交。
+
+## 2026-07-25 · P1.5 T23 补强：目标级锚定裁决 + "一条一原因"确定性拆分
+
+- 用户在头提交上实跑 c03/e05/c10 后裁决：**采用目标级锚定**——问题里的封闭技术词先确定性绑定到对应 required-evidence 缺口再逐条分类，不得作为整题标签传播；无法绑定时保守归入当前证据缺口，不恢复整题级兜底。依据是规格 §5 只要求覆盖"未给路径"场景、并未要求题级传播，而 Evaluation-v1.5 §2 明确 `.sql` 必须是 `unsupported_or_not_ingested`、已索引 Java 必须是 `missing_from_current_evidence`。裁决原文已录入清单偏差记录。
+- 用户同时发现一个我没测到的独立边界：**LLM 把两类原因写成一句**时条目内部自相矛盾。先复现留证——"当前证据未覆盖数据库迁移与 DocumentService 的删除实现" → `category=unsupported_or_not_ingested` 却带 `basis=corpus_index` 和 Java 路径；根因是我把"分类"和"事实校验"当成可叠加的信号写在同一条上，而 `category` 只有一个槽位。
+- 修法（按用户要求：不许用恢复整题级兜底来绕）：
+  - 抽出 `_assess(segment, markers, …)`，**每段只结算一个原因**——优先级为 证据事实 > 索引事实 > 摄取范围 > 无从证明的强断言；`category`/`basis`/`refs` 由同一个分支一次性决定，结构上不可能再互相矛盾。
+  - 语句级标记（缺失词/仓库级否定/穷举量词）仍按整条计算后下发给每段：否则"未覆盖 A 与 B"里 B 段没有缺失词，索引事实就查不出来了。
+  - 一条语句出现多个原因即按连接词（以及/和/与/及/或/、/，/；）**确定性拆成多条**，每条挂各自的原因，`original_text` 都指回同一句原文以便审计"它们来自同一句"。无信号的残段并入第一组，不丢字。
+  - 三条防过度拆分的约束：括号内不拆（否则"（数据库迁移:X、生产源码:Y）"这种括注会被切碎、留下不配对括号）、确定性说明不拆（`required_evidence_tail` 已按类型逐条生成，本就一条一原因）、同类目标不拆（"未找到 OrderService 与 PaymentService 的生产实现"仍是一条、文本原样）。
+- 红测先行：`test_mixed_reason_item_is_split_into_one_reason_per_entry`（拆分正确性）、`test_every_detail_is_internally_consistent`（5 组参数化的 `category`↔`basis`↔`refs` 自洽不变量）、`test_single_reason_item_is_not_split`（不得过度拆分）——修复前 4/4 失败，修复后全绿。
+- `make ci`（ruff/pyright 0、pytest 489）、`make eval-ci`（65+19）全绿；未改 Prompt 与任何契约版本（`PROMPT_VERSION` 仍 p1.5-agent-v4、state v5、answer v2）。证据 commit：本提交。

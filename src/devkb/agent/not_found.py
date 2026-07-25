@@ -23,6 +23,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from functools import partial
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -145,6 +146,8 @@ _ABSENCE_MARKERS = (
     "未出现",
 )
 
+# 目标段连接词（与 T22 的目标切分同口径）：只用于"一条一原因"的确定性拆分
+_SEGMENT_TOKENS = ("以及", "和", "与", "及", "或", "、", "，", ",", "；", ";")
 _PUNCT_STRIP = re.compile(r"[\s。．.，,；;：:、！!？?（）()【】\[\]\"'`]+")
 _MAX_SUBJECT_CHARS = 60
 _ANCHOR_TRIM = " \t的了：:，,。、；;和与及或\n"
@@ -291,6 +294,147 @@ def _seen_paths(token: str, paths: Sequence[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(path for path in paths if path_matches_token(path, token)))
 
 
+@dataclass(frozen=True)
+class _Markers:
+    """整条缺口语句级别的否定/缺失标记；对其下每个目标段一律适用。"""
+
+    rewritable: bool
+    has_absence: bool
+    has_repo_negation: bool
+    exhaustive: bool
+
+
+@dataclass(frozen=True)
+class _Assessment:
+    """一个目标段的确定性结论：**恰好一个原因**（category + basis + refs）。"""
+
+    segment: str
+    category: NotFoundCategory
+    basis: FactCheckBasis
+    refs: tuple[str, ...]
+    clauses: tuple[str, ...]
+    replace: bool
+    uningested: tuple[str, ...]
+    weakened: bool
+    has_signal: bool
+
+    @property
+    def reason(self) -> tuple[NotFoundCategory, FactCheckBasis]:
+        return (self.category, self.basis)
+
+    def render(self, text: str) -> str:
+        if not self.clauses:
+            return text
+        if self.replace:
+            return f"{_subject(text, ())}：" + "；".join(self.clauses)
+        return f"{text}（{'；'.join(self.clauses)}）"
+
+
+def _assess(
+    segment: str,
+    markers: _Markers,
+    *,
+    evidence_paths: Sequence[str],
+    corpus: CorpusProfile,
+) -> _Assessment:
+    """对单个目标段做分类 + 事实校验；只产出一个原因。"""
+    tokens = [*iter_path_tokens(segment), *iter_symbol_tokens(segment)]
+    in_evidence: list[str] = []
+    in_index: list[str] = []
+    for token in tokens:
+        seen = _seen_paths(token, evidence_paths)
+        indexed = corpus.matching_paths(token) if corpus.known else ()
+        in_evidence.extend(seen)
+        in_index.extend(path for path in indexed if path not in seen)
+    in_evidence = list(dict.fromkeys(in_evidence))
+    in_index = list(dict.fromkeys(in_index))
+
+    uningested = _uningested_signals(segment, corpus)
+    clauses: list[str] = []
+    category: NotFoundCategory = "missing_from_current_evidence"
+    basis: FactCheckBasis = "no_conflict_found"
+    refs: tuple[str, ...] = ()
+    weakened = False
+
+    # 优先级即"这一段的原因是什么"：证据事实 > 索引事实 > 摄取范围 > 无从证明的强断言。
+    # 一段只取一个，混合原因由调用方拆成多条（用户裁决 2026-07-25：一条一原因）。
+    if markers.rewritable and markers.has_absence and in_evidence:
+        clauses.append(
+            f"该目标已出现在本次检索证据中（{'、'.join(in_evidence[:3])}），"
+            "属当前证据未展开的部分；当前证据不足以支撑该方面的完整结论"
+        )
+        basis = "evidence_history"
+        refs = tuple(in_evidence[:3])
+    elif markers.rewritable and markers.has_absence and in_index:
+        clauses.append(
+            f"该路径已在当前项目索引中（{'、'.join(in_index[:3])}，状态 active），"
+            "本轮未被召回，属当前证据缺口"
+        )
+        basis = "corpus_index"
+        refs = tuple(in_index[:3])
+    elif uningested:
+        clauses.append(
+            f"{'、'.join(uningested)} 不在当前摄取范围、未纳入本项目索引，"
+            "因此当前证据中不会出现；无法据此确认仓库是否包含此类文件"
+        )
+        category = "unsupported_or_not_ingested"
+        basis = "static_suffix_rule"
+        refs = uningested
+    elif markers.rewritable and markers.has_repo_negation:
+        clauses.append(
+            ("当前证据不足以穷举确认" if markers.exhaustive else "当前证据不足以确认该结论")
+            + "；是否在仓库中存在需仓库级核验，P1.5 不做此判定"
+        )
+        basis = "unverifiable_assertion"
+        weakened = True
+
+    return _Assessment(
+        segment=segment,
+        category=category,
+        basis=basis,
+        refs=refs,
+        clauses=tuple(clauses),
+        # Gate 要求已召回/已索引路径不得被写成"未找到/不存在"，故这两类与仓库级否定
+        # 整条改写（主语用去标记后的方面名）；格式未摄取原文成立，只追加披露。
+        replace=markers.rewritable
+        and (bool(markers.has_absence and (in_evidence or in_index)) or markers.has_repo_negation),
+        uningested=uningested,
+        weakened=weakened,
+        has_signal=bool(in_evidence or in_index or uningested or tokens),
+    )
+
+
+def _split_segments(text: str) -> list[str]:
+    """按连接词把一条缺口语句拆成目标段（确定性、只拆不改字）。
+
+    括号内不切：确定性说明与 LLM 的括注里常有"（数据库迁移:X、生产源码:Y）"这类
+    枚举，在括号内切会切碎原文并留下不配对的括号。
+    """
+    segments: list[str] = []
+    buffer: list[str] = []
+    depth = 0
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char in "（(【[":
+            depth += 1
+        elif char in "）)】]":
+            depth = max(0, depth - 1)
+        matched = next(
+            (token for token in _SEGMENT_TOKENS if depth == 0 and text.startswith(token, index)),
+            None,
+        )
+        if matched is not None:
+            segments.append("".join(buffer))
+            buffer = []
+            index += len(matched)
+            continue
+        buffer.append(char)
+        index += 1
+    segments.append("".join(buffer))
+    return [segment for segment in segments if segment.strip()]
+
+
 def calibrate_not_found(
     items: Sequence[NotFoundInput],
     *,
@@ -321,102 +465,56 @@ def calibrate_not_found(
             dropped.append(raw)
             continue
 
-        tokens = [*iter_path_tokens(raw), *iter_symbol_tokens(raw)]
-        rewritable = item.source != "deterministic"
         has_absence = any(marker in raw for marker in (*_ABSENCE_MARKERS, *_REPO_LEVEL_NEGATION))
         exhaustive = any(q in raw for q in _EXHAUSTIVE_QUANTIFIERS) and (
             has_absence or any(n in raw for n in _SOFT_NEGATION)
         )
-        # 全局否定 = 仓库级断言：无 inventory 时同样只能降级（"未找到任何其他 Controller"）
-        has_repo_negation = exhaustive or any(marker in raw for marker in _REPO_LEVEL_NEGATION)
-
-        in_evidence: list[str] = []
-        in_index: list[str] = []
-        matched_tokens: list[str] = []
-        for token in tokens:
-            seen = _seen_paths(token, evidence_paths)
-            indexed = corpus.matching_paths(token) if corpus.known else ()
-            if seen or indexed:
-                matched_tokens.append(token)
-            in_evidence.extend(seen)
-            in_index.extend(path for path in indexed if path not in seen)
-        in_evidence = list(dict.fromkeys(in_evidence))
-        in_index = list(dict.fromkeys(in_index))
-
-        uningested = _uningested_signals(raw, corpus)
-        category: NotFoundCategory = (
-            "unsupported_or_not_ingested" if uningested else "missing_from_current_evidence"
+        markers = _Markers(
+            rewritable=item.source != "deterministic",
+            has_absence=has_absence,
+            exhaustive=exhaustive,
+            # 全局否定 = 仓库级断言：无 inventory 同样只能降级（"未找到任何其他 Controller"）
+            has_repo_negation=exhaustive or any(marker in raw for marker in _REPO_LEVEL_NEGATION),
         )
+        assess = partial(_assess, markers=markers, evidence_paths=evidence_paths, corpus=corpus)
 
-        clauses: list[str] = []
-        basis: FactCheckBasis = "no_conflict_found"
-        refs: tuple[str, ...] = ()
-        if rewritable and has_absence and in_evidence:
-            clauses.append(
-                f"该目标已出现在本次检索证据中（{'、'.join(in_evidence[:3])}），"
-                "属当前证据未展开的部分；当前证据不足以支撑该方面的完整结论"
-            )
-            basis = "evidence_history"
-            refs = tuple(in_evidence[:3])
-        elif rewritable and has_absence and in_index:
-            clauses.append(
-                f"该路径已在当前项目索引中（{'、'.join(in_index[:3])}，状态 active），"
-                "本轮未被召回，属当前证据缺口"
-            )
-            basis = "corpus_index"
-            refs = tuple(in_index[:3])
-        if uningested:
-            uningested_all.update(uningested)
-            clauses.append(
-                f"{'、'.join(uningested)} 不在当前摄取范围、未纳入本项目索引，"
-                "因此当前证据中不会出现；无法据此确认仓库是否包含此类文件"
-            )
-            if basis == "no_conflict_found":
-                basis = "static_suffix_rule"
-                refs = uningested
-        if (
-            rewritable
-            and has_repo_negation
-            and basis in ("no_conflict_found", "static_suffix_rule")
-        ):
-            # 仓库级否定断言在 P1.5 一律无法证明（无 inventory）：降级为条件式
-            clauses.append(
-                ("当前证据不足以穷举确认" if exhaustive else "当前证据不足以确认该结论")
-                + "；是否在仓库中存在需仓库级核验，P1.5 不做此判定"
-            )
-            weakened += 1
-            if basis == "no_conflict_found":
-                basis = "unverifiable_assertion"
-
-        # 改写口径：**本轮证据里出现过、或被仓库级否定断言点到的条目整条改写**——
-        # Gate 明确要求已召回/已索引路径不得被写成"未找到/不存在"，故这两类的缺失字样
-        # 必须消失（主语用去标记后的方面名，保住"哪个方法/字段"）。其余（已索引未召回、
-        # 格式未摄取）原文成立，只追加确定性说明。
-        replace = rewritable and (
-            bool(has_absence and (in_evidence or in_index)) or has_repo_negation
+        # 一条 not_found 只能有一个原因：LLM 把两类缺口写成一句（"未覆盖数据库迁移与
+        # DocumentService 的删除实现"）时确定性拆分，否则会出现 category 与 basis 互相
+        # 矛盾的条目（用户裁决 2026-07-25）。同类目标合并成一句时不拆，原文照旧。
+        # 确定性条目由 required_evidence_tail 逐类型生成，本就一条一原因；不拆分它，
+        # 免得把自己格式化好的说明切碎（括号/分号结构会被破坏）
+        segments = (
+            [assess(segment) for segment in _split_segments(raw)] if markers.rewritable else []
         )
-        if clauses and replace:
-            text = f"{_subject(raw, matched_tokens or tokens)}：" + "；".join(clauses)
-            original: str | None = raw
-        elif clauses:
-            text = f"{raw}（{'；'.join(clauses)}）"
-            original = raw
+        signals = [segment for segment in segments if segment.has_signal]
+        reasons = list(dict.fromkeys(segment.reason for segment in signals))
+        if len(reasons) <= 1:
+            groups: list[tuple[_Assessment, str]] = [(assess(raw), raw)]
         else:
-            text = raw
-            original = None
-        if text in texts:
-            continue
-        texts.append(text)
-        details.append(
-            NotFoundDetail(
-                text=text,
-                category=category,
-                source=item.source,
-                basis=basis,
-                refs=refs,
-                original_text=original,
+            residual = "".join(seg.segment for seg in segments if not seg.has_signal).strip()
+            groups = []
+            for index, reason in enumerate(reasons):
+                members = [segment for segment in signals if segment.reason == reason]
+                text = "、".join(member.segment.strip() for member in members)
+                groups.append((members[0], f"{text}{residual}" if index == 0 else text))
+
+        for assessment, segment_text in groups:
+            text = assessment.render(segment_text)
+            if text in texts:
+                continue
+            uningested_all.update(assessment.uningested)
+            weakened += int(assessment.weakened)
+            texts.append(text)
+            details.append(
+                NotFoundDetail(
+                    text=text,
+                    category=assessment.category,
+                    source=item.source,
+                    basis=assessment.basis,
+                    refs=assessment.refs,
+                    original_text=raw if text != raw else None,
+                )
             )
-        )
 
     if dropped:
         warnings.append(
