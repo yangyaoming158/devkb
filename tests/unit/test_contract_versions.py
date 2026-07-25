@@ -13,9 +13,9 @@ from devkb.contracts import (
 )
 
 EXPECTED_VERSIONS = {
-    "prompt_version": "p1.5-agent-v3",
-    "agent_state_schema_version": "p1.5-agent-state-v4",
-    "answer_schema_version": "p1-answer-v1",
+    "prompt_version": "p1.5-agent-v4",
+    "agent_state_schema_version": "p1.5-agent-state-v5",
+    "answer_schema_version": "p1.5-answer-v2",
     "api_version": "p1-api-v1",
 }
 

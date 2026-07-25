@@ -14,7 +14,7 @@ from devkb.contracts import PROMPT_VERSION
 
 def test_prompt_snapshot_locks_version_security_and_output_contract() -> None:
     snapshot = prompt_snapshot()
-    assert snapshot["version"] == PROMPT_VERSION == "p1.5-agent-v3"
+    assert snapshot["version"] == PROMPT_VERSION == "p1.5-agent-v4"
     assert set(snapshot) == {"version", "plan", "evaluate", "refine", "generate"}
     for name in ("plan", "evaluate", "refine", "generate"):
         prompt = snapshot[name]
@@ -27,11 +27,13 @@ def test_prompt_snapshot_locks_version_security_and_output_contract() -> None:
     assert "required_evidence" in snapshot["plan"]
     assert "coverage" in snapshot["evaluate"]
     assert "required_evidence" in snapshot["generate"]
+    # T23：generate 的 not_found 只准写当前证据范围内的缺口（确定性校准仍是最终防线）
+    assert "不得断言仓库或项目中不存在某文件/实现" in snapshot["generate"]
 
     serialized = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     assert (
         hashlib.sha256(serialized.encode()).hexdigest()
-        == "6c83846230056d899b1706fe3291867f35eca13cc9e1484b21e676f4275bda09"
+        == "962421982a8d61a1c142e05a195258120154c09fa46f1f4b6cb6276ceae0cb60"
     )
 
 

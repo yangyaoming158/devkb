@@ -22,6 +22,7 @@ from devkb.agent.evidence_types import (
     RequiredEvidence,
     parse_required_evidence,
 )
+from devkb.agent.not_found import NotFoundDetail
 
 MAX_QUESTION_CHARS = 4000
 MAX_QUERY_CHARS = 4000
@@ -172,6 +173,10 @@ class AgentState(TypedDict):
     queries: list[str]
     retrieval_round: int
     evidences: list[Evidence]
+    # T23.2 事实校验的历史账本：**全部检索轮**出现过的证据路径 / 前轮已支持方面。
+    # 只增不减（reducer=operator.add），使"任一轮出现过的文件不得写成不存在"可判定。
+    evidence_path_history: Annotated[list[str], operator.add]
+    supported_aspect_history: Annotated[list[str], operator.add]
     evaluation: EvaluateOutput | None
     answer_draft: GenerateOutput | None
     verification: VerificationOutput | None
@@ -180,6 +185,7 @@ class AgentState(TypedDict):
     final_mode: FinalMode | None
     final_claims: list[ClaimOutput]
     final_not_found: list[str]
+    final_not_found_details: tuple[NotFoundDetail, ...]
     model: str
     status: Literal["running", "succeeded", "failed"]
     llm_calls: int
@@ -210,6 +216,8 @@ def initial_agent_state(agent_input: AgentInput) -> AgentState:
         queries=[],
         retrieval_round=0,
         evidences=[],
+        evidence_path_history=[],
+        supported_aspect_history=[],
         evaluation=None,
         answer_draft=None,
         verification=None,
@@ -218,6 +226,7 @@ def initial_agent_state(agent_input: AgentInput) -> AgentState:
         final_mode=None,
         final_claims=[],
         final_not_found=[],
+        final_not_found_details=(),
         model="",
         status="running",
         llm_calls=0,

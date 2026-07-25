@@ -17,12 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from devkb.agent.answer import build_answer
 from devkb.agent.graph import run_agent
 from devkb.agent.nodes import AgentRuntime, make_pg_retriever
+from devkb.agent.not_found import MAX_CORPUS_PATHS, CorpusProfile
 from devkb.agent.state import MAX_QUESTION_CHARS, AgentInput
 from devkb.agent.trace import StepRecord, TraceRecorder
 from devkb.embedding import Embedder
 from devkb.errors import InvalidInputError, NotFoundError
 from devkb.llm import LLMClient
-from devkb.repositories import AgentStepRepo, RunRepo, ToolInvocationRepo
+from devkb.repositories import AgentStepRepo, DocumentRepo, RunRepo, ToolInvocationRepo
 
 logger = structlog.get_logger(__name__)
 
@@ -150,9 +151,16 @@ async def agentic_answer_question(
     question = question.strip()
     if not question or len(question) > MAX_QUESTION_CHARS:
         raise InvalidInputError(f"问题须为 1..{MAX_QUESTION_CHARS} 字符（当前 {len(question)}）")
+    # 语料快照一次性取出（一条只读路径查询，有硬上限）：finalize 的 not_found 事实校验
+    # 需要"该路径当前是否 active"，但节点本身不做 I/O，故在图外解析后随 runtime 注入。
+    corpus = CorpusProfile.from_paths(
+        await DocumentRepo(session, project_id).list_active_rel_paths(MAX_CORPUS_PATHS),
+        limit=MAX_CORPUS_PATHS,
+    )
     runtime = AgentRuntime(
         llm=llm,
         retriever=make_pg_retriever(session, embedder, top_k=top_k),
+        corpus=corpus,
     )
     run_repo = RunRepo(session, project_id)
     run = await run_repo.create(question)

@@ -6,7 +6,7 @@ import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import ValidationError
@@ -21,6 +21,12 @@ from devkb.agent.evidence_types import (
     forbidden_citation_hits,
     required_satisfied,
     uncovered_items,
+)
+from devkb.agent.not_found import (
+    CorpusProfile,
+    NotFoundInput,
+    NotFoundSource,
+    calibrate_not_found,
 )
 from devkb.agent.state import (
     MAX_GENERATE_CALLS,
@@ -66,6 +72,23 @@ def _merge_unique(*groups: list[str]) -> list[str]:
     return list(dict.fromkeys(item for group in groups for item in group))
 
 
+def _not_found_items(texts: list[str], source: NotFoundSource) -> list[NotFoundInput]:
+    """带来源标签的缺口条目：来源决定是否可被事实校验改写（确定性条目不改写）。"""
+    return [NotFoundInput(text=text, source=source) for text in texts]
+
+
+def _draft_items(texts: list[str]) -> list[NotFoundInput]:
+    return _not_found_items(texts, "generate_draft")
+
+
+def _evaluator_items(texts: list[str]) -> list[NotFoundInput]:
+    return _not_found_items(texts, "evaluator_missing")
+
+
+def _deterministic_items(texts: list[str]) -> list[NotFoundInput]:
+    return _not_found_items(texts, "deterministic")
+
+
 def _merge_citations(*groups: list[tuple[str, str]]) -> list[tuple[str, str]]:
     """按 evidence_id 去重合并引用账本，保持出现顺序（确定性）。"""
     return list(dict.fromkeys(item for group in groups for item in group))
@@ -99,11 +122,17 @@ def required_evidence_tail(
     notes: list[str] = []
     warnings: list[str] = []
     if uncovered:
-        labels = "、".join(
-            f"{TYPE_LABELS[item.type]}:{item.symbol or item.path or item.anchor}"
-            for item in uncovered
-        )
-        notes.append(f"未取得用户要求的必需证据（{labels}）；测试/设计/历史材料不能替代")
+        # 按证据类型分组各出一条说明：混在一条里会让 T23 的缺口分类失去分辨率
+        # （"数据库迁移(.sql 未摄取)" 与 "生产源码(已索引未召回)" 必须能分开，c10）
+        by_type: dict[str, list[str]] = {}
+        for item in uncovered:
+            by_type.setdefault(item.type, []).append(
+                f"{TYPE_LABELS[item.type]}:{item.symbol or item.path or item.anchor}"
+            )
+        for labels in by_type.values():
+            notes.append(
+                f"未取得用户要求的必需证据（{'、'.join(labels)}）；测试/设计/历史材料不能替代"
+            )
         warnings.append(
             "finalize: 必需证据未覆盖（" + ",".join(item.item_id for item in uncovered) + "）"
         )
@@ -148,6 +177,9 @@ class AgentRuntime:
     llm: LLMClient
     retriever: Retriever
     max_evidences: int = MAX_FINAL_TOP_K
+    # 本项目已摄取语料快照（documents 表 active 路径）：T23 的 not_found 事实校验与
+    # 摄取覆盖判定用。默认 unknown = 未取得快照，与索引有关的判断一律 fail-closed。
+    corpus: CorpusProfile = field(default_factory=CorpusProfile.unknown)
 
     def __post_init__(self) -> None:
         if not 1 <= self.max_evidences <= MAX_FINAL_TOP_K:
@@ -416,6 +448,9 @@ class AgentNodes:
         return {
             "retrieval_round": state["retrieval_round"] + 1,
             "evidences": evidences,
+            # 本轮召回过的路径进历史账本（即便随后被截断/被后轮挤出）：T23.2 的
+            # "任一轮出现过的文件不得被写成不存在"必须看全轮历史，不能只看终态证据
+            "evidence_path_history": list(dict.fromkeys(item.rel_path for item in fresh)),
             "node_history": ["retrieve"],
         }
 
@@ -459,6 +494,8 @@ class AgentNodes:
             **call.updates,
             "evaluation": call.value,
             "coverage": coverage,
+            # 已支持方面进历史账本：后轮不得把前轮已支持的方面凭空升级为缺失（T23.2）
+            "supported_aspect_history": list(call.value.supported_aspects),
             "node_history": ["evaluate"],
             "warnings": warnings,
         }
@@ -587,7 +624,7 @@ class AgentNodes:
 
         if draft is None:
             mode: FinalMode = "refusal"
-            not_found = list(missing)
+            raw_not_found = _evaluator_items(missing)
         elif state["generate_failed"]:
             mode = "partial" if state["evidences"] else "refusal"
             # 冻结默认值/上一稿正文同样过 L0：越界标记不得随降级路径漏出
@@ -595,12 +632,12 @@ class AgentNodes:
                 draft.answer_text, len(state["evidences"])
             )
             warnings.extend(failed_l0_warnings)
-            not_found = _merge_unique(draft.not_found, missing)
+            raw_not_found = _draft_items(draft.not_found) + _evaluator_items(missing)
         else:
             failed = set(verification.failed_claims) if verification else set()
             kept = [claim for index, claim in enumerate(draft.claims) if index not in failed]
             removed = len(draft.claims) - len(kept)
-            not_found = _merge_unique(draft.not_found, missing)
+            raw_not_found = _draft_items(draft.not_found) + _evaluator_items(missing)
             if removed:
                 # 不可信 claim 的正文与其 [E#] 标记不得残留：正文按保留 claim 确定性重建
                 warnings.append(
@@ -651,10 +688,20 @@ class AgentNodes:
         required_notes, required_warnings, satisfied = required_evidence_tail(
             required, support_citations, visible_citations
         )
-        not_found = _merge_unique(not_found, required_notes)
         warnings.extend(required_warnings)
         if full_candidate and satisfied:
             mode = "full"
+
+        # T23 确定性收尾：四分类 + 全轮历史事实校验（只读结构化状态，零 LLM 调用）。
+        # 必须在 refusal 文案生成之前——拒答正文由校准后的缺口清单确定性拼出。
+        calibration = calibrate_not_found(
+            [*raw_not_found, *_deterministic_items(required_notes)],
+            evidence_paths=state["evidence_path_history"],
+            corpus=self._runtime.corpus,
+            supported_aspects_history=state["supported_aspect_history"],
+        )
+        not_found = list(calibration.texts)
+        warnings.extend(calibration.warnings)
 
         if mode == "refusal":
             answer = _refusal_text(not_found)
@@ -664,6 +711,7 @@ class AgentNodes:
             "final_mode": mode,
             "final_claims": kept,
             "final_not_found": not_found if mode != "full" else [],
+            "final_not_found_details": calibration.details if mode != "full" else (),
             "status": "succeeded",
             "node_history": ["finalize"],
             "warnings": warnings,

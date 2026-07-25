@@ -379,3 +379,45 @@ async def test_database_error_before_persistence_marks_run_failed(
     runs = await RunRepo(session, project_id).list_recent(5)
     assert runs and runs[0].status == "failed"
     assert runs[0].answer is not None and "SQLAlchemyError" in runs[0].answer["error"]
+
+
+GEN_FALSE_MISSING = (
+    '{"answer_text":"库存并发由行锁保证 [E1]。","claims":[{"text":"库存并发由行锁保证",'
+    '"evidence_ids":["E1"],"quotes":[]}],'
+    '"not_found":["源码中不存在 table.md 的说明","缺少 V1__init_schema.sql 的建表语句"]}'
+)
+
+
+async def test_agentic_answer_classifies_not_found_against_real_corpus_snapshot(
+    session: AsyncSession,
+) -> None:
+    # T23：service 必须把 documents 表快照注入 runtime——否则 finalize 无法区分
+    # "已索引但本轮未召回"与"格式未摄取"，分类退化成一律 missing
+    project_id = await _seeded_project(session)
+    eval_partial = (
+        '{"sufficiency":"partial","supported_aspects":["库存"],"missing_aspects":["表格说明"]}'
+    )
+    refine = '{"queries":["表格 说明"]}'
+    llm = FakeLLM(
+        [PLAN, eval_partial, refine, eval_partial, GEN_FALSE_MISSING], model="deepseek-v4-flash"
+    )
+
+    answer = await agentic_answer_question(
+        session, project_id, "库存怎么保证并发安全？", embedder=FakeEmbedder(), llm=llm, top_k=1
+    )
+
+    by_basis = {detail["basis"]: detail for detail in answer["not_found_details"]}
+    assert set(by_basis) >= {"corpus_index", "static_suffix_rule"}
+    indexed = by_basis["corpus_index"]
+    assert indexed["category"] == "missing_from_current_evidence"
+    assert indexed["refs"] == ["table.md"]
+    assert indexed["original_text"] == "源码中不存在 table.md 的说明"
+    assert "不存在" not in indexed["text"].replace("不代表仓库中不存在", "")
+    uningested = by_basis["static_suffix_rule"]
+    assert uningested["category"] == "unsupported_or_not_ingested"
+    assert uningested["refs"] == [".sql"]
+    # not_found 契约不变：仍是 list[str]，与 details 一一对应
+    assert answer["not_found"] == [d["text"] for d in answer["not_found_details"]]
+    run = await RunRepo(session, project_id).get(uuid.UUID(answer["run_id"]))
+    assert run is not None and run.answer is not None
+    assert run.answer["not_found_details"] == answer["not_found_details"]

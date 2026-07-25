@@ -6,9 +6,9 @@
 
 from __future__ import annotations
 
-PROMPT_VERSION = "p1.5-agent-v3"
-AGENT_STATE_SCHEMA_VERSION = "p1.5-agent-state-v4"
-ANSWER_SCHEMA_VERSION = "p1-answer-v1"
+PROMPT_VERSION = "p1.5-agent-v4"
+AGENT_STATE_SCHEMA_VERSION = "p1.5-agent-state-v5"
+ANSWER_SCHEMA_VERSION = "p1.5-answer-v2"
 API_VERSION = "p1-api-v1"
 
 

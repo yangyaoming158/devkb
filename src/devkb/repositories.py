@@ -144,6 +144,16 @@ class DocumentRepo:
         )
         return (await self._session.execute(stmt)).scalars().all()
 
+    async def list_active_rel_paths(self, limit: int) -> list[str]:
+        """active 文档路径快照（T23 not_found 事实校验用）；只取路径列且有硬上限。"""
+        stmt = (
+            select(Document.rel_path)
+            .where(Document.project_id == self._project_id, Document.status == "active")
+            .order_by(Document.rel_path)
+            .limit(limit)
+        )
+        return list((await self._session.execute(stmt)).scalars().all())
+
 
 class ChunkRepo:
     def __init__(self, session: AsyncSession, project_id: uuid.UUID) -> None:

@@ -811,6 +811,49 @@ def _build(ledger: _Ledger) -> RequiredEvidence:
     )
 
 
+# ---- 公共 token 词法（T23 事实校验复用，避免第二套 lexer 漂移） ---------------
+
+
+def iter_path_tokens(text: str) -> list[str]:
+    """文本中的显式文件 token（ASCII 边界、含扩展名），按出现顺序去重。
+
+    与 required-evidence 解析共用 ``_FILE_TOKEN``：not_found 事实校验不得另建一套
+    路径词法，否则两处对"什么算路径"的理解会随修复漂移。
+    """
+    return list(dict.fromkeys(match.group(0) for match in _FILE_TOKEN.finditer(text)))
+
+
+def iter_symbol_tokens(text: str) -> list[str]:
+    """文本中可用于身份比对的符号 token：PascalCase 类名 + 规范文档名。
+
+    泛化角色词（Repository/Service…）与语言/框架停用词（Java/Vue…）被排除：它们能
+    匹配上任意文件，用来做"该文件出现过"的事实校验只会制造假命中。**规范文档名
+    （README/PROGRESS…）不受停用词表约束**——它们在 T22 里就是保留身份的点名对象，
+    漏掉它们会让"已召回的 README 被写成未找到"逃过事实校验（c02）。
+    """
+    tokens = [
+        match.group(0)
+        for match in _IDENT_SYMBOL.finditer(text)
+        if match.group(0) not in _SYMBOL_STOP and not _ROLE_WORD.fullmatch(match.group(0))
+    ]
+    tokens += [match.group(0) for match in _CANONICAL_DOC.finditer(text)]
+    return list(dict.fromkeys(tokens))
+
+
+def path_matches_token(rel_path: str, token: str) -> bool:
+    """token（显式路径 / 裸文件名 / 符号名）是否指向该 rel_path（大小写敏感）。
+
+    身份口径与 ``_item_matches`` 一致：带 ``/`` 按完整路径后缀、带 ``.`` 按 basename
+    全等、无扩展名按 stem 全等（Java 惯例：public 类与文件同名）。
+    """
+    base = rel_path.rsplit("/", 1)[-1]
+    if "/" in token:
+        return rel_path == token or rel_path.endswith("/" + token)
+    if "." in token:
+        return base == token
+    return base.rsplit(".", 1)[0] == token
+
+
 # ---- 确定性覆盖 matcher（只处理 resolved items；大小写敏感） -----------------
 
 

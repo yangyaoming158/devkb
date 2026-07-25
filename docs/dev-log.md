@@ -917,3 +917,19 @@
   - 判据字面要求的 Fake 矩阵"仅测试代替生产→不得 full""必需类型齐全→可 full"此前只有点名类/否定跨句的变体，没有"用 X 代替 Y"这一表述本身的图级用例（该路径历史上出过 bug：三审自查才发现 Y 侧裸文件名漏提取）。补两条：`不要用测试代替生产源码` + 仅测试证据 → partial + "测试/设计/历史材料不能替代"；`请引用生产源码…不要用测试代替` + 生产证据 → full（确认禁止替代不会反过来误伤合法 full）。
 - 观察但未改：type-only 必需项的 not_found 文案会重复成"生产源码:生产源码"（`symbol/path` 为空时回落到 anchor，而 anchor 恰是类型词本身）。属文案冗余、不影响判定，按范围纪律记入 `docs/backlog.md` 而非顺手改。
 - `make ci`（ruff/pyright 0、pytest 440）、`make eval-ci`（65+19）全绿；未动 `src/`，`PROMPT_VERSION`/`AGENT_STATE_SCHEMA_VERSION` 不变。至此 T22.1/T22.2/T22.3 全部勾选，T22 关闭，进入 T23。证据 commit：本提交。
+
+## 2026-07-25 · P1.5 T23：not_found 四分类与全轮历史事实校验
+
+- 目标（规格 §5 / RT-02/15）：`not_found` 不再是一堆自由文本——每条要有类别、有事实校验来源；已召回或已索引的路径不得被写成"未找到/不存在"；没有 inventory 就不许断言"全库不存在"。
+- **落点**：新增 `src/devkb/agent/not_found.py`（确定性、零 LLM 调用）。`finalize` 把三路缺口（generate 草稿 / evaluator missing / T22 的必需证据说明）带**来源标签**汇总后统一跑 `calibrate_not_found`，产出用户可见文案 + 平行 `not_found_details` + 告警。`AgentState` 增 `evidence_path_history`（每轮 retrieve 累积，reducer=`operator.add`，被后轮挤出也留痕）、`supported_aspect_history`（每轮 evaluate 累积）、`final_not_found_details`。
+- **documents 表怎么进来的**：节点本身不做 I/O。`agentic_answer_question` 在图外用 `DocumentRepo.list_active_rel_paths(5000)` 取一次只读快照，包成 `CorpusProfile` 随 `AgentRuntime` 注入。`known=False`（离线图测试/未取快照）时与索引有关的判断一律 fail-closed；**"未命中"永远不作结论依据**，所以 5000 条上限被截断也不会产生错误断言（这也是"不得断言仓库有无该文件"的实现方式：只用命中，不用缺席）。
+- **改写口径（这轮最花时间的取舍）**：起初想"凡有冲突就整条换成模板"，自查探针立刻打脸——"未找到 RagService.getConversation 的具体实现"会和"源码中不存在 RagService"生成同一句模板文案，然后被去重吃掉，方法级缺口凭空消失。最终口径：**被证据/索引证伪的条目与仓库级否定断言整条改写，但主语用"去缺失标记后的方面名"**（"未找到 X 的 Y" → "X 的 Y：…"），既让缺失字样消失（c02 要求已召回 README/已索引 application.yml 不得被写成"未找到"），又保住"哪个方法/字段没覆盖"；格式未摄取这类原文成立的，只在括号里追加条件式披露。原文一律进 `original_text` 备查。
+- **自查探针抓到的 4 个真缺陷**（都在提交前修掉）：
+  1. **README 逃过事实校验**——`iter_symbol_tokens` 把 `_SYMBOL_STOP` 一并套在规范文档名上，而 README/PROGRESS 正是 T22 五审特意保留身份的点名对象；已改为停用词只作用于 PascalCase 类名。这条直接关系 c02。
+  2. **Java 包名被当成未摄取格式**——共用的 file-token 词法会把 `com.example.repo.CitationRepository` 切出 `com.example`，`.example` 于是成了"未摄取后缀"。加封闭 `RECOGNIZED_FILE_EXTS`：只有真实扩展名参与摄取覆盖判定，其余退回 missing（保守方向）。`.env.example` 这类隐藏文件另走"路径任一段以 . 开头恒不摄取"的规则（与 `scan_files` 同口径）。
+  3. **整题技术词外溢**——问题里出现"数据库迁移"，同题里"已索引 Java 未召回"的缺口也被标成"格式未摄取"，与 c10 判据"两类分类区分"冲突。改为技术词只匹配条目自身文本；"用户只点名未给路径"的场景由确定性 required-evidence 说明承载（它由问题原文解析而来、带类型标签"前端源码:Vue"），并把 `required_evidence_tail` 的缺口说明按证据类型拆成多条。已写入清单偏差记录等裁决。
+  4. **全局否定漏网**——"未找到任何其他 Controller"既不含 tier-1 否定词也无路径冲突，原样交付；加"穷举量词 + 否定"规则降级为"当前证据不足以穷举确认"（c12 要求），同时保证"OrderService 中没有事务注解"这类可由证据支撑的具体结论不被误伤（弱否定词只在穷举量词同现时才算数）。
+- **红证**：改动前在 2716c3f 上用同样场景跑出原始输出——"源码中不存在 RagService 的实现"原样进 not_found、迁移与 Java 两类缺口无从区分、前轮已支持的方面照报为缺失、无 `not_found_details` 字段。
+- **契约版本**：`PROMPT_VERSION` p1.5-agent-v3→**v4**（generate 增一条"not_found 只写当前证据范围、不得断言仓库不存在"的指令；确定性校准仍是最终防线，Prompt 只是少让它触发），快照 SHA→`96242198…`；`AGENT_STATE_SCHEMA_VERSION`→**v5**（state 增 3 字段）；`ANSWER_SCHEMA_VERSION` p1-answer-v1→**p1.5-answer-v2**（Answer JSON 加 `not_found_details`，纯加法）。
+- 测试：`tests/unit/test_agent_not_found.py` 36 条（分类矩阵、封闭词表边界、包名/隐藏文件、事实校验三态、改写 vs 追加、去重与对齐、`confirmed_undocumented` 永不产出）+ 图级 4 条 + 集成 2 条（真实 PG）。`make ci`（ruff/pyright 0、pytest 482）、`make eval-ci`（65+19）全绿；P0/P1 兼容回归未动。
+- 勾选：T23.1、T23.2 按判据逐条核对后勾选（自查复核，非独立复审；同 T22 收尾口径）。证据 commit：本提交。

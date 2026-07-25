@@ -97,3 +97,25 @@ async def test_reference_anchors_only_include_active_project_chunks(
     assert await ChunkRepo(session, own.id).list_reference_anchors() == [
         ("docs/own.md", "Own > Anchor")
     ]
+
+
+async def test_list_active_rel_paths_excludes_failed_and_respects_limit(
+    session: AsyncSession,
+) -> None:
+    # T23：not_found 事实校验用的语料快照——只含 active、按路径排序、有硬上限
+    p = await ProjectRepo(session).create(f"snap-{uuid.uuid4().hex[:6]}", "S")
+    docs = DocumentRepo(session, p.id)
+    for name in ("a.md", "b.md", "c.md"):
+        await docs.upsert(
+            rel_path=f"docs/{name}", title=name, doc_type="markdown", content_hash=name
+        )
+    await docs.mark_failed("docs/broken.md", "parse error")
+    await session.commit()
+
+    assert await docs.list_active_rel_paths(10) == ["docs/a.md", "docs/b.md", "docs/c.md"]
+    assert await docs.list_active_rel_paths(2) == ["docs/a.md", "docs/b.md"]
+
+    # 其他项目的文档不可见（D7）
+    other = await ProjectRepo(session).create(f"snap-{uuid.uuid4().hex[:6]}", "O")
+    await session.commit()
+    assert await DocumentRepo(session, other.id).list_active_rel_paths(10) == []

@@ -93,6 +93,19 @@ def build_answer(state: AgentState) -> dict[str, Any]:
             for claim in state["final_claims"]
         ],
         "not_found": list(state["final_not_found"]),
+        # T23：四分类平行字段（对既有消费者纯加法，not_found 仍是 list[str]）；
+        # 每项带类别、来源与事实校验依据，被改写的原文保留在 original_text
+        "not_found_details": [
+            {
+                "text": detail.text,
+                "category": detail.category,
+                "source": detail.source,
+                "basis": detail.basis,
+                "refs": list(detail.refs),
+                "original_text": detail.original_text,
+            }
+            for detail in state["final_not_found_details"]
+        ],
         "limitations": _limitations(state),
         "trace_summary": _trace_summary(state),
     }
