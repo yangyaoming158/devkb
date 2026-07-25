@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import pytest
 
 from devkb.agent.evidence_types import (
@@ -15,6 +17,9 @@ from devkb.agent.evidence_types import (
     classify_path,
     compute_coverage,
     forbidden_citation_hits,
+    iter_path_tokens,
+    iter_symbol_tokens,
+    iter_target_spans,
     parse_required_evidence,
     required_satisfied,
 )
@@ -578,3 +583,22 @@ def test_natural_phrasing_still_has_no_explicit_constraint(question: str) -> Non
     assert r.items == ()
     assert r.unresolved_constraints == ()
     assert r.status == "none"
+
+
+def test_target_spans_agree_with_the_shared_token_lexer() -> None:
+    # T23 的目标切分靠这些区间定位"连接词两侧是不是目标"：区间必须与 token 词法同源，
+    # 不得漂移出第二套口径（同一 token 被多条正则命中时只留一段）
+    text = "未找到 backend/src/main/java/svc/OrderService.java、README 与 DocumentService 的实现"
+    spans = iter_target_spans(text)
+    covered = [text[start:end] for start, end in spans]
+
+    for token in (*iter_path_tokens(text), *iter_symbol_tokens(text)):
+        assert any(token in chunk for chunk in covered), token
+    assert spans == sorted(spans)
+    assert all(start < end for start, end in spans)
+    assert all(left[1] <= right[0] for left, right in pairwise(spans))
+
+
+def test_target_spans_exclude_role_words_and_stop_words() -> None:
+    # 角色词/语言名能匹配任意文件，用作切分锚点只会制造假连接处
+    assert iter_target_spans("未找到 Service 与 Controller 的 Java 实现") == []

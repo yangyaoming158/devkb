@@ -840,6 +840,33 @@ def iter_symbol_tokens(text: str) -> list[str]:
     return list(dict.fromkeys(tokens))
 
 
+def merge_spans(spans: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
+    """区间并集（按起点排序，相接/相交即合并）：同一 token 被多条正则命中时只留一段。"""
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def iter_target_spans(text: str) -> list[tuple[int, int]]:
+    """可识别证据目标（路径 token + 符号 token）在文本中的位置，去重合并后按序返回。
+
+    与 ``iter_path_tokens``/``iter_symbol_tokens`` 同口径、同一套正则：T23 的目标切分
+    靠"连接词两侧是不是目标"来定位连接处，必须复用这里的词法，不得另建一套。
+    """
+    spans = [match.span() for match in _FILE_TOKEN.finditer(text)]
+    spans += [
+        match.span()
+        for match in _IDENT_SYMBOL.finditer(text)
+        if match.group(0) not in _SYMBOL_STOP and not _ROLE_WORD.fullmatch(match.group(0))
+    ]
+    spans += [match.span() for match in _CANONICAL_DOC.finditer(text)]
+    return merge_spans(spans)
+
+
 def path_matches_token(rel_path: str, token: str) -> bool:
     """token（显式路径 / 裸文件名 / 符号名）是否指向该 rel_path（大小写敏感）。
 

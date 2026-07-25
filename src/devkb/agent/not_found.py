@@ -14,6 +14,13 @@
    路径，不得被写成"不存在/未找到"；仓库级否定强断言（"源码中不存在"）无证据支撑时
    降级为条件式；前轮已支持的方面不得在后轮凭空升级为缺失。
 
+一条 not_found **只能有一个原因**（用户裁决 2026-07-25）。LLM 把两类缺口写进一句时
+按连接词确定性拆分，拆分口径见 ``_cut_between``：切点只可能落在**两个可识别目标之间**，
+且只认括号外的标点、或"整个间隙就是一个连接词"这两种可证情形——中文里"及/与/或/和"
+同时是"涉及/提及/参与/与否/或者说/和谐"的组成部分，靠屏蔽词表穷举必然漏词（第三轮
+复审已证实），故其余一律不切：同条内按优先级取唯一原因、原文完整保留，被压住的未摄取
+信号进 warnings，绝不静默消失。
+
 被改写的原文保留在 ``NotFoundDetail.original_text`` 里，事实校验来源保留在
 ``basis``/``refs``，使每一次改写都可事后审计。
 """
@@ -24,6 +31,7 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from functools import partial
+from itertools import pairwise
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -31,6 +39,8 @@ from pydantic import BaseModel, ConfigDict
 from devkb.agent.evidence_types import (
     iter_path_tokens,
     iter_symbol_tokens,
+    iter_target_spans,
+    merge_spans,
     path_matches_token,
 )
 from devkb.ingest.pipeline import SUPPORTED_SUFFIXES
@@ -74,6 +84,16 @@ TERM_SUFFIX_HINTS: dict[str, tuple[str, ...]] = {
     "迁移脚本": (".sql",),
     "建表语句": (".sql",),
 }
+
+# 技术词的统一词法：ASCII 词加英文词边界（避免 revue 命中 vue），中文词直接匹配。
+# 摄取覆盖判定与目标切分共用它，保证"算不算一个目标"两处口径一致。
+_TERM_TARGET = re.compile(
+    "|".join(
+        (rf"(?<![A-Za-z]){re.escape(term)}(?![A-Za-z])" if term.isascii() else re.escape(term))
+        for term in sorted(TERM_SUFFIX_HINTS, key=len, reverse=True)
+    ),
+    re.IGNORECASE,
+)
 
 # 被承认为"真实文件扩展名"的封闭集合。file-token 词法（与 T22 共用）会把 Java 包名
 # `com.example.repo` 也切成 `com.example`，若直接拿 `.example` 当后缀判定，就会把普通
@@ -146,23 +166,19 @@ _ABSENCE_MARKERS = (
     "未出现",
 )
 
-# 目标段连接词（与 T22 的目标切分同口径）：只用于"一条一原因"的确定性拆分。
-# 标点是无歧义的连接处；"以及"是无歧义的多字连接词。
+# 目标段连接词（封闭表）：只用于"一条一原因"的确定性拆分。
+# 中文标点不可能出现在词内，故括号外的标点是**无歧义**的连接处；其余连接词同时都是
+# 常见复合词的组成部分（涉及/提及/普及/参与/与否/与此/或者说/和谐…），无法靠"哪些词
+# 不能切"的屏蔽表穷举——第三轮复审已证明该路线会持续漏词。故改为**两侧目标信号**定位：
+# 只有当连接词位于两个可识别目标之间、且它自己就是这两个目标之间的全部内容时，才算
+# 连接处；否则保守不切（宁可少拆一条，也不切碎原文）。
 _PUNCT_CONNECTORS = ("、", "，", ",", "；", ";")
-_WORD_CONNECTORS = ("以及",)
-# 单字连接词只在**真正的目标连接处**才算数：它们同时是常见复合词的组成部分
-# （涉及/普及/参与/或者/与此/和谐…），在词内切会切出"者 DocumentService"
-# "此同时 …"这类残段。故对每个单字连接词维护左右两侧的封闭屏蔽表。
-_CHAR_CONNECTORS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-    # 连接词: (左侧屏蔽字, 右侧屏蔽字)
-    "及": (("涉", "普", "波", "兼", "顾", "以"), ("其", "时", "早")),
-    "与": (("参", "给", "赋", "授", "施"), ("此", "其", "会")),
-    "或": ((), ("者", "是", "许", "多")),
-    "和": (("总", "温", "平", "缓", "柔", "祥"), ("谐", "平", "睦", "气")),
-}
+_WORD_CONNECTORS = ("以及", "或者", "与", "及", "或", "和")
 _PUNCT_STRIP = re.compile(r"[\s。．.，,；;：:、！!？?（）()【】\[\]\"'`]+")
 _MAX_SUBJECT_CHARS = 60
-_ANCHOR_TRIM = " \t的了：:，,。、；;和与及或\n"
+# 边界修剪字符集：只含空白/标点/结构助词，**不含连接词**——把"与/及/或/和"当边界字符
+# 盲删会把"与此同时 X"削成"此同时 X"（第三轮复审阻断点2 的成因之一）。
+_EDGE_TRIM = " \t的了：:，,。、；;\n"
 
 
 class NotFoundDetail(BaseModel):
@@ -250,13 +266,13 @@ def _strip_absence_markers(text: str) -> str:
     stripped = text
     for marker in (*_REPO_LEVEL_NEGATION, *_ABSENCE_MARKERS):
         stripped = stripped.replace(marker, "")
-    stripped = " ".join(stripped.split()).strip(_ANCHOR_TRIM)
+    stripped = _trim_connectors(" ".join(stripped.split()).strip(_EDGE_TRIM))
     changed = True
     while changed:  # 去标记后可能剩下悬空前缀（"当前证据 X"）
         changed = False
         for prefix in _ORPHAN_PREFIXES:
             if stripped.startswith(prefix):
-                stripped = stripped[len(prefix) :].strip(_ANCHOR_TRIM)
+                stripped = stripped[len(prefix) :].strip(_EDGE_TRIM)
                 changed = True
     return stripped[:_MAX_SUBJECT_CHARS]
 
@@ -276,11 +292,11 @@ def _suffix_of(token: str) -> str:
 
 
 def _term_signals(text: str, corpus: CorpusProfile) -> list[str]:
-    haystack = text.lower()
+    hits = {match.group(0).lower() for match in _TERM_TARGET.finditer(text)}
     return [
         suffix
         for term, mapped in TERM_SUFFIX_HINTS.items()
-        if term in haystack and all(not corpus.ingests_suffix(s) for s in mapped)
+        if term in hits and all(not corpus.ingests_suffix(s) for s in mapped)
         for suffix in mapped
     ]
 
@@ -326,11 +342,20 @@ class _Assessment:
     refs: tuple[str, ...]
     replace: bool
     weakened: bool
-    has_signal: bool
 
     @property
     def reason(self) -> tuple[NotFoundCategory, FactCheckBasis]:
         return (self.category, self.basis)
+
+
+@dataclass(frozen=True)
+class _Run:
+    """相邻同原因目标段合并后的一段：区间取自原文，连接词随之原样保留。"""
+
+    assessment: _Assessment
+    start: int
+    end: int
+    refs: tuple[str, ...]
 
 
 def _render_refs(refs: Sequence[str]) -> str:
@@ -424,58 +449,99 @@ def _assess(
         replace=markers.rewritable
         and (bool(markers.has_absence and (in_evidence or in_index)) or markers.has_repo_negation),
         weakened=weakened,
-        has_signal=bool(in_evidence or in_index or uningested or tokens),
     )
 
 
-def _connector_at(text: str, index: int) -> str | None:
-    """text[index] 处是否是**真正的目标连接处**；是则返回该连接词。
+def _bracket_depths(text: str) -> list[int]:
+    """每个字符所处的括号深度：括号内的内容不参与切分（确定性说明里常有"（A:X、B:Y）"
+    这类枚举，在括号内切会切碎原文并留下不配对的括号）。"""
+    depths: list[int] = []
+    depth = 0
+    for char in text:
+        if char in "（(【[":
+            depth += 1
+            depths.append(depth)
+        elif char in "）)】]":
+            depths.append(depth)
+            depth = max(0, depth - 1)
+        else:
+            depths.append(depth)
+    return depths
 
-    标点与"以及"无歧义；单字连接词须过左右屏蔽表，且不能位于句首/句尾——
-    "与此同时 X"里的"与"在句首，"涉及"里的"及"左邻是"涉"，都不是连接处。
+
+def _target_spans(text: str) -> list[tuple[int, int]]:
+    """文本中可识别目标的位置：路径 token + 符号 token + 隐藏文件 + 封闭技术词。"""
+    spans = iter_target_spans(text)
+    spans += [match.span() for match in _DOTFILE_TOKEN.finditer(text)]
+    spans += [match.span() for match in _TERM_TARGET.finditer(text)]
+    return merge_spans(spans)
+
+
+def _cut_between(text: str, depths: list[int], start: int, end: int) -> tuple[int, int] | None:
+    """相邻两个目标之间的间隙 text[start:end] 是否构成连接处；是则返回连接词区间。
+
+    1. 括号外的标点（、，；）**不可能出现在词内** → 取最左一个即可，连接词后面的自然
+       措辞（"，与此同时 X"/"，同时，X"）随之留在**后一个**目标那一段，保持原序语义。
+    2. 否则只有当整个间隙就是一个连接词（"与"/"以及"/"或者"…）时才切——此时连接词
+       两侧紧邻的都是目标，是可证的连接处。
+    3. 其余一律不切（"README 提及数据库迁移"的"及"、"…的说明与…"的"与"）：宁可少拆
+       一条（同条内按优先级取唯一原因、原文完整保留），也不冒切碎自然措辞的风险。
     """
-    for token in (*_WORD_CONNECTORS, *_PUNCT_CONNECTORS):
-        if text.startswith(token, index):
-            return token
-    char = text[index]
-    blocks = _CHAR_CONNECTORS.get(char)
-    if blocks is None:
-        return None
-    if index == 0 or index + 1 >= len(text):  # 句首/句尾的单字连接词不是连接处
-        return None
-    left_block, right_block = blocks
-    left, right = text[index - 1], text[index + 1]
-    if left in left_block or right in right_block:
-        return None
-    return char
+    for index in range(start, end):
+        if depths[index] == 0 and text[index] in _PUNCT_CONNECTORS:
+            return (index, index + 1)
+    gap = text[start:end]
+    token = gap.strip()
+    if token in _WORD_CONNECTORS:
+        offset = start + gap.index(token)
+        if depths[offset] == 0:
+            return (offset, offset + len(token))
+    return None
+
+
+def _split_spans(text: str) -> list[tuple[int, int]]:
+    """按可证的连接处把一条缺口语句切成目标段区间（确定性、保序、字符不丢）。
+
+    切点只可能出现在**两个目标之间**，因此每个段必含至少一个目标，不会再产生"无信号
+    残段"需要事后归位；段区间连续覆盖全文，只有连接词本身被丢弃。
+    """
+    depths = _bracket_depths(text)
+    spans = [span for span in _target_spans(text) if depths[span[0]] == 0]
+    cuts = [
+        cut
+        for (_, left_end), (right_start, _) in pairwise(spans)
+        if (cut := _cut_between(text, depths, left_end, right_start)) is not None
+    ]
+    segments: list[tuple[int, int]] = []
+    pos = 0
+    for cut_start, cut_end in cuts:
+        segments.append((pos, cut_start))
+        pos = cut_end
+    segments.append((pos, len(text)))
+    return [(start, end) for start, end in segments if text[start:end].strip()]
 
 
 def _split_segments(text: str) -> list[str]:
-    """按连接词把一条缺口语句拆成目标段（确定性、只拆不改字、保序）。
+    return [text[start:end] for start, end in _split_spans(text)]
 
-    括号内不切：确定性说明与 LLM 的括注里常有"（数据库迁移:X、生产源码:Y）"这类
-    枚举，在括号内切会切碎原文并留下不配对的括号。
+
+def _trim_connectors(text: str) -> str:
+    """剥掉切分后残留在两端的连接词（"以及数据库迁移" → "数据库迁移"）。
+
+    只有**紧邻目标**的连接词才算残留："与此同时 X" 的"与"是词的一部分，删掉就成了
+    "此同时 X"（第三轮复审阻断点2）；无目标可锚定时原样返回。
     """
-    segments: list[str] = []
-    buffer: list[str] = []
-    depth = 0
-    index = 0
-    while index < len(text):
-        char = text[index]
-        if char in "（(【[":
-            depth += 1
-        elif char in "）)】]":
-            depth = max(0, depth - 1)
-        matched = _connector_at(text, index) if depth == 0 else None
-        if matched is not None:
-            segments.append("".join(buffer))
-            buffer = []
-            index += len(matched)
-            continue
-        buffer.append(char)
-        index += 1
-    segments.append("".join(buffer))
-    return [segment for segment in segments if segment.strip()]
+    spans = _target_spans(text)
+    if not spans:
+        return text
+    head, tail = spans[0][0], spans[-1][1]
+    start = head if text[:head].strip(_EDGE_TRIM) in _WORD_CONNECTORS else 0
+    stop = tail if text[tail:].strip(_EDGE_TRIM) in _WORD_CONNECTORS else len(text)
+    return text[start:stop]
+
+
+def _segment_text(text: str) -> str:
+    return _trim_connectors(text.strip()).strip(_EDGE_TRIM)
 
 
 def calibrate_not_found(
@@ -497,6 +563,7 @@ def calibrate_not_found(
     warnings: list[str] = []
     dropped: list[str] = []
     uningested_all: set[str] = set()
+    unsplit: set[str] = set()
     weakened = 0
 
     for item in items:
@@ -526,31 +593,32 @@ def calibrate_not_found(
         # 矛盾的条目（用户裁决 2026-07-25）。同类目标合并成一句时不拆，原文照旧。
         # 确定性条目由 required_evidence_tail 逐类型生成，本就一条一原因；不拆分它，
         # 免得把自己格式化好的说明切碎（括号/分号结构会被破坏）
-        segments = (
-            [assess(segment) for segment in _split_segments(raw)] if markers.rewritable else []
-        )
-        reasons = list(dict.fromkeys(seg.reason for seg in segments if seg.has_signal))
+        spans = _split_spans(raw) if markers.rewritable else []
+        segments = [(span, assess(raw[span[0] : span[1]])) for span in spans]
+        reasons = list(dict.fromkeys(assessment.reason for _span, assessment in segments))
         if len(reasons) <= 1:
             groups: list[tuple[_Assessment, str, tuple[str, ...]]] = [(assess(raw), raw, ())]
         else:
-            # 保序：无信号残段并入**紧邻的前一个**有信号段（句首残段并入其后第一段），
-            # 不得挪到别的条目前面；同一原因的成员按原文顺序合并，refs 全量保留
-            chunks: list[tuple[_Assessment, list[str]]] = []
-            pending: list[str] = []
-            for segment in segments:
-                if not segment.has_signal:
-                    (chunks[-1][1] if chunks else pending).append(segment.segment)
-                    continue
-                chunks.append((segment, [*pending, segment.segment]))
-                pending = []
+            # 保序：相邻同原因段按原文区间合并（连接词随原文保留），非相邻的用顿号连接；
+            # 同一原因下每个成员的 refs 全量汇总，不得只留第一个（第二轮复审阻断点1）
+            runs: list[_Run] = []
+            for (start, end), assessment in segments:
+                if runs and runs[-1].assessment.reason == assessment.reason:
+                    prev = runs[-1]
+                    runs[-1] = _Run(
+                        prev.assessment, prev.start, end, (*prev.refs, *assessment.refs)
+                    )
+                else:
+                    runs.append(_Run(assessment, start, end, assessment.refs))
             groups = []
             for reason in reasons:
-                members = [chunk for chunk in chunks if chunk[0].reason == reason]
-                text = "、".join("".join(parts).strip() for _assessment, parts in members)
-                merged = tuple(
-                    dict.fromkeys(ref for assessment, _parts in members for ref in assessment.refs)
+                members = [run for run in runs if run.assessment.reason == reason]
+                text = "、".join(
+                    part for run in members if (part := _segment_text(raw[run.start : run.end]))
                 )
-                groups.append((members[0][0], text, merged))
+                merged = tuple(dict.fromkeys(ref for run in members for ref in run.refs))
+                if text:
+                    groups.append((members[0].assessment, text, merged))
 
         for assessment, segment_text, merged_refs in groups:
             refs = merged_refs or assessment.refs
@@ -559,6 +627,10 @@ def calibrate_not_found(
                 continue
             if assessment.category == "unsupported_or_not_ingested":
                 uningested_all.update(refs)
+            else:
+                # 无法确定性拆分时未摄取信号会被更高优先级原因压住：不改分类（一条一原因），
+                # 但必须显式告警，不能让"这条里还有 .sql 缺口"这件事静默消失
+                unsplit.update(_uningested_signals(segment_text, corpus))
             weakened += int(assessment.weakened)
             texts.append(text)
             details.append(
@@ -594,5 +666,10 @@ def calibrate_not_found(
     if uningested_all:
         warnings.append(
             "finalize: 存在未摄取格式导致的缺口（" + ",".join(sorted(uningested_all)) + "）"
+        )
+    if unsplit - uningested_all:
+        warnings.append(
+            "finalize: not_found 条目混合未摄取格式信号但无法确定性拆分，已按更高优先级原因"
+            "归类（" + ",".join(sorted(unsplit - uningested_all)) + "）"
         )
     return NotFoundCalibration(texts=tuple(texts), details=tuple(details), warnings=tuple(warnings))

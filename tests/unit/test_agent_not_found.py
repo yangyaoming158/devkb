@@ -395,24 +395,97 @@ def test_every_target_named_in_text_has_a_fact_reference() -> None:
     "text",
     [
         "当前证据未覆盖涉及数据库迁移的字段定义",  # 涉及
-        "未找到 OrderService 或者 DocumentService 的实现",  # 或者
         "与此同时 DocumentService 的删除实现未被召回",  # 句首"与"+与此
         "未找到参与方 DocumentService 的删除实现",  # 参与
+        "提及 DocumentService 的说明与数据库迁移",  # 提及（第三轮复审）
+        "未找到普及率与和谐度相关的说明",  # 普及/和谐（两侧都不是目标）
     ],
 )
 def test_natural_connective_words_are_not_split_points(text: str) -> None:
-    # 复审阻断点2：单字连接词（及/与/或/和）出现在"涉及/或者/与此/参与/普及/和谐"里
-    # 不是目标连接处，在那里切会产出"者 DocumentService""此同时 …"这类残段
+    # 复审阻断点2：单字连接词（及/与/或/和）出现在"涉及/提及/与此/参与/普及/和谐"里
+    # 不是目标连接处，在那里切会产出"提 DocumentService""此同时 …"这类残段
     assert _split_segments(text) == [text]
 
 
+def test_multi_char_connector_splits_mixed_reasons() -> None:
+    # 第三轮复审阻断点1："或者"是完整的多字连接词，不能因为屏蔽"或"就整句不切——
+    # 否则 .sql 的 unsupported_or_not_ingested 整条消失，回到 c10 型分类混淆
+    corpus = CorpusProfile.from_paths(["backend/src/main/java/svc/DocumentService.java"])
+    result = _calibrate("未找到数据库迁移或者 DocumentService 的删除实现", corpus=corpus)
+
+    by_category = {detail.category: detail for detail in result.details}
+    assert set(by_category) == {"unsupported_or_not_ingested", "missing_from_current_evidence"}
+    assert by_category["unsupported_or_not_ingested"].refs == (".sql",)
+    assert "DocumentService" not in by_category["unsupported_or_not_ingested"].text
+    indexed = by_category["missing_from_current_evidence"]
+    assert indexed.basis == "corpus_index"
+    assert indexed.refs == ("backend/src/main/java/svc/DocumentService.java",)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "数据库迁移，与此同时 DocumentService 的实现也未覆盖",
+            ["数据库迁移", "与此同时 DocumentService 的实现也未覆盖"],
+        ),
+        (
+            "DocumentService 实现与否已在证据中，以及数据库迁移",
+            ["DocumentService 实现与否已在证据中", "以及数据库迁移"],
+        ),
+        (
+            "数据库迁移，同时，DocumentService 的实现未覆盖",
+            ["数据库迁移", "同时，DocumentService 的实现未覆盖"],
+        ),
+    ],
+)
+def test_split_never_breaks_natural_wording(text: str, expected: list[str]) -> None:
+    # 第三轮复审阻断点2：标点是无歧义连接处，但连接词后面的自然措辞（与此同时/同时/以及）
+    # 属于后一目标的从句，既不得被删首字，也不得被挪到前一条去
+    assert _split_segments(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "intact"),
+    [
+        ("数据库迁移，与此同时 DocumentService 的实现也未覆盖", "与此同时 DocumentService"),
+        ("提及 DocumentService 的说明与数据库迁移", "提及 DocumentService"),
+        ("DocumentService 实现与否已在证据中，以及数据库迁移", "实现与否"),
+        ("数据库迁移，同时，DocumentService 的实现未覆盖", "同时，DocumentService"),
+    ],
+)
+def test_calibrated_text_keeps_original_wording_intact(text: str, intact: str) -> None:
+    # 端到端反向证据：上述句子经 finalize 后，原文措辞必须完整出现在某条 not_found 里，
+    # 且不得出现"此同时/提 DocumentService/实现否/数据库迁移同时"这类残段
+    corpus = CorpusProfile.from_paths(["backend/src/main/java/svc/DocumentService.java"])
+    result = _calibrate(text, corpus=corpus)
+    joined = "\n".join(result.texts)
+    assert intact in joined
+    # 被削掉首字的残段总是出现在条目开头（"此同时 …"/"者 …"）
+    assert not any(item.startswith(("此同时", "者 ", "谐")) for item in result.texts)
+    for artifact in ("提 DocumentService", "实现否", "数据库迁移同时"):
+        assert artifact not in joined
+
+
+def test_ambiguous_prose_connector_is_left_unsplit_and_signals_are_reported() -> None:
+    # 无法确定性判定的连接处（左侧是散文而非目标）保守不切：宁可少拆一条，也不切碎原文。
+    # 但被压在同一条里的未摄取信号必须显式告警，不得静默消失
+    corpus = CorpusProfile.from_paths(["backend/src/main/java/svc/DocumentService.java"])
+    result = _calibrate("未找到 DocumentService 的删除实现与数据库迁移的字段定义", corpus=corpus)
+
+    assert len(result.details) == 1
+    assert result.details[0].basis == "corpus_index"
+    assert "与数据库迁移的字段定义" in result.details[0].text
+    assert any("无法确定性拆分" in w and ".sql" in w for w in result.warnings)
+
+
 def test_real_target_connectors_still_split() -> None:
-    # 不能因为防误切而失去拆分能力
+    # 不能因为防误切而失去拆分能力：连接词两侧紧邻目标时必须切
     assert _split_segments("未找到迁移文件与 DocumentService") == [
         "未找到迁移文件",
         " DocumentService",
     ]
-    assert _split_segments("A 以及 B") == ["A ", " B"]
+    assert _split_segments("README 以及 DocumentService") == ["README ", " DocumentService"]
     assert _split_segments("迁移文件、DocumentService，README") == [
         "迁移文件",
         "DocumentService",
@@ -420,16 +493,19 @@ def test_real_target_connectors_still_split() -> None:
     ]
 
 
-def test_split_preserves_original_order_and_keeps_residual_in_place() -> None:
-    # 保序：条目顺序与原文目标出现顺序一致；无信号残段留在它原本所属的那一条里，
-    # 不得被挪到第一条前面（"数据库迁移…未找到涉"这种错位）
+def test_split_preserves_original_order_and_keeps_prose_with_its_target() -> None:
+    # 保序：条目顺序与原文目标出现顺序一致；连接词后的修饰语留在它所属的那个目标里，
+    # 不得被挪到前一条去（"数据库迁移…未找到涉"这种错位）
     corpus = CorpusProfile.from_paths(["backend/src/main/java/svc/DocumentService.java"])
-    result = _calibrate("未找到 DocumentService 的删除实现与数据库迁移的字段定义", corpus=corpus)
+    result = _calibrate(
+        "未找到 DocumentService 的删除实现，以及数据库迁移的字段定义", corpus=corpus
+    )
     assert [detail.basis for detail in result.details] == ["corpus_index", "static_suffix_rule"]
+    assert result.details[1].text.startswith("数据库迁移的字段定义")
 
-    mixed = _calibrate("未找到涉及数据库迁移的字段定义与 DocumentService 的删除实现", corpus=corpus)
+    mixed = _calibrate("未找到数据库迁移的字段定义，以及 DocumentService 的删除实现", corpus=corpus)
     assert [detail.basis for detail in mixed.details] == ["static_suffix_rule", "corpus_index"]
-    assert mixed.details[0].text.startswith("未找到涉及数据库迁移的字段定义")
+    assert mixed.details[0].text.startswith("未找到数据库迁移的字段定义")
     assert "DocumentService" in mixed.details[1].text
 
 
