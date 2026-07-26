@@ -12,6 +12,11 @@ import uuid
 import pytest
 
 from devkb.agent.answer import build_answer
+from devkb.agent.evidence_types import (
+    iter_path_tokens,
+    iter_symbol_tokens,
+    path_matches_token,
+)
 from devkb.agent.graph import run_agent
 from devkb.agent.nodes import AgentRuntime, citation_scope, is_identity_only_gap
 from devkb.agent.not_found import (
@@ -24,7 +29,7 @@ from devkb.agent.not_found import (
     coverage_disclosure,
     strip_absence_markers,
 )
-from devkb.agent.state import AgentInput, Evidence
+from devkb.agent.state import AgentInput, ClaimOutput, Evidence, initial_agent_state
 from devkb.ingest.pipeline import SUPPORTED_SUFFIXES
 from devkb.llm import FakeLLM
 
@@ -854,12 +859,16 @@ def test_u11_identity_judgement_is_stable_under_strippable_variants() -> None:
 def test_u12_citation_scope_two_sided_invariants_on_random_combinations() -> None:
     """U12：随机组合双向不变量——既抓错误标注，也抓应标注却未标注。"""
     rng = random.Random(20260726)
-    # 池内每个 stem 都必须是词法认得的目标（`architecture` 这类小写词不是符号 token，
-    # 放进来会让"提到了它"与"能解析出它"脱节，探针就测不到真正的判据）
-    pool = [_RAG, _DOC_REPO, "docs/README.md", "backend/src/main/java/svc/CitationParser.java"]
+    # 池内含**同 basename 的两条路径**（README）：不变量必须按 matcher 的真实解析集合
+    # 结算，而不是按"我在文本里写了哪个名字"——后者看不见一名多路的歧义（T25.1-CR-01）。
+    pool = [
+        _RAG,
+        _DOC_REPO,
+        "README.md",
+        "docs/README.md",
+        "backend/src/main/java/svc/CitationParser.java",
+    ]
     names = {path: path.rsplit("/", 1)[-1].rsplit(".", 1)[0] for path in pool}
-    for path, name in names.items():
-        assert citation_scope(f"未找到 {name}", cited_paths=(path,), known_paths=(path,)) == (path,)
     annotated = 0
     rejected = 0
     for _ in range(2000):
@@ -867,14 +876,96 @@ def test_u12_citation_scope_two_sided_invariants_on_random_combinations() -> Non
         cited = tuple(path for path in pool if rng.random() < 0.5)
         text = "未找到 " + " 和 ".join(names[path] for path in mentioned) + " 的实现"
         scope = citation_scope(text, cited_paths=cited, known_paths=tuple(pool))
-        resolvable_uncited = [path for path in mentioned if path not in cited]
+        # 用与实现同一套词法/matcher 复算"这条文本到底解析出了哪些已知路径"：
+        # 校验的是跨 token 的全或无聚合逻辑（CR-01 的所在），不是 matcher 本身
+        tokens = [*iter_path_tokens(text), *iter_symbol_tokens(text)]
+        resolved = [
+            path for path in pool if any(path_matches_token(path, token) for token in tokens)
+        ]
+        resolvable_uncited = [path for path in resolved if path not in cited]
         if scope:
             annotated += 1
             # 不变量①：标注 ⟹ 该条目每个可解析目标都在交付引用里
             assert not resolvable_uncited, (text, cited, scope)
-            assert set(scope) <= set(cited)
+            assert set(scope) == set(resolved) <= set(cited)
         else:
             rejected += 1
             # 不变量②：未标注 ⟹ 确有可解析目标不在交付引用里（不得无故放弃）
-            assert resolvable_uncited, (text, cited)
+            assert resolvable_uncited or not resolved, (text, cited)
     assert annotated > 0 and rejected > 0
+
+
+def test_u4c_token_resolving_to_an_uncited_path_fails_closed() -> None:
+    """T25.1-CR-01：同一 token 解析到多个已知路径时，只要有一个不在交付引用里就整条放弃。
+
+    `README` 同时指向根级 `README.md` 与 `docs/README.md`；只有后者被引用时，
+    无法证明这条缺口说的是哪一个，确定性"已按引用事实更正"就不成立。
+    """
+    assert (
+        citation_scope(
+            "未找到 README",
+            cited_paths=("docs/README.md",),
+            known_paths=("README.md", "docs/README.md"),
+        )
+        == ()
+    )
+    # 两个同名路径都被引用时不存在歧义，仍应标注
+    assert citation_scope(
+        "未找到 README",
+        cited_paths=("README.md", "docs/README.md"),
+        known_paths=("README.md", "docs/README.md"),
+    ) == ("README.md", "docs/README.md")
+
+
+_LIMITATION_PARTIAL_STATES = (
+    "未生成经验证的结构化断言；正文为确定性降级文案",
+    "正文未附结构化 claim，未经逐条引用验证",
+    "仅回答了现有证据支持的部分，未覆盖方面见 not_found",
+    "仅回答了现有证据支持的部分；本次未列出具体未覆盖方面",
+)
+
+
+@pytest.mark.parametrize(
+    ("mode", "has_claims", "not_found", "generate_failed", "expected"),
+    [
+        ("partial", False, [], True, _LIMITATION_PARTIAL_STATES[0]),
+        ("partial", False, ["缺口"], True, _LIMITATION_PARTIAL_STATES[0]),
+        ("partial", False, [], False, _LIMITATION_PARTIAL_STATES[1]),
+        ("partial", False, ["缺口"], False, _LIMITATION_PARTIAL_STATES[1]),
+        ("partial", True, ["缺口"], False, _LIMITATION_PARTIAL_STATES[2]),
+        ("partial", True, ["缺口"], True, _LIMITATION_PARTIAL_STATES[2]),
+        ("partial", True, [], False, _LIMITATION_PARTIAL_STATES[3]),
+        ("partial", True, [], True, _LIMITATION_PARTIAL_STATES[3]),
+        ("full", True, [], False, None),
+        ("refusal", False, ["缺口"], False, None),
+    ],
+)
+def test_u13_limitations_matrix_is_exhaustive_and_field_consistent(
+    mode: str,
+    has_claims: bool,
+    not_found: list[str],
+    generate_failed: bool,
+    expected: str | None,
+) -> None:
+    """U13：limitations 四态穷举——每态唯一，且与终态实际字段相符（前审 PG-04）。"""
+    state = initial_agent_state(
+        AgentInput(run_id=uuid.uuid4(), project_id=uuid.uuid4(), question="库存如何扣减？")
+    )
+    state["final_mode"] = mode  # type: ignore[typeddict-item]
+    state["final_answer"] = "正文。"
+    state["final_claims"] = (
+        [ClaimOutput(text="断言", evidence_ids=["E1"], quotes=[])] if has_claims else []
+    )
+    state["final_not_found"] = not_found
+    state["generate_failed"] = generate_failed
+
+    limitations = build_answer(state)["limitations"]
+    present = [phrase for phrase in _LIMITATION_PARTIAL_STATES if phrase in limitations]
+    if expected is None:
+        assert present == []  # full/refusal 不得出现 partial 口径
+    else:
+        assert present == [expected]  # 四态互斥且唯一
+    if mode == "refusal":
+        assert "未找到足以回答问题的证据，未生成实质回答" in limitations
+    if generate_failed:
+        assert "生成调用失败，返回确定性降级文案" in limitations

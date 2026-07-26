@@ -368,16 +368,23 @@ def citation_scope(
     **可解析目标** = 能匹配到任一已知 rel_path（交付引用 ∪ 全轮检索历史 ∪ 语料索引）的
     token。匹配不到任何已知路径的 token 既不参与也不阻断——词法会产出 `Conversation`
     这类泛化词与 `RagService.findConvers` 这类截断词，它们指认不了任何文件，用来
-    卡判据只会让判据永不成立。任一可解析目标不在交付引用里即整条 fail-closed。
+    卡判据只会让判据永不成立。
+
+    判据按 token 的**全部**解析结果结算，不是"找到一个被引用的就算数"：`README` 同时
+    指向根级 `README.md` 与 `docs/README.md` 时，只引用了后者并不能证明这条缺口说的是
+    后者，据此宣称"已按引用事实更正"就成了不可证的断言（首审 T25.1-CR-01）。因此只要
+    某个可解析目标的任一候选路径不在交付引用里，整条 fail-closed。
     """
+    universe = list(dict.fromkeys([*cited_paths, *known_paths]))
+    delivered = set(cited_paths)
     hits: list[str] = []
     for token in [*iter_path_tokens(text), *iter_symbol_tokens(text)]:
-        cited = [path for path in cited_paths if path_matches_token(path, token)]
-        if cited:
-            hits.extend(cited)
+        resolved = [path for path in universe if path_matches_token(path, token)]
+        if not resolved:
             continue
-        if any(path_matches_token(path, token) for path in known_paths):
+        if any(path not in delivered for path in resolved):
             return ()
+        hits.extend(resolved)
     return tuple(dict.fromkeys(hits))
 
 

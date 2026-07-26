@@ -1094,3 +1094,7 @@
 - **先红后绿留证**：19 条新测试在基线 `62ec70d` 上全红（其中 I1–I7 为行为级失败，非仅 ImportError；为拿到行为红先加了三个 no-op stub），实现后 111 条全绿。变形不变量 539 例（7 orphan 前缀 × 11 缺失措辞 × 7 标点）、随机双向探针 2000 例（既抓错误标注也抓应标注却未标注）均零违反且两侧触发数 > 0。
 - **门禁**：`make ci`（ruff/pyright 0、pytest **746**）、`make eval-ci`（**76 + 19**）、`make verify-task`（7/8 文件在范围内）全绿，跨 5 个 PYTHONHASHSEED 一致。`PROMPT_VERSION` p1.5-agent-v4、`AGENT_STATE_SCHEMA_VERSION` v8、`ANSWER_SCHEMA_VERSION` p1.5-answer-v2 均未变。
 - **顺带确认但按合同不修**：终态仍展示已被第二稿修复的 `verify:l0_l1_failed`（属 T30.2）；T25.2（regen 覆盖差分）另起 packet，需新增第一稿快照状态字段并递增 `AGENT_STATE_SCHEMA_VERSION`。探针 C 已证明案例二判据里"含 active 文件"那一半在 T23 就已闭环，T25.2 的真实缺口是"1→2 的增量与第一稿缺口静默消失没有任何差分记录"。
+- **首审定向修复（2 条，均在合同内）**：
+  - `T25.1-CR-01`（P1，本次 diff 直接引入）：`citation_scope` 原实现"找到任一被引用的匹配就 continue"，没有检查同一 token 是否还解析到**未被引用**的路径。`README` 同时指向根级 `README.md` 与 `docs/README.md`，只引用后者时仍会输出"已按引用事实更正"——正是 PG-01 反复强调的那类不可证断言，只不过换成了一名多路的形态。改为按 token 的**全部**解析结果结算：任一候选不在交付引用即整条 fail-closed。**同一个坑第三次出现**（PG-01 结论层、PG-05 warning 层、CR-01 解析层），说明"只声称可证事实"这条不变量必须落到每一个新增分支上，而不只是文案。
+  - `T25.1-CR-02`（P2）：冻结的 U13（limitations 四态穷举）没落盘，只写了 I2/I3/I7 三条代表路径。补完 10 组参数化后**直接全绿**，确认是纯覆盖缺失而非源码缺陷，故按 ledger 边界未动源码。教训：冻结测试矩阵应在实现前逐行对表勾掉，我这次是凭记忆写的，漏了一整条。
+  - 修复后：`make ci`（ruff/pyright 0、pytest **757**）、`make eval-ci`（76+19）、`make verify-task`（8/8）全绿，跨 5 个 PYTHONHASHSEED **424** 条一致。
