@@ -470,6 +470,14 @@ def test_diagnostic_anchor_never_evicts_the_whole_refill_round() -> None:
         # 探针发现：无分隔符拼接时 merge_spans 会把两个符号并成一段跨度，
         # 只数跨度看不到第二个目标 → 必须逐 token 核对身份
         ("RagService.javaOrderService 的实现", False),
+        # 五审 P1：句末标点不是协调连接词。ShortText 未禁止句末标点，把它当连接词
+        # 会让同一方面的"缺失"与"已取得后被挤出"三态说明重新并存
+        ("RagService 生产源码，", True),
+        ("RagService 生产源码,", True),
+        ("RagService 生产源码；", True),
+        ("RagService 生产源码;", True),
+        ("当前证据未覆盖 RagService 的生产源码。", True),
+        ("，RagService 生产源码", True),  # 句首标点同理
     ],
 )
 def test_absorption_only_swallows_pure_identity_gaps(text: str, absorbed: bool) -> None:

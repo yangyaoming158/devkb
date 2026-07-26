@@ -245,9 +245,26 @@ _TYPE_QUALIFIERS: dict[EvidenceType, frozenset[str]] = {
 # **不含连接词**——把"与/和/及/或/、/，"当噪音抹掉，"RagService 和测试"就会退化成
 # "测试"并被整条吞掉（四审 P1 根因）；它们改由 `_CONNECTOR` 单独 fail-closed。
 _QUALIFIER_NOISE = re.compile(r"[\s的了中里内之。：:（）()\[\]\"'`]+")
-# 协调连接词：目标两侧出现即说明这句还在枚举**另一个**目标（"RagService 及迁移文件"），
+# 协调连接词：紧挨目标出现即说明这句还在枚举**另一个**目标（"RagService 及迁移文件"），
 # 而上面两张限定词表里的词都不含这些字符，故这道闸门不会误伤真正的纯身份缺口。
 _CONNECTOR = re.compile(r"以及|或者|[与和及或、，,；;]")
+# 连接词的"另一侧只剩这些字符"即无并列对象：句末逗号/分号不是连接词（五审 P1）
+_PUNCT_EDGE = " \t\n。．.！!？?：:；;，,、"
+
+
+def _has_coordinator(text: str, *, target_on_right: bool) -> bool:
+    """这段紧邻目标的文本里，是否存在**真正起并列作用**的连接词。
+
+    连接词靠目标的那一侧天然有内容（就是目标本身），故只需检查**背离目标的一侧**还有
+    没有实词：有 → 这是"目标 + 连接词 + 另一个目标"（"RagService、设计文档"）；没有 →
+    它只是句末/句首标点（"RagService 生产源码，"），ShortText 并未禁止句末标点，把它
+    当连接词会让合法输出重新与"被挤出"三态说明并存（五审 P1）。
+    """
+    for match in _CONNECTOR.finditer(text):
+        outward = text[: match.start()] if target_on_right else text[match.end() :]
+        if outward.strip(_PUNCT_EDGE):
+            return True
+    return False
 
 
 def _is_pure_identity_gap(text: str, item: RequiredEvidenceItem) -> bool:
@@ -259,9 +276,10 @@ def _is_pure_identity_gap(text: str, item: RequiredEvidenceItem) -> bool:
     1. **目标计数**：文本里的每个目标 token 都必须指向 ``item`` 本身。只数
        ``iter_target_spans`` 不够——相接的跨度会被 ``merge_spans`` 合成一段，
        ``RagService.javaOrderService`` 这种无分隔符拼接只剩一段却含两个符号。
-    2. **协调连接词**：目标两侧出现 与/和/及/或/、/逗号 一律不吸收（"RagService 和测试"
-       是两个目标，不是一个目标加限定词）。T22 还能从"测试/迁移文件/设计文档"这类
-       **类型词**解析出 type-only 目标，它们进不了 spans，只能靠这道与下一道闸门兜住。
+    2. **协调连接词**：目标左右两段各自判，**背离目标的一侧还有实词**才算并列——
+       "RagService 和测试" / "RagService、设计文档" 不吸收，"RagService 生产源码，"
+       的句末逗号不算（五审 P1）。T22 还能从"测试/迁移文件/设计文档"这类**类型词**
+       解析出 type-only 目标，它们进不了 spans，只能靠这道与下一道闸门兜住。
     3. **类型相容**：残余限定词必须落在该 item 类型自己的表里；"RagService 的测试"
        绑到 production_source 的 R1 上时不得吸收——三态说明只覆盖生产源码。反向也成立：
        绑定 item 必有 path/symbol，T22 的 ``_build`` 在同类型已有点名项时会丢弃 type-only
@@ -275,10 +293,12 @@ def _is_pure_identity_gap(text: str, item: RequiredEvidenceItem) -> bool:
     if len(spans) != 1 or not target_tokens_all_match(item, text):
         return False  # 零个目标无从绑定；还有别的目标就绝不整条吞掉
     start, end = spans[0]
-    remainder = text[:start] + text[end:]
-    if _CONNECTOR.search(remainder):
+    before, after = text[:start], text[end:]
+    if _has_coordinator(before, target_on_right=True) or _has_coordinator(
+        after, target_on_right=False
+    ):
         return False
-    qualifier = _QUALIFIER_NOISE.sub("", strip_absence_markers(remainder))
+    qualifier = _QUALIFIER_NOISE.sub("", strip_absence_markers(before + after))
     return qualifier in _IDENTITY_QUALIFIERS or qualifier in _TYPE_QUALIFIERS[item.type]
 
 
