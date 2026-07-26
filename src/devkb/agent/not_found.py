@@ -239,6 +239,12 @@ class CorpusProfile:
 class NotFoundInput:
     text: str
     source: NotFoundSource
+    # T25.1：该条目的**全部可解析目标**都落在"本次回答实际交付的引用来源"里时，由
+    # finalize 填入命中的 rel_path（E0∩E1，判定见 nodes.citation_scope）。空元组表示
+    # 不适用，走 T23 原路径、输出逐字不变。
+    cited_paths: tuple[str, ...] = ()
+    # 该条目是否只是"目标本身 + 与其类型相容的通用限定词"（E2，见 nodes.is_identity_only_gap）
+    identity_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -332,6 +338,12 @@ class _Markers:
     has_absence: bool
     has_repo_negation: bool
     exhaustive: bool
+    # T25.1：交付引用事实同样是**整条**语句级的。放在这里而不是逐段计算——同一条目会按
+    # 目标被切成多段多原因（`RagService 和 DocumentRepository 的实现未找到` 实测切为
+    # evidence_history + corpus_index 两段），逐段判定会让"只有部分目标被交付引用"的
+    # 条目在第一段误命中（前审 PG-03）。
+    cited_paths: tuple[str, ...] = ()
+    identity_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -344,6 +356,10 @@ class _Assessment:
     refs: tuple[str, ...]
     replace: bool
     weakened: bool
+    # T25.1：该段目标是本次回答的交付引用来源（比"出现在某轮检索证据里"更强、也更贴近
+    # 用户看到的 citations）。只影响文案与告警，不改 category/basis 值域。
+    delivered: bool = False
+    identity_only: bool = False
 
     @property
     def reason(self) -> tuple[NotFoundCategory, FactCheckBasis]:
@@ -367,8 +383,33 @@ def _render_refs(refs: Sequence[str]) -> str:
     return f"{shown} 等 {len(refs)} 条" if len(refs) > 3 else shown
 
 
-def _clause(basis: FactCheckBasis, refs: Sequence[str], *, exhaustive: bool) -> str:
-    """由**合并后的**事实来源渲染确定性说明；空串表示无需说明。"""
+def _clause(
+    basis: FactCheckBasis,
+    refs: Sequence[str],
+    *,
+    exhaustive: bool,
+    delivered: bool = False,
+    identity_only: bool = False,
+) -> str:
+    """由**合并后的**事实来源渲染确定性说明；空串表示无需说明。
+
+    T25.1 的两条 delivered 文案**只陈述可证事实**：某文件是本次回答的引用来源之一，
+    以及（identity_only 时）本条"未找到"与该交付引用不符。确定性代码无法证明"该缺口
+    所述命题已被正文支撑"（`path_matches_token` 只判文件身份、L1 只判引文逐字子串），
+    也无法证明"该命题与正文相冲突"（正文可能压根没谈这个命题），故两类结论一律不写。
+    """
+    if delivered:
+        if identity_only:
+            # 不回引原来的缺失措辞：交付文案里一旦出现"未找到"字样，扫描式核对
+            # （U14/T31）就无法区分"断言缺失"与"引用缺失措辞"，Gate 的可判性会下降
+            return (
+                f"该文件是本次回答的引用来源之一（{_render_refs(refs)}），"
+                "原缺口陈述与交付引用不符，已按引用事实更正"
+            )
+        return (
+            f"该文件是本次回答的引用来源之一（{_render_refs(refs)}）；"
+            "本条缺口由生成模型自述，未经确定性核验，不代表该文件未被引用"
+        )
     if basis == "evidence_history":
         return (
             f"该目标已出现在本次检索证据中（{_render_refs(refs)}），"
@@ -392,9 +433,18 @@ def _clause(basis: FactCheckBasis, refs: Sequence[str], *, exhaustive: bool) -> 
 
 
 def _render(assessment: _Assessment, text: str, refs: Sequence[str], *, exhaustive: bool) -> str:
-    clause = _clause(assessment.basis, refs, exhaustive=exhaustive)
+    clause = _clause(
+        assessment.basis,
+        refs,
+        exhaustive=exhaustive,
+        delivered=assessment.delivered,
+        identity_only=assessment.identity_only,
+    )
     if not clause:
         return text
+    if assessment.delivered and assessment.identity_only:
+        # 纯身份陈述被交付引用直接反证：主语换成引用本身，原文只留在 original_text
+        return f"{_render_refs(refs)}：{clause}"
     if assessment.replace:
         return f"{_subject(text, ())}：{clause}"
     return f"{text}（{clause}）"
@@ -419,15 +469,28 @@ def _assess(
     in_evidence = list(dict.fromkeys(in_evidence))
     in_index = list(dict.fromkeys(in_index))
 
+    in_citations: list[str] = []
+    for token in tokens:
+        in_citations.extend(_seen_paths(token, markers.cited_paths))
+    in_citations = list(dict.fromkeys(in_citations))
+
     uningested = _uningested_signals(segment, corpus)
     category: NotFoundCategory = "missing_from_current_evidence"
     basis: FactCheckBasis = "no_conflict_found"
     refs: tuple[str, ...] = ()
     weakened = False
+    delivered = False
 
-    # 优先级即"这一段的原因是什么"：证据事实 > 索引事实 > 摄取范围 > 无从证明的强断言。
-    # 一段只取一个，混合原因由调用方拆成多条（用户裁决 2026-07-25：一条一原因）。
-    if markers.rewritable and markers.has_absence and in_evidence:
+    # 优先级即"这一段的原因是什么"：交付引用 > 证据事实 > 索引事实 > 摄取范围 >
+    # 无从证明的强断言。一段只取一个，混合原因由调用方拆成多条（用户裁决 2026-07-25）。
+    # T25.1 把"交付引用"排在最前：它是同类事实里最强的一条——用户看到的 citations
+    # 就是它，据此说"未找到"在身份层面直接不符。basis 仍复用 evidence_history，
+    # 不扩 FactCheckBasis 值域（Answer 契约不变）。
+    if markers.rewritable and markers.has_absence and in_citations:
+        delivered = True
+        basis = "evidence_history"
+        refs = tuple(in_citations)
+    elif markers.rewritable and markers.has_absence and in_evidence:
         basis = "evidence_history"
         refs = tuple(in_evidence)
     elif markers.rewritable and markers.has_absence and in_index:
@@ -448,9 +511,17 @@ def _assess(
         refs=refs,
         # Gate 要求已召回/已索引路径不得被写成"未找到/不存在"，故这两类与仓库级否定
         # 整条改写（主语用去标记后的方面名）；格式未摄取原文成立，只追加披露。
+        # delivered 无条件改写：交付引用即便因 retrieve 异常未进历史账本，也绝不能
+        # 让"未找到 X"原样交付。
         replace=markers.rewritable
-        and (bool(markers.has_absence and (in_evidence or in_index)) or markers.has_repo_negation),
+        and (
+            delivered
+            or bool(markers.has_absence and (in_evidence or in_index))
+            or markers.has_repo_negation
+        ),
         weakened=weakened,
+        delivered=delivered,
+        identity_only=delivered and markers.identity_only,
     )
 
 
@@ -568,6 +639,8 @@ def calibrate_not_found(
     dropped: list[str] = []
     uningested_all: set[str] = set()
     unsplit: set[str] = set()
+    delivered_identity: set[str] = set()
+    delivered_residual: set[str] = set()
     weakened = 0
 
     for item in items:
@@ -589,6 +662,8 @@ def calibrate_not_found(
             exhaustive=exhaustive,
             # 全局否定 = 仓库级断言：无 inventory 同样只能降级（"未找到任何其他 Controller"）
             has_repo_negation=exhaustive or any(marker in raw for marker in _REPO_LEVEL_NEGATION),
+            cited_paths=item.cited_paths,
+            identity_only=item.identity_only,
         )
         assess = partial(_assess, markers=markers, evidence_paths=evidence_paths, corpus=corpus)
 
@@ -629,6 +704,9 @@ def calibrate_not_found(
             text = _render(assessment, segment_text, refs, exhaustive=markers.exhaustive)
             if text in texts:
                 continue
+            if assessment.delivered:
+                target = delivered_identity if assessment.identity_only else delivered_residual
+                target.update(refs)
             if assessment.category == "unsupported_or_not_ingested":
                 uningested_all.update(refs)
             else:
@@ -652,13 +730,34 @@ def calibrate_not_found(
         warnings.append(
             "finalize: 前轮已支持方面被后轮报为缺失，已剔除（" + "；".join(dropped) + "）"
         )
+    # T25.1 的两条告警只陈述可证事实：①身份级不符（把交付引用写成"未找到"）可证；
+    # ②"指向交付引用 + 含未核验命题"是两项事实的合取，**不得**据此断言与正文冲突。
+    if delivered_identity:
+        warnings.append(
+            "finalize: not_found 把本次回答的引用来源写成缺失，已按引用事实更正（"
+            + ",".join(sorted(delivered_identity))
+            + "）"
+        )
+    if delivered_residual:
+        warnings.append(
+            "finalize: not_found 指向本次回答的引用来源，且含未经确定性核验的命题（"
+            + ",".join(sorted(delivered_residual))
+            + "）"
+        )
+    delivered_all = delivered_identity | delivered_residual
     for basis_key, label in (
         ("evidence_history", "全轮证据中出现过的路径被写成缺失"),
         ("corpus_index", "已索引 active 路径被写成缺失"),
     ):
         hits = list(
             dict.fromkeys(
-                ref for detail in details if detail.basis == basis_key for ref in detail.refs
+                ref
+                for detail in details
+                if detail.basis == basis_key
+                for ref in detail.refs
+                # 交付引用已由上面两条更精确地报告；重复计入会把"出现在某轮检索证据里"
+                # 说到本就不一定成立的路径上（retrieve 异常时交付引用可能不在历史账本）
+                if ref not in delivered_all
             )
         )
         if hits:

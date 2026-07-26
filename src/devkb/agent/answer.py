@@ -44,7 +44,21 @@ def _limitations(state: AgentState) -> list[str]:
     mode = state["final_mode"]
     items: list[str] = []
     if mode == "partial":
-        items.append("仅回答了现有证据支持的部分，未覆盖方面见 not_found")
+        # T25.1（前审 PG-04）：partial 的真实局限有四种，措辞必须与终态实际字段相符。
+        # 只看 mode 会产生两句不成立的话：`not_found` 被 T23 事实校验剔空后仍把用户
+        # 指向空清单；而 `claims` 为空时"回答了现有证据支持的部分"根本没发生——且
+        # 这里还要再分两种，正文可能是确定性降级文案（生成失败），也可能是模型真实
+        # 输出但没给结构化 claim（`test_sufficient_without_structured_claims_...`）。
+        if not state["final_claims"]:
+            items.append(
+                "未生成经验证的结构化断言；正文为确定性降级文案"
+                if state["generate_failed"]
+                else "正文未附结构化 claim，未经逐条引用验证"
+            )
+        elif state["final_not_found"]:
+            items.append("仅回答了现有证据支持的部分，未覆盖方面见 not_found")
+        else:
+            items.append("仅回答了现有证据支持的部分；本次未列出具体未覆盖方面")
     if mode == "refusal":
         items.append("未找到足以回答问题的证据，未生成实质回答")
     verification = state["verification"]

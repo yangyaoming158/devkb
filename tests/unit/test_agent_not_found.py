@@ -6,13 +6,14 @@
 
 from __future__ import annotations
 
+import random
 import uuid
 
 import pytest
 
 from devkb.agent.answer import build_answer
 from devkb.agent.graph import run_agent
-from devkb.agent.nodes import AgentRuntime
+from devkb.agent.nodes import AgentRuntime, citation_scope, is_identity_only_gap
 from devkb.agent.not_found import (
     RECOGNIZED_FILE_EXTS,
     TERM_SUFFIX_HINTS,
@@ -673,3 +674,207 @@ async def test_answer_json_carries_parallel_not_found_details() -> None:
     assert all(isinstance(item, str) for item in answer["not_found"])  # 契约不变：list[str]
     assert answer["not_found_details"][0]["category"] == "unsupported_or_not_ingested"
     assert answer["not_found_details"][0]["original_text"] == "未找到 V1__init.sql 的字段定义"
+
+
+# ---- T25.1 交付引用账本（E0/E1/E2）与诚实边界 ------------------------------
+#
+# 位置说明：本节按 Task Packet `docs/tasks/T25.1-finalize-consistency.md` 冻结的
+# 测试位置（U* → 本文件）落盘。T25.1 复用 T23 的分类/事实校验管线，故与本文件同源。
+
+_RAG = "backend/src/main/java/svc/RagService.java"
+_DOC_REPO = "backend/src/main/java/repo/DocumentRepository.java"
+_ARCH = "docs/architecture.md"
+
+# 诚实边界不变量：交付文案与新增 warning 都不得出现这些未经证明的措辞（PG-01/PG-05）
+FORBIDDEN_CLAIMS = (
+    "已被证明",
+    "已被支撑",
+    "直接支撑",
+    "不成立",
+    "可以确认",
+    "存在冲突",
+    "相矛盾",
+)
+
+
+def _calibrate_scoped(
+    text: str,
+    *,
+    cited: tuple[str, ...] = (),
+    identity_only: bool = False,
+    evidence_paths: tuple[str, ...] = (),
+    corpus: CorpusProfile | None = None,
+):
+    return calibrate_not_found(
+        [
+            NotFoundInput(
+                text=text,
+                source="generate_draft",
+                cited_paths=cited,
+                identity_only=identity_only,
+            )
+        ],
+        evidence_paths=evidence_paths,
+        corpus=corpus or CorpusProfile.unknown(),
+    )
+
+
+def test_u1_delivered_identity_gap_is_restated_from_the_citation() -> None:
+    """U1：纯身份缺口指向交付引用 → 主语换成该引用，"未找到"措辞消失。"""
+    result = _calibrate_scoped(
+        "未找到 RagService", cited=(_RAG,), identity_only=True, evidence_paths=(_RAG,)
+    )
+    (text,) = result.texts
+    assert text.startswith(f"{_RAG}：")
+    assert "本次回答的引用来源之一" in text
+    assert "已按引用事实更正" in text
+    assert "未找到" not in text
+    detail = result.details[0]
+    assert detail.basis == "evidence_history"
+    assert detail.refs == (_RAG,)
+    assert detail.original_text == "未找到 RagService"
+    assert any("已按引用事实更正" in warning for warning in result.warnings)
+
+
+def test_u1b_delivered_residual_gap_keeps_semantics_and_only_discloses() -> None:
+    """U1b/U6：含残余命题时只追加披露，方法级语义原样保留、不替换主语。"""
+    original = "RagService 中 NO_ANSWER 的触发条件未覆盖"
+    result = _calibrate_scoped(original, cited=(_RAG,), evidence_paths=(_RAG,))
+    (text,) = result.texts
+    assert "NO_ANSWER 的触发条件" in text
+    assert "本次回答的引用来源之一" in text
+    assert "未经确定性核验" in text
+    assert not text.startswith(f"{_RAG}：")
+    assert result.details[0].original_text == original
+    assert any("未经确定性核验的命题" in warning for warning in result.warnings)
+
+
+def test_u2_uncited_gap_output_is_unchanged_from_baseline() -> None:
+    """U2：cited_paths 为空 = T23 原路径；逐字锁定 62ec70d(=608fb46 内容) 的输出。"""
+    result = _calibrate_scoped("未找到 RagService 的实现", evidence_paths=(_RAG,))
+    assert result.texts == (
+        f"RagService 的实现：该目标已出现在本次检索证据中（{_RAG}），"
+        "属当前证据未展开的部分；当前证据不足以支撑该方面的完整结论",
+    )
+    assert result.details[0].basis == "evidence_history"
+    assert result.warnings == (
+        f"finalize: not_found 事实校验修正——全轮证据中出现过的路径被写成缺失（{_RAG}）",
+    )
+    assert not any("本次回答的引用来源" in warning for warning in result.warnings)
+
+
+def test_u3_citation_scope_returns_empty_without_resolvable_target() -> None:
+    """U3：纯散文缺口没有可解析目标 → 不进入 T25.1 路径。"""
+    assert citation_scope("部署流程未覆盖", cited_paths=(_RAG,), known_paths=(_RAG,)) == ()
+
+
+def test_u4_citation_scope_fails_closed_when_any_resolvable_target_is_uncited() -> None:
+    """U4（PG-03）：资格按整条条目判定——只要有一个可解析目标不在交付引用里就整条放弃。"""
+    assert (
+        citation_scope(
+            "RagService 和 DocumentRepository 的实现未找到",
+            cited_paths=(_RAG,),
+            known_paths=(_RAG, _DOC_REPO),
+        )
+        == ()
+    )
+
+
+def test_u4b_partially_cited_item_renders_exactly_as_baseline() -> None:
+    """U4b（PG-03）：该条目会被 T23 切成两段两原因，两段都不得出现引用来源说明。"""
+    result = _calibrate_scoped(
+        "RagService 和 DocumentRepository 的实现未找到",
+        evidence_paths=(_RAG,),
+        corpus=CorpusProfile.from_paths([_RAG, _DOC_REPO]),
+    )
+    assert len(result.texts) == 2
+    assert {detail.basis for detail in result.details} == {"evidence_history", "corpus_index"}
+    for text in result.texts:
+        assert "本次回答的引用来源" not in text
+    assert not any("本次回答的引用来源" in warning for warning in result.warnings)
+
+
+def test_u5_identity_only_requires_type_compatible_qualifier() -> None:
+    """U5：E2 的 fail-closed 边界——类型不相容、第二类目标、方法级语义都不得替换主语。"""
+    assert is_identity_only_gap("未找到 RagService", _RAG)
+    assert is_identity_only_gap("未找到 RagService 类", _RAG)
+    assert is_identity_only_gap("RagService 的生产源码未找到", _RAG)
+    assert not is_identity_only_gap("未找到 RagService 的测试", _RAG)
+    assert not is_identity_only_gap("RagService 和测试都未找到", _RAG)
+    assert not is_identity_only_gap("RagService 中 NO_ANSWER 的触发条件未覆盖", _RAG)
+
+
+def test_u6_citation_scope_ignores_targets_absent_from_delivered_citations() -> None:
+    """U6：目标可解析但不在交付引用里（只引用了设计文档）→ 不标注。"""
+    assert (
+        citation_scope("未找到 RagService 的实现", cited_paths=(_ARCH,), known_paths=(_ARCH, _RAG))
+        == ()
+    )
+
+
+@pytest.mark.parametrize("identity_only", [True, False])
+def test_u14_delivered_texts_and_warnings_avoid_unprovable_claims(identity_only: bool) -> None:
+    """U14（PG-01/PG-05）：交付文案与新增 warning 都不得声称"已支撑"或"存在冲突"。"""
+    result = _calibrate_scoped(
+        "未找到 RagService 的 owner 校验",
+        cited=(_RAG,),
+        identity_only=identity_only,
+        evidence_paths=(_RAG,),
+    )
+    for blob in (*result.texts, *result.warnings):
+        for word in FORBIDDEN_CLAIMS:
+            assert word not in blob, (word, blob)
+
+
+def test_u11_identity_judgement_is_stable_under_strippable_variants() -> None:
+    """U11：插入可剥离前缀/缺失措辞/标点共 539 种变形，E2 判定不得翻转。"""
+    orphans = ("当前证据", "证据中", "证据里", "源码中", "代码中", "仓库中", "项目中")
+    markers = (
+        "未找到",
+        "没有找到",
+        "找不到",
+        "未提供",
+        "未给出",
+        "缺少",
+        "缺失",
+        "未召回",
+        "未覆盖",
+        "未包含",
+        "未出现",
+    )
+    puncts = ("", "，", ",", "；", ";", "、", "。")
+    assert is_identity_only_gap("未找到 RagService", _RAG)
+    for orphan in orphans:
+        for marker in markers:
+            for punct in puncts:
+                variant = f"{orphan}{punct}RagService {marker}"
+                assert is_identity_only_gap(variant, _RAG), variant
+
+
+def test_u12_citation_scope_two_sided_invariants_on_random_combinations() -> None:
+    """U12：随机组合双向不变量——既抓错误标注，也抓应标注却未标注。"""
+    rng = random.Random(20260726)
+    # 池内每个 stem 都必须是词法认得的目标（`architecture` 这类小写词不是符号 token，
+    # 放进来会让"提到了它"与"能解析出它"脱节，探针就测不到真正的判据）
+    pool = [_RAG, _DOC_REPO, "docs/README.md", "backend/src/main/java/svc/CitationParser.java"]
+    names = {path: path.rsplit("/", 1)[-1].rsplit(".", 1)[0] for path in pool}
+    for path, name in names.items():
+        assert citation_scope(f"未找到 {name}", cited_paths=(path,), known_paths=(path,)) == (path,)
+    annotated = 0
+    rejected = 0
+    for _ in range(2000):
+        mentioned = rng.sample(pool, rng.randint(1, len(pool)))
+        cited = tuple(path for path in pool if rng.random() < 0.5)
+        text = "未找到 " + " 和 ".join(names[path] for path in mentioned) + " 的实现"
+        scope = citation_scope(text, cited_paths=cited, known_paths=tuple(pool))
+        resolvable_uncited = [path for path in mentioned if path not in cited]
+        if scope:
+            annotated += 1
+            # 不变量①：标注 ⟹ 该条目每个可解析目标都在交付引用里
+            assert not resolvable_uncited, (text, cited, scope)
+            assert set(scope) <= set(cited)
+        else:
+            rejected += 1
+            # 不变量②：未标注 ⟹ 确有可解析目标不在交付引用里（不得无故放弃）
+            assert resolvable_uncited, (text, cited)
+    assert annotated > 0 and rejected > 0

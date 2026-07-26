@@ -33,9 +33,10 @@ from devkb.agent.graph import (
     route_after_evaluate,
     run_agent,
 )
-from devkb.agent.nodes import AgentRuntime, make_pg_retriever
+from devkb.agent.nodes import AgentRuntime, finalize_consistency, make_pg_retriever
 from devkb.agent.state import (
     AgentInput,
+    ClaimOutput,
     EvaluateOutput,
     Evidence,
     GenerateOutput,
@@ -541,3 +542,222 @@ async def test_pg_retriever_explicitly_uses_online_hnsw_defaults(monkeypatch: An
     assert [item["mode"] for item in seen] == ["hnsw", "hnsw"]
     assert [item["ef_search"] for item in seen] == [HNSW_EF_SEARCH, HNSW_EF_SEARCH]
     assert all(item["top_k"] == 8 for item in seen)
+
+
+# ---- T25.1 finalize 前确定性一致性检查 --------------------------------------
+#
+# 合同：docs/tasks/T25.1-finalize-consistency.md（I* 图级用例 + U7–U10 判据函数级）
+
+_RAG_PATH = "backend/src/main/java/svc/RagService.java"
+_RAG_CONTENT = (
+    "public Conversation findConversation(Long conversationId, Long ownerId) {\n"
+    "  return conversationRepository.findByIdAndOwner(conversationId, ownerId);\n}"
+)
+CASE7_GEN = (
+    '{"answer_text":"会话删除前先经 findConversation 做 owner 校验 [E1]。","claims":'
+    '[{"text":"RagService.findConversation 调用 findByIdAndOwner 强制 owner 隔离",'
+    '"evidence_ids":["E1"],"quotes":["conversationRepository.findByIdAndOwner"]}],'
+    '"not_found":["RagService.findConversation 实现未给出，无法确认会话删除是否强制 owner"]}'
+)
+BODY_ONLY_GEN = (
+    '{"answer_text":"依据 [E1] 可知会话删除有 owner 校验。","claims":[],'
+    '"not_found":["未找到 RagService"]}'
+)
+# 诚实边界不变量（PG-01/PG-05）：交付文案与 warning 都不得出现这些未经证明的措辞
+FORBIDDEN_CLAIMS = (
+    "已被证明",
+    "已被支撑",
+    "直接支撑",
+    "不成立",
+    "可以确认",
+    "存在冲突",
+    "相矛盾",
+)
+
+
+def _custom_runtime(script: list[str | Exception], evidences: list[Evidence]) -> AgentRuntime:
+    async def retriever(_project_id: uuid.UUID, _queries: tuple[str, ...]) -> list[Evidence]:
+        return list(evidences)
+
+    return AgentRuntime(llm=FakeLLM(script), retriever=retriever)
+
+
+def _rag_evidence() -> Evidence:
+    return Evidence(
+        evidence_id="E1",
+        chunk_id=uuid.UUID(int=77),
+        rel_path=_RAG_PATH,
+        title_path="RagService",
+        content=_RAG_CONTENT,
+        start_line=230,
+        end_line=240,
+        score=0.7,
+    )
+
+
+async def test_i1_case7_gap_pointing_at_delivered_citation_is_scoped_not_asserted() -> None:
+    """I1：案例七原型——缺口指向终稿引用来源时追加可证披露，且不声称已支撑/存在冲突。"""
+    result = await run_agent(
+        _custom_runtime([PLAN, EVAL_OK, CASE7_GEN], [_rag_evidence()]),
+        AgentInput(
+            run_id=uuid.uuid4(), project_id=uuid.uuid4(), question="用户 A 能否删除用户 B 的会话？"
+        ),
+    )
+
+    assert result["final_mode"] == "partial"
+    (gap,) = result["final_not_found"]
+    assert "无法确认会话删除是否强制 owner" in gap  # 原缺口语义保留
+    assert "本次回答的引用来源之一" in gap
+    assert "未经确定性核验" in gap
+    assert any("未经确定性核验的命题" in warning for warning in result["warnings"])
+    detail = result["final_not_found_details"][0]
+    assert (
+        detail.original_text
+        == "RagService.findConversation 实现未给出，无法确认会话删除是否强制 owner"
+    )
+    assert detail.refs == (_RAG_PATH,)
+    answer = build_answer(result)
+    for blob in (*answer["not_found"], *answer["limitations"], *answer["warnings"]):
+        for word in FORBIDDEN_CLAIMS:
+            assert word not in blob, (word, blob)
+
+
+async def test_i2_partial_without_gaps_does_not_point_at_empty_not_found() -> None:
+    """I2：not_found 被 T23 剔空后，limitations 不得再把用户指向空清单。"""
+    eval_supported = (
+        '{"sufficiency":"sufficient","supported_aspects":["回滚补偿"],"missing_aspects":[]}'
+    )
+    generate = (
+        '{"answer_text":"库存扣减由事务保护 [E1]。","claims":[{"text":"库存扣减由事务保护",'
+        '"evidence_ids":["E1"],"quotes":["库存扣减由事务保护"]}],"not_found":["回滚补偿"]}'
+    )
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, EVAL_PART, REFINE, eval_supported, generate], retrievals), _input()
+    )
+
+    assert result["final_mode"] == "partial"
+    assert result["final_not_found"] == []
+    limitations = build_answer(result)["limitations"]
+    assert not any("未覆盖方面见 not_found" in item for item in limitations)
+    assert any("本次未列出具体未覆盖方面" in item for item in limitations)
+
+
+async def test_i3_generate_failure_limitation_names_the_deterministic_fallback() -> None:
+    """I3（PG-04 对照 A）：生成失败的 partial 不得声称"回答了现有证据支持的部分"。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_OK, "{}", "{}"], retrievals), _input())
+
+    assert result["final_mode"] == "partial" and result["generate_failed"] is True
+    assert result["final_answer"] == "现有证据不足以可靠生成回答。"
+    limitations = build_answer(result)["limitations"]
+    assert any("正文为确定性降级文案" in item for item in limitations)
+    assert not any("仅回答了现有证据支持的部分" in item for item in limitations)
+
+
+async def test_i7_no_claims_without_generate_failure_reports_the_real_limitation() -> None:
+    """I7（PG-04 对照 B）：模型真实正文但无结构化 claim ≠ 确定性降级文案。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_OK, GENERATE_NOCLAIMS], retrievals), _input())
+
+    assert result["final_mode"] == "partial" and result["generate_failed"] is False
+    assert result["final_answer"] == "库存扣减由事务保护。"
+    limitations = build_answer(result)["limitations"]
+    assert any("未经逐条引用验证" in item for item in limitations)
+    assert not any("确定性降级文案" in item for item in limitations)
+
+
+async def test_i4_regenerated_draft_goes_through_the_same_consistency_pass() -> None:
+    """I4：L1 失败重生成后，第二稿的缺口同样过 T25.1；第一稿文案无残留。"""
+    bad_quote = (
+        '{"answer_text":"会话删除有 owner 校验 [E1]。","claims":[{"text":"首稿断言",'
+        '"evidence_ids":["E1"],"quotes":["findByIdAndOwnerId 强制校验"]}],'
+        '"not_found":["首稿缺口：构造器细节未召回"]}'
+    )
+    result = await run_agent(
+        _custom_runtime([PLAN, EVAL_OK, bad_quote, CASE7_GEN], [_rag_evidence()]),
+        AgentInput(
+            run_id=uuid.uuid4(), project_id=uuid.uuid4(), question="用户 A 能否删除用户 B 的会话？"
+        ),
+    )
+
+    assert result["generate_calls"] == 2 and result["llm_calls"] <= 6
+    assert result["node_history"][-5:] == [
+        "generate",
+        "verify",
+        "generate",
+        "verify",
+        "finalize",
+    ]
+    assert not any("首稿缺口" in item for item in result["final_not_found"])
+    (gap,) = result["final_not_found"]
+    assert "本次回答的引用来源之一" in gap
+
+
+async def test_i5_full_candidate_with_evaluator_gap_is_downgraded_not_silently_dropped() -> None:
+    """I5：full 终态出现缺口时降级 partial 并保留缺口，不得静默丢弃。"""
+    eval_with_missing = (
+        '{"sufficiency":"sufficient","supported_aspects":["库存"],"missing_aspects":["补偿路径"]}'
+    )
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, eval_with_missing, GENERATE], retrievals), _input())
+
+    assert result["final_mode"] == "partial"
+    assert result["final_not_found"] == ["补偿路径"]
+    assert any("降级 partial" in warning for warning in result["warnings"])
+    limitations = build_answer(result)["limitations"]
+    assert any("未覆盖方面见 not_found" in item for item in limitations)
+
+
+async def test_i6_body_only_citation_counts_as_delivered_evidence() -> None:
+    """I6（PG-02）：正文独立 [E#]、claims 为空时，交付引用集仍由正文标记贡献。"""
+    result = await run_agent(
+        _custom_runtime([PLAN, EVAL_OK, BODY_ONLY_GEN], [_rag_evidence()]),
+        AgentInput(
+            run_id=uuid.uuid4(), project_id=uuid.uuid4(), question="用户 A 能否删除用户 B 的会话？"
+        ),
+    )
+
+    answer = build_answer(result)
+    assert [citation["evidence_id"] for citation in answer["citations"]] == ["E1"]
+    assert result["final_claims"] == []
+    (gap,) = result["final_not_found"]
+    assert gap.startswith(f"{_RAG_PATH}：")
+    assert "未找到" not in gap
+    assert any("已按引用事实更正" in warning for warning in result["warnings"])
+
+
+def _claim() -> ClaimOutput:
+    return ClaimOutput(text="断言", evidence_ids=["E1"], quotes=[])
+
+
+def test_u7_consistent_partial_is_left_untouched() -> None:
+    """U7：合法 partial 终态不得误报。"""
+    assert finalize_consistency("partial", [_claim()], [], "正文 [E1]。") == ("partial", [])
+
+
+def test_u8_finalize_consistency_is_idempotent() -> None:
+    """U8：同一终态连续裁决结果一致。"""
+    args = ("full", [_claim()], ["缺口"], "正文 [E1]。")
+    first = finalize_consistency(*args)
+    assert first == finalize_consistency(*args)
+    assert first[0] == "partial"
+
+
+def test_u9_full_requires_no_gap_and_at_least_one_claim() -> None:
+    """U9：full 的两个结构前提各自触发降级。"""
+    with_gap, gap_warnings = finalize_consistency("full", [_claim()], ["缺口"], "正文 [E1]。")
+    assert with_gap == "partial"
+    assert any("未覆盖缺口" in warning for warning in gap_warnings)
+
+    no_claim, claim_warnings = finalize_consistency("full", [], [], "正文。")
+    assert no_claim == "partial"
+    assert any("无结构化 claim" in warning for warning in claim_warnings)
+
+
+def test_u10_refusal_is_never_upgraded_and_residues_are_reported() -> None:
+    """U10：refusal 只报告残留、绝不上调。"""
+    mode, warnings = finalize_consistency("refusal", [_claim()], [], "正文 [E1]。")
+    assert mode == "refusal"
+    assert any("残留结构化 claim" in warning for warning in warnings)
+    assert any("残留引用标记" in warning for warning in warnings)

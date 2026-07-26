@@ -6,7 +6,7 @@ import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from pydantic import ValidationError
@@ -33,9 +33,13 @@ from devkb.agent.evidence_types import (
     RequiredEvidence,
     RequiredEvidenceItem,
     bound_required_ids,
+    classify_path,
     compute_coverage,
     forbidden_citation_hits,
+    iter_path_tokens,
+    iter_symbol_tokens,
     iter_target_spans,
+    path_matches_token,
     required_satisfied,
     target_tokens_all_match,
     uncovered_items,
@@ -346,6 +350,111 @@ def strip_items_contradicting_displaced_notes(
             continue
         kept.append(item)
     return kept, dropped
+
+
+def citation_scope(
+    text: str,
+    *,
+    cited_paths: Sequence[str],
+    known_paths: Sequence[str],
+) -> tuple[str, ...]:
+    """条目的**全部可解析目标**是否都落在本次回答的交付引用里 → 命中的引用路径（E1）。
+
+    资格按**整条原始条目**判定，不按 T23 切出的目标段判定：
+    `RagService 和 DocumentRepository 的实现未找到` 实测会被切成 evidence_history +
+    corpus_index 两段，逐段判定会让"只有部分目标被交付引用"的条目在第一段误命中
+    （前审 PG-03）。
+
+    **可解析目标** = 能匹配到任一已知 rel_path（交付引用 ∪ 全轮检索历史 ∪ 语料索引）的
+    token。匹配不到任何已知路径的 token 既不参与也不阻断——词法会产出 `Conversation`
+    这类泛化词与 `RagService.findConvers` 这类截断词，它们指认不了任何文件，用来
+    卡判据只会让判据永不成立。任一可解析目标不在交付引用里即整条 fail-closed。
+    """
+    hits: list[str] = []
+    for token in [*iter_path_tokens(text), *iter_symbol_tokens(text)]:
+        cited = [path for path in cited_paths if path_matches_token(path, token)]
+        if cited:
+            hits.extend(cited)
+            continue
+        if any(path_matches_token(path, token) for path in known_paths):
+            return ()
+    return tuple(dict.fromkeys(hits))
+
+
+def is_identity_only_gap(text: str, rel_path: str) -> bool:
+    """条目是否只是"该目标本身 + 与其类型相容的通用限定词"（E2）。
+
+    与 T24 的 `_is_pure_identity_gap` 同口径、共用同一套闭合限定词表与噪音正则，
+    区别只在锚点：那边绑定 `RequiredEvidenceItem`，这里绑定一条交付引用路径。
+    连接词不在 `_QUALIFIER_NOISE` 里，故 `RagService 和测试` 的残余会落在表外 → False；
+    类型不相容（生产源码的引用配上"测试"限定词）同样 False——这两类都必须原样保留原文，
+    只能追加披露，不能把主语换成引用路径。
+    """
+    spans = iter_target_spans(text)
+    if not spans:
+        return False
+    remainder: list[str] = []
+    cursor = 0
+    for start, end in spans:
+        remainder.append(text[cursor:start])
+        cursor = end
+    remainder.append(text[cursor:])
+    qualifier = _QUALIFIER_NOISE.sub("", strip_absence_markers("".join(remainder)))
+    return (
+        qualifier in _IDENTITY_QUALIFIERS or qualifier in _TYPE_QUALIFIERS[classify_path(rel_path)]
+    )
+
+
+# 终态严重度：一致性裁决只允许沿这个顺序**下调**（full → partial → refusal）
+_MODE_RANK: dict[FinalMode, int] = {"refusal": 0, "partial": 1, "full": 2}
+
+
+def finalize_consistency(
+    mode: FinalMode,
+    kept: Sequence[ClaimOutput],
+    not_found: Sequence[str],
+    answer_text: str,
+) -> tuple[FinalMode, list[str]]:
+    """终态五字段的结构前提兜底（T25.1）：只降不升。
+
+    这些前提今天由 finalize 的分支顺序**隐式**保证，没有独立可判定的检查。显式化之后
+    两件事成立：`full` 不可能带着缺口或零 claim 交付（此前 evaluator missing 会在
+    `mode == "full"` 时被静默丢弃），`refusal` 的 claim/引用残留可被观测。
+
+    只降不升由 `min(..., key=_MODE_RANK)` 结构性保证，不依赖分支写法。
+    """
+    warnings: list[str] = []
+    resolved = mode
+    if mode == "full" and not_found:
+        warnings.append("finalize: full 终态存在未覆盖缺口，降级 partial")
+        resolved = "partial"
+    if mode == "full" and not kept:
+        warnings.append("finalize: full 终态无结构化 claim，降级 partial")
+        resolved = "partial"
+    if mode == "refusal" and kept:
+        warnings.append("finalize: refusal 终态残留结构化 claim")
+    if mode == "refusal" and _EVIDENCE_MARK.search(answer_text):
+        warnings.append("finalize: refusal 正文残留引用标记")
+    return min(mode, resolved, key=lambda candidate: _MODE_RANK[candidate]), warnings
+
+
+def _with_citation_scope(
+    item: NotFoundInput,
+    cited_paths: Sequence[str],
+    known_paths: Sequence[str],
+) -> NotFoundInput:
+    """给条目打上交付引用事实（E1/E2）；确定性条目由本模块自己生成，不参与。"""
+    if item.source == "deterministic":
+        return item
+    scope = citation_scope(item.text, cited_paths=cited_paths, known_paths=known_paths)
+    if not scope:
+        return item
+    return replace(
+        item,
+        cited_paths=scope,
+        # 与**每一个**命中引用的类型都相容才算纯身份陈述（类型不相容即保留原文）
+        identity_only=all(is_identity_only_gap(item.text, path) for path in scope),
+    )
 
 
 def _rebuild_answer_from_claims(kept: list[ClaimOutput]) -> str:
@@ -942,6 +1051,23 @@ class AgentNodes:
         )
         if absorbed:
             warnings.append("finalize: 缺失项已由确定性说明覆盖（" + "；".join(absorbed) + "）")
+        # T25.1：交付引用账本（E0）——用户在 Answer 的 citations 里看到的就是这一套，
+        # 正文独立 [E#] 同样算数（前审 PG-02）。已知路径全集用来判"这个目标可不可解析"，
+        # 少了它，匹配不到交付引用的目标会被当成噪音跳过，整条 fail-closed 就形同虚设。
+        cited_paths = list(dict.fromkeys(path for _evidence_id, path in visible_citations))
+        known_paths = list(
+            dict.fromkeys(
+                [
+                    *cited_paths,
+                    *state["evidence_path_history"],
+                    *(evidence.rel_path for evidence in state["evidences"]),
+                    *sorted(self._runtime.corpus.indexed_paths),
+                ]
+            )
+        )
+        raw_not_found = [
+            _with_citation_scope(item, cited_paths, known_paths) for item in raw_not_found
+        ]
         calibration = calibrate_not_found(
             [*raw_not_found, *_deterministic_items(required_notes)],
             evidence_paths=state["evidence_path_history"],
@@ -953,6 +1079,11 @@ class AgentNodes:
         )
         not_found = list(calibration.texts)
         warnings.extend(calibration.warnings)
+
+        # T25.1：终态五字段的结构前提兜底，只降不升。必须在 refusal 正文重建之前——
+        # 重建后的模板文案恒无 [E#]，放在之后就永远检不出正文残留引用标记。
+        mode, consistency_warnings = finalize_consistency(mode, kept, not_found, answer)
+        warnings.extend(consistency_warnings)
 
         if mode == "refusal":
             answer = _refusal_text(not_found)
