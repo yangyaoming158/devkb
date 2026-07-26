@@ -928,6 +928,18 @@ def bound_required_ids(required: RequiredEvidence, text: str) -> tuple[str, ...]
     )
 
 
+def target_tokens_all_match(item: RequiredEvidenceItem, text: str) -> bool:
+    """文本里的**每一个**目标 token 是否都指向这条 item（与绑定/覆盖同一身份口径）。
+
+    ``bound_required_ids`` 只回答"有没有 token 指向它"；判"整条缺口能不能交给这条 item
+    的确定性说明"还需要反向条件——没有别的目标。且不能靠数 ``iter_target_spans``：
+    相邻/相接的跨度会被 ``merge_spans`` 合成一段（``RagService.javaOrderService`` 这类
+    无分隔符拼接只剩一段），只数跨度会漏掉第二个目标，故按 token 逐个核对。
+    """
+    tokens = [*iter_path_tokens(text), *iter_symbol_tokens(text)]
+    return bool(tokens) and all(_item_matches_token(item, token) for token in tokens)
+
+
 def matching_item_ids(required: RequiredEvidence, rel_path: str) -> tuple[str, ...]:
     """该路径直接命中的 required item_id（与 ``compute_coverage`` 同一 matcher）。
 

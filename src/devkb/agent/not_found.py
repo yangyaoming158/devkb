@@ -175,6 +175,7 @@ _ABSENCE_MARKERS = (
 # 连接处；否则保守不切（宁可少拆一条，也不切碎原文）。
 _PUNCT_CONNECTORS = ("、", "，", ",", "；", ";")
 _WORD_CONNECTORS = ("以及", "或者", "与", "及", "或", "和")
+# 主语渲染长度上限：**只作用于用户可见文案**，不得用在分类/安全判据上（四审 P1）
 _MAX_SUBJECT_CHARS = 60
 # 边界修剪字符集：只含空白/标点/结构助词，**不含连接词**——把"与/及/或/和"当边界字符
 # 盲删会把"与此同时 X"削成"此同时 X"（第三轮复审阻断点2 的成因之一）。
@@ -258,6 +259,10 @@ def strip_absence_markers(text: str) -> str:
     改写时用它作主语：既让被校准的条目不再带"未找到/不存在"字样（Gate 明确要求
     已召回或已索引的路径不得被写成未找到/不存在），又保住"哪个方法/字段没覆盖"的
     信息——直接换成模板会把方法级缺口整条吃掉。
+
+    **不截断**：本函数也是安全判据的输入（T24 的"纯身份缺口"判定），读被截短的文本
+    会让 500 字缺口条目把方法级语义藏到第 ``_MAX_SUBJECT_CHARS`` 字之后骗过判据
+    （四审 P1）。长度上限只属用户可见渲染，落在 ``_subject``。
     """
     stripped = text
     for marker in (*_REPO_LEVEL_NEGATION, *_ABSENCE_MARKERS):
@@ -270,11 +275,12 @@ def strip_absence_markers(text: str) -> str:
             if stripped.startswith(prefix):
                 stripped = stripped[len(prefix) :].strip(_EDGE_TRIM)
                 changed = True
-    return stripped[:_MAX_SUBJECT_CHARS]
+    return stripped
 
 
 def _subject(text: str, tokens: Sequence[str]) -> str:
-    aspect = strip_absence_markers(text)
+    """用户可见的主语：此处（且只有此处）才按 ``_MAX_SUBJECT_CHARS`` 截断。"""
+    aspect = strip_absence_markers(text)[:_MAX_SUBJECT_CHARS]
     if aspect:
         return aspect
     if tokens:

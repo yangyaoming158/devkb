@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import get_args
 
 import pytest
 
@@ -30,12 +31,16 @@ from devkb.agent.aspects import (
 from devkb.agent.evidence_types import (
     MAX_REQUIRED_ITEMS,
     CoverageEntry,
+    EvidenceType,
     compute_coverage,
+    iter_target_spans,
     matching_item_ids,
     parse_required_evidence,
+    target_tokens_all_match,
 )
 from devkb.agent.graph import has_deliverable_content, route_after_evaluate, run_agent
 from devkb.agent.nodes import (
+    _TYPE_QUALIFIERS,
     AgentRuntime,
     strip_items_contradicting_displaced_notes,
 )
@@ -452,6 +457,19 @@ def test_diagnostic_anchor_never_evicts_the_whole_refill_round() -> None:
         ("RagService 中 NO_ANSWER 的触发条件", False),  # 方法/行为语义必须保留（T23）
         ("RagService 和 UnknownService 生产源码", False),  # 第二目标不得被静默吞掉
         ("RagService.java 与 CitationParser 的实现", False),
+        # 四审 P1：T22 从类型词也能解析出目标，它们不进 iter_target_spans，
+        # 却恰好落在旧限定词表里 → 整条被吸收，测试/配置/迁移/设计缺口静默消失
+        ("RagService 和测试", False),
+        ("RagService 与配置", False),
+        ("RagService 及迁移文件", False),
+        ("RagService、设计文档", False),
+        # 四审 P1：无连接词但类型不符——三态说明只覆盖生产源码，替代不了测试缺口
+        ("RagService 的测试", False),
+        ("RagService 的设计文档", False),
+        ("当前证据未覆盖 RagService 的数据库迁移", False),
+        # 探针发现：无分隔符拼接时 merge_spans 会把两个符号并成一段跨度，
+        # 只数跨度看不到第二个目标 → 必须逐 token 核对身份
+        ("RagService.javaOrderService 的实现", False),
     ],
 )
 def test_absorption_only_swallows_pure_identity_gaps(text: str, absorbed: bool) -> None:
@@ -464,6 +482,49 @@ def test_absorption_only_swallows_pure_identity_gaps(text: str, absorbed: bool) 
 
     assert bool(dropped) is absorbed
     assert [item.text for item in kept] == ([] if absorbed else [text])
+
+
+def test_absorption_accepts_qualifiers_of_the_bound_items_own_type() -> None:
+    """类型相容是双向的：绑到测试项上的"测试"限定词仍该被三态说明吸收，
+    否则修复会退化成"任何类型词都不吸收"，把 T24 二审发现3 的自相矛盾放回来。"""
+    required = parse_required_evidence("请引用 CitationParserTest 的测试代码。")
+    assert [item.type for item in required.items] == ["test"]
+    items = [NotFoundInput(text="CitationParserTest 的测试", source="evaluator_missing")]
+
+    kept, dropped = strip_items_contradicting_displaced_notes(items, required, frozenset({"R1"}))
+
+    assert dropped == ["CitationParserTest 的测试"] and kept == []
+
+
+def test_absorption_reads_the_full_gap_text_not_a_truncated_prefix() -> None:
+    """四审 P1：安全判据不得读被截短的文本。缺口条目允许到 500 字，把方法级语义
+    放在第 60 字之后就能让判据只看见开头的"生产源码"并错误吸收整条。"""
+    padding = "（中之内里）" * 12  # 60+ 字纯结构噪音，本身不携带语义
+    text = f"当前证据未覆盖 RagService 的生产源码{padding}触发 NO_ANSWER 的条件"
+    assert len(text) > 60
+    required = parse_required_evidence("请引用 RagService 的生产实现。")
+
+    kept, dropped = strip_items_contradicting_displaced_notes(
+        [NotFoundInput(text=text, source="evaluator_missing")], required, frozenset({"R1"})
+    )
+
+    assert dropped == [] and [item.text for item in kept] == [text]
+
+
+def test_target_tokens_all_match_sees_through_merged_spans() -> None:
+    """反向条件（没有别的目标）不能靠数跨度：相接跨度会被 merge_spans 合成一段。"""
+    required = parse_required_evidence("请引用 RagService 的生产实现。")
+    item = required.items[0]
+
+    assert len(iter_target_spans("RagService.javaOrderService")) == 1  # 两个符号只剩一段跨度
+    assert target_tokens_all_match(item, "RagService.javaOrderService") is False
+    assert target_tokens_all_match(item, "RagService.java 的生产源码") is True
+    assert target_tokens_all_match(item, "生产源码") is False  # 无目标 token → 无从绑定
+
+
+def test_identity_qualifier_table_covers_every_evidence_type() -> None:
+    # 防漂移：新增证据类型必须同时给出限定词表，否则吸收判据会 KeyError
+    assert set(_TYPE_QUALIFIERS) == set(get_args(EvidenceType))
 
 
 def test_anchor_matcher_is_the_coverage_matcher() -> None:

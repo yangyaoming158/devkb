@@ -29,12 +29,15 @@ from devkb.agent.aspects import (
 )
 from devkb.agent.evidence_types import (
     TYPE_LABELS,
+    EvidenceType,
     RequiredEvidence,
+    RequiredEvidenceItem,
     bound_required_ids,
     compute_coverage,
     forbidden_citation_hits,
     iter_target_spans,
     required_satisfied,
+    target_tokens_all_match,
     uncovered_items,
 )
 from devkb.agent.not_found import (
@@ -219,44 +222,64 @@ def required_evidence_tail(
 
 
 # 缺口文本去掉目标后允许残留的**封闭**限定词：只覆盖"这条证据本身"的说法。
-# 出现集合外的内容（方法名、行为、条件…）即说明确定性说明覆盖不到，必须原样保留。
-_IDENTITY_QUALIFIERS = frozenset(
-    {
-        "",
-        "生产源码",
-        "生产实现",
-        "生产代码",
-        "实现代码",
-        "源码",
-        "实现",
-        "代码",
-        "文件",
-        "类",
-        "生产配置",
-        "配置",
-        "迁移",
-        "迁移文件",
-        "测试",
-        "文档",
-        "设计文档",
-    }
-)
-# 结构助词/方位词：与标点一起从残余里剥掉，不构成语义内容
-_QUALIFIER_NOISE = re.compile(r"[\s的了中里内之与和及或、，,。；;：:（）()\[\]\"'`]+")
+# 与类型无关的身份词——只指"这个文件/这个类本身"，任何类型的三态说明都覆盖得住。
+_IDENTITY_QUALIFIERS = frozenset({"", "文件", "类"})
+# 按证据类型分表的限定词：残余必须与**绑定到的 required item 类型**相容（四审 P1）。
+# 三态说明只讲"生产源码:RagService 前轮已取得、被挤出"，它替代不了"RagService 的测试"
+# 这条测试缺口；类型不符即原样保留。表里每个词都是 T22 `_TYPE_PATTERNS` 同类型的说法。
+_TYPE_QUALIFIERS: dict[EvidenceType, frozenset[str]] = {
+    "production_source": frozenset(
+        {"生产源码", "生产实现", "生产代码", "实现代码", "源码", "实现", "代码"}
+    ),
+    "production_config": frozenset({"生产配置", "配置", "配置文件"}),
+    "migration": frozenset({"数据库迁移", "迁移", "迁移文件", "迁移脚本"}),
+    "design_doc": frozenset({"设计文档", "设计说明"}),
+    "current_doc": frozenset({"当前文档", "文档"}),
+    "test": frozenset({"测试", "测试代码"}),
+    "historical_plan": frozenset({"计划文档", "规划文档", "路线图"}),
+    "dev_log": frozenset({"开发日志", "dev-log"}),
+    "frontend_source": frozenset({"前端源码", "前端代码", "前端组件"}),
+    "other": frozenset(),
+}
+# 结构助词/方位词：与标点一起从残余里剥掉，不构成语义内容。
+# **不含连接词**——把"与/和/及/或/、/，"当噪音抹掉，"RagService 和测试"就会退化成
+# "测试"并被整条吞掉（四审 P1 根因）；它们改由 `_CONNECTOR` 单独 fail-closed。
+_QUALIFIER_NOISE = re.compile(r"[\s的了中里内之。：:（）()\[\]\"'`]+")
+# 协调连接词：目标两侧出现即说明这句还在枚举**另一个**目标（"RagService 及迁移文件"），
+# 而上面两张限定词表里的词都不含这些字符，故这道闸门不会误伤真正的纯身份缺口。
+_CONNECTOR = re.compile(r"以及|或者|[与和及或、，,；;]")
 
 
-def _is_pure_identity_gap(text: str) -> bool:
-    """整句是否只是"某个目标 + 通用限定词"——即确定性三态说明能完整替代的那种缺口。
+def _is_pure_identity_gap(text: str, item: RequiredEvidenceItem) -> bool:
+    """整句是否只是"该目标本身 + 与其类型相容的通用限定词"——即确定性三态说明能
+    完整替代的那种缺口。
 
-    先按原文位置摘掉唯一的目标，再用 T23 同一个去标记器剥掉缺失措辞与悬空前缀
-    （"当前证据未覆盖 X 的生产源码" → "生产源码"），剩下的必须落在封闭限定词表里。
+    三道 fail-closed 闸门，缺一不可（四审 P1）：
+
+    1. **目标计数**：文本里的每个目标 token 都必须指向 ``item`` 本身。只数
+       ``iter_target_spans`` 不够——相接的跨度会被 ``merge_spans`` 合成一段，
+       ``RagService.javaOrderService`` 这种无分隔符拼接只剩一段却含两个符号。
+    2. **协调连接词**：目标两侧出现 与/和/及/或/、/逗号 一律不吸收（"RagService 和测试"
+       是两个目标，不是一个目标加限定词）。T22 还能从"测试/迁移文件/设计文档"这类
+       **类型词**解析出 type-only 目标，它们进不了 spans，只能靠这道与下一道闸门兜住。
+    3. **类型相容**：残余限定词必须落在该 item 类型自己的表里；"RagService 的测试"
+       绑到 production_source 的 R1 上时不得吸收——三态说明只覆盖生产源码。反向也成立：
+       绑定 item 必有 path/symbol，T22 的 ``_build`` 在同类型已有点名项时会丢弃 type-only
+       项，故"与绑定类型相容"恰好等价于"这个类型词不可能另有一条 required 目标"。
+
+    先按原文位置摘掉目标，再用 T23 同一个去标记器剥掉缺失措辞与悬空前缀
+    （"当前证据未覆盖 X 的生产源码" → "生产源码"）；该去标记器**不截断**，否则长条目
+    可以把方法级语义藏在第 60 字之后骗过本判据。
     """
     spans = iter_target_spans(text)
-    if len(spans) != 1:
-        return False  # 零个目标无从绑定；两个及以上说明还有别的目标，绝不整条吞掉
+    if len(spans) != 1 or not target_tokens_all_match(item, text):
+        return False  # 零个目标无从绑定；还有别的目标就绝不整条吞掉
     start, end = spans[0]
-    remainder = strip_absence_markers(text[:start] + text[end:])
-    return _QUALIFIER_NOISE.sub("", remainder) in _IDENTITY_QUALIFIERS
+    remainder = text[:start] + text[end:]
+    if _CONNECTOR.search(remainder):
+        return False
+    qualifier = _QUALIFIER_NOISE.sub("", strip_absence_markers(remainder))
+    return qualifier in _IDENTITY_QUALIFIERS or qualifier in _TYPE_QUALIFIERS[item.type]
 
 
 def strip_items_contradicting_displaced_notes(
@@ -275,12 +298,15 @@ def strip_items_contradicting_displaced_notes(
     （T23 的事实校验会把它改写成"已出现在本次检索证据中"）都不构成矛盾，继续走 T23，
     以免吞掉方法级细节和 `corpus_index` 这类事实校验来源（c10 要求两类缺口可分辨）。
 
-    **只吸收"纯身份"缺口**（三审发现2）：整句必须只含一个目标，且去掉该目标后只剩
-    封闭的通用限定词（生产源码/实现/文件…）。"RagService 中 NO_ANSWER 的触发条件"含
-    方法级语义、"RagService 和 UnknownService 生产源码"含第二个目标（后者还不是
-    required item，只数 ``bound`` 的长度根本发现不了），两者都必须原样保留——否则确定性
-    说明覆盖不到的信息会被静默删除，直接回归 T23 的"方法级缺口信息保留"要求。
+    **只吸收"纯身份"缺口**（三审发现2 / 四审 P1）：判据见 ``_is_pure_identity_gap``——
+    一个点名目标、两侧无协调连接词、残余限定词与该 item 的**类型相容**。
+    "RagService 中 NO_ANSWER 的触发条件"含方法级语义、"RagService 和 UnknownService
+    生产源码"含第二个目标（后者还不是 required item，只数 ``bound`` 的长度根本发现不了）、
+    "RagService 及迁移文件"含 T22 认得的 type-only 目标、"RagService 的测试"与被挤出的
+    生产源码项类型不符，全都必须原样保留——否则确定性说明覆盖不到的信息会被静默删除，
+    直接回归 T23 的"方法级缺口信息保留"要求。
     """
+    by_id = {required_item.item_id: required_item for required_item in required.items}
     kept: list[NotFoundInput] = []
     dropped: list[str] = []
     for item in items:
@@ -289,7 +315,7 @@ def strip_items_contradicting_displaced_notes(
             item.source != "deterministic"
             and len(bound) == 1
             and bound[0] in displaced_ids
-            and _is_pure_identity_gap(item.text)
+            and _is_pure_identity_gap(item.text, by_id[bound[0]])
         ):
             dropped.append(item.text)
             continue

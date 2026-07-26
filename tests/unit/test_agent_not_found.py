@@ -21,6 +21,7 @@ from devkb.agent.not_found import (
     _split_segments,
     calibrate_not_found,
     coverage_disclosure,
+    strip_absence_markers,
 )
 from devkb.agent.state import AgentInput, Evidence
 from devkb.ingest.pipeline import SUPPORTED_SUFFIXES
@@ -261,6 +262,19 @@ def test_orphan_prefix_left_by_marker_strip_is_cleaned() -> None:
         "当前证据未覆盖 CitationRepository 的 findByMessageIds", corpus=corpus
     ).details[0]
     assert detail.text.startswith("CitationRepository 的 findByMessageIds：")
+
+
+def test_marker_strip_keeps_the_whole_text_but_rendering_caps_the_subject() -> None:
+    """四审 P1：60 字上限只属用户可见渲染。去标记器同时是 T24"纯身份缺口"安全判据的
+    输入，读被截短的文本会让长条目把方法级语义藏到第 60 字之后骗过判据。"""
+    tail = "触发 NO_ANSWER 的条件"
+    text = "未找到 CitationRepository 的" + "订单校验" * 20 + tail
+    stripped = strip_absence_markers(text)
+    assert len(stripped) > 60 and stripped.endswith(tail)
+
+    corpus = CorpusProfile.from_paths(["backend/src/main/java/repo/CitationRepository.java"])
+    subject = _calibrate(text, corpus=corpus).details[0].text.split("：", 1)[0]
+    assert len(subject) == 60 and tail not in subject
 
 
 def test_evidence_scoped_wording_without_conflict_is_left_alone() -> None:
