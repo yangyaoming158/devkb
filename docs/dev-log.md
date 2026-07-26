@@ -1071,3 +1071,11 @@
 - 有效的做法是后几轮才补上的：写**可证的不变量**而不是对着例子打补丁。四审那条"吸收 ⟹ 用 T22 自己的解析器读这条文本时没有第二个目标"用 22800 组合交叉核验，直接逼出了 `merge_spans` 相接合并这个复审没点的边界；六审复审又指出我的不变量只有单方向（只能抓错误吸收，抓不到应吸收却未吸收），补上变形不变量后才闭合。**探针是一次性的，所以两条不变量最后都落成了常驻红测**（126 例参数化 + 图级断言）。
 - 另一条教训是口径复用：三审我特意把 `strip_absence_markers` 从私有改公开、写明"不另抄一份免得两处口径漂移"，六审却正是因为在新增的连接词分支上另起了一套"什么算实词"而翻车。同一个模块里新增分支时，先问"这个判断已经有归一化器了吗"。
 - T24 收尾状态：`make ci`（ruff/pyright 0、pytest 710）、`make eval-ci`（65+19）全绿，跨 5 个 PYTHONHASHSEED 一致；`AGENT_STATE_SCHEMA_VERSION` v8、`PROMPT_VERSION` p1.5-agent-v4、`ANSWER_SCHEMA_VERSION` p1.5-answer-v2。下一项按执行顺序是 T25（finalize 前确定性一致性检查 + 第二稿覆盖复检，RT-03/08）；T24 里观察到但未做的"draft is None 时拒答文案不准确"已在一审记过，正属 T25.1 判据范围。
+
+## 2026-07-26 · WF-001 AI 开发与审查收敛工作流
+
+- **触发原因**：T24 从首版到验收经历六轮整改，暴露出的主要问题不是单个模型能力，而是实现前没有共享任务合同和不变量、首审后没有冻结范围、可自动检查的规则仍依赖模型记忆。依据 `docs/AI开发工作流审计报告.md`，在独立分支安装最小工作流，不改 `src/`、数据库、依赖或评测数据。
+- **统一事实源**：重写 `AGENTS.md` 的流程入口，并新增 `docs/development-workflow.md`。每个任务只建一份 Task Packet，合同、仓库事实、逐文件计划、冻结测试、计划前审、review ledger、定向修复和验收都留在同一文件；P0～P3、任务拆分、第二轮审查冻结和最多一次普通修复有了可判定口径。
+- **只建两个 skill**：`project-preimplementation-gate` 负责写代码前的合同/计划/测试门禁，`project-scoped-review` 负责首审与终局复审。canonical 内容在 `.agents/skills`，`.claude/skills` 使用相对 symlink，共享同一规则；Agent/RAG 长检查表只在相关任务加载。没有把 minimal-patch、test-design、DoD 等拆成更多 skill，它们是每次必守规则，留在 AGENTS/Task Packet。
+- **自动门禁**：新增无第三方依赖的 `scripts/workflow_guard.py`，校验 Task Packet schema、base SHA、允许路径、文件预算、依赖/迁移/golden/snapshot、敏感文件、Python debug/`if testing`/skip/xfail 和断言数量下降；13 个单元测试覆盖正常及拒绝路径。Makefile 新增 `preflight`、`verify-task`、`verify-full`、`workflow-check`；代码类 PR 必须且只能带一份 Task Packet，CI 自动对它运行范围门禁，再调用同一 `make ci`，避免本地与远端命令漂移。
+- **验证**：两个 skill 均通过 `quick_validate.py`；`make workflow-check`、`make verify-task PACKET=docs/tasks/WF-001-ai-review-convergence.md` 通过；`make ci` 为 Ruff/Pyright 0 错误、pytest **723 passed**；`make eval-ci` 为 **65 + 19 passed**。证据 commit：本提交。

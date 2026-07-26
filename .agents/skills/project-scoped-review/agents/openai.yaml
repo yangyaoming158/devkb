@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Scoped Review"
+  short_description: "Review approved task diffs and converge fixes"
+  default_prompt: "Use $project-scoped-review to review the approved task diff without expanding scope."

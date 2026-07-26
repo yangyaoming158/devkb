@@ -1,4 +1,6 @@
-.PHONY: up down lint fmt typecheck test ci eval-ci
+.PHONY: up down workflow-check preflight verify-task verify-full lint fmt typecheck test ci eval-ci
+
+PACKET ?=
 
 up:
 	docker compose up -d
@@ -6,21 +8,38 @@ up:
 down:
 	docker compose down
 
+workflow-check:
+	uv run python scripts/workflow_guard.py validate-repo
+
+preflight:
+	uv run python scripts/workflow_guard.py preflight $(if $(PACKET),--packet "$(PACKET)",)
+
+verify-task:
+	@test -n "$(PACKET)" || (echo "PACKET is required: make verify-task PACKET=docs/tasks/<task>.md"; exit 2)
+	uv run python scripts/workflow_guard.py verify-task --packet "$(PACKET)"
+
+verify-full:
+	@test -n "$(PACKET)" || (echo "PACKET is required: make verify-full PACKET=docs/tasks/<task>.md"; exit 2)
+	uv run python scripts/workflow_guard.py verify-task --packet "$(PACKET)" --require-clean
+	$(MAKE) ci
+	$(MAKE) eval-ci
+
 lint:
-	uv run ruff format --check src tests
-	uv run ruff check src tests
+	uv run ruff format --check src tests scripts
+	uv run ruff check src tests scripts
 
 fmt:
-	uv run ruff format src tests
-	uv run ruff check --fix src tests
+	uv run ruff format src tests scripts
+	uv run ruff check --fix src tests scripts
 
 typecheck:
 	uv run pyright
+	uv run pyright scripts/workflow_guard.py
 
 test:
 	uv run pytest -q
 
-ci: lint typecheck test
+ci: workflow-check lint typecheck test
 
 # Evaluation v1 §6 确定性回归（Fake + fixture + 真实测试 PG；不装 ml、不触网）：
 # RRF golden / FTS·HNSW 机制 / graph 路径矩阵 / 指标手算 / harness / 已提交报告校验。

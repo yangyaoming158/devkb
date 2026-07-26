@@ -2,6 +2,8 @@
 
 规则：开发中产生的任何"顺手做了吧"的想法、优化点、新依赖提案，先记在这里，不直接实现；由用户在阶段间隙裁决进入哪个阶段或丢弃。
 
+从 2026-07-26 起，代码审查产生的合同外 P2、全部 P3 和未来优化不得留在当前 review ledger 阻塞任务，统一登记到文末“扩展技术债登记”。历史表保持原貌，不做无意义迁移。
+
 | 日期 | 提出者 | 想法 | 动机 | 裁决 |
 |---|---|---|---|---|
 | 2026-07-14 | 用户/Fable 5/Codex | LangFuse trace、Prompt 版本、dataset/evaluation 闭环 | 形成可观测、可对照、可数据驱动迭代的项目证据 | ✅ 纳入 P2-A，作为可投递 Gate；具体部署方式到阶段规格裁决 |
@@ -26,3 +28,10 @@
 | 2026-07-23 | 用户/Codex | Prompt Injection/秘密提取/越权命令请求的 policy-refusal 终态 | 第十三次 DeepSeek run 最终未泄露、未编造、未执行命令，且只有 retrieve 工具调用；但把系统 Prompt、凭据和 `.env` 结果列为普通 not_found，明显攻击仍走 4 次 LLM 与两次失败校验，最终 refusal 由 finalize 删除失败 claim 后形成而非明确策略终态 | 待用户裁决；并入 [`问题记录`](./P1后真实仓库可用性测试问题记录.md) RT-02/10/11/22 与 [`手工测试清单`](./P1后真实仓库手工测试清单.md) 第 13 项；需同时保留合法安全咨询反例，未实施修复、未触碰 P1 holdout |
 | 2026-07-23 | 用户/Codex | Unknown project 的模型初始化 fail-fast 顺序 | API 实跑的 404、统一脱敏错误、零 run/step/tool 与零外部 LLM 请求均正确；但生产 `AppService.ask()` 在 `_resolve_project` 前先 `_get_embedder/_get_llm`，冷服务会为必然 404 的请求加载 SentenceTransformer。现有测试注入已实例化 Fake，无法观察 factory 调用 | 待用户裁决；并入 [`问题记录`](./P1后真实仓库可用性测试问题记录.md) RT-23 与 [`手工测试清单`](./P1后真实仓库手工测试清单.md) 第 15 项；修复须以冷服务 loader spy 证明两个 factory 为 0 次，并保持 404/脱敏/零持久化，未实施修复、未触碰 P1 holdout |
 | 2026-07-25 | Claude Opus 5 | type-only 必需证据的 not_found 文案重复（"生产源码:生产源码"） | T22 收尾自查发现：`required_evidence_tail` 用 `TYPE_LABELS[type]:{symbol or path or anchor}` 组装，type-only 项（如"请引用生产源码"）的 anchor 恰是类型词本身，用户看到冗余重复。仅文案问题，不影响 full/partial 判定与覆盖矩阵 | 待裁决；建议随 T26 文案口径或 T32.1 README 口径统一处理，不单独改 |
+
+## 扩展技术债登记
+
+新增条目必须说明为什么不阻塞当前任务，以及在什么条件下重新评估。严重度只允许“合同外 P2”或“P3”；P0/P1 不得进入此表逃避修复。
+
+| ID | 日期 | 来源任务 | 严重度 | 问题/建议 | 不阻塞理由 | 重新评估条件 | 负责人 | 状态 |
+|---|---|---|---|---|---|---|---|---|

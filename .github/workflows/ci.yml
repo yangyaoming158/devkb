@@ -28,14 +28,44 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Task Packet 的 base_sha 可能早于默认 shallow checkout。
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
       # CI 不装 ml 组（torch/sentence-transformers）：测试纪律=CI 禁真模型
       - run: uv sync --no-default-groups --group dev
-      - run: uv run ruff format --check src tests
-      - run: uv run ruff check src tests
-      - run: uv run pyright
-      - run: uv run pytest -q
+      - name: Verify pull-request task scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          mapfile -t packets < <(
+            git diff --name-only "$PR_BASE_SHA"...HEAD -- 'docs/tasks/*.md'
+          )
+          mapfile -t changed < <(git diff --name-only "$PR_BASE_SHA"...HEAD)
+          needs_packet=0
+          for path in "${changed[@]}"; do
+            case "$path" in
+              src/*|tests/*|scripts/*|alembic/*|.agents/*|.claude/*|.github/*|Makefile|pyproject.toml|uv.lock)
+                needs_packet=1
+                ;;
+            esac
+          done
+          if (( needs_packet == 1 && ${#packets[@]} != 1 )); then
+            echo "Code-affecting PRs require exactly one changed docs/tasks/*.md"
+            exit 1
+          fi
+          if (( ${#packets[@]} > 1 )); then
+            echo "One PR may change at most one Task Packet"
+            exit 1
+          fi
+          if (( ${#packets[@]} == 1 )); then
+            make verify-task PACKET="${packets[0]}"
+          fi
+      # 与本地统一入口，额外校验 Task Packet、skill 和 Claude/Codex 接缝
+      - run: make ci
       # Evaluation v1 §6 确定性评测回归（Fake + fixture + service PG）
       - run: make eval-ci

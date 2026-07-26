@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Preimplementation Gate"
+  short_description: "Freeze scope, plan, and tests before coding"
+  default_prompt: "Use $project-preimplementation-gate to turn the current request into an approved Task Packet before editing code."
