@@ -114,7 +114,8 @@ size_exception = ""
 - [ ] 状态、权限、幂等、失败行为符合合同
 - [ ] 冻结测试真实运行
 - [ ] `make verify-task PACKET=<本文件>` 通过
-- [ ] 日志记录实际 HEAD 和命令结果
+- [ ] 已创建或指定 candidate commit，工作区干净
+- [ ] 日志记录 candidate HEAD 和对应命令结果
 
 结论：`NOT_READY`
 

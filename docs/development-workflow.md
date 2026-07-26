@@ -47,7 +47,7 @@
 | 4 计划前审 | 最多修订一次 | 只能给四类结论 | `PLAN_APPROVED` 后才能实现 |
 | 5 测试冻结 | 先定义正常、边界、失败、重复/越权和组合/变形不变量 | 检查是否覆盖主要风险 | 测试矩阵冻结 |
 | 6 分段实现 | 先红后绿，小 diff，禁止计划外修改 | 无 | 实现与计划一致 |
-| 7 执行者自审 | 核对范围、异常、状态、断言、依赖、debug 和真实测试 | 无 | `READY_FOR_REVIEW` |
+| 7 执行者自审 | 核对范围、异常、状态、断言、依赖、debug 和真实测试；固化候选提交 | 无 | 干净 candidate HEAD + `READY_FOR_REVIEW` |
 | 8 限定代码审查 | 提供 packet、base/head、diff、日志 | 首轮一次性输出 issue ledger | P0/P1/范围内 P2 为 0 |
 | 9 定向修复 | 只修 ledger 中的阻塞项 | 只复核旧 issue 和修复直接引入的阻塞问题 | 最多一次普通修复 |
 | 10 验收 | 提供 exact-head 证据，登记 P3 | `PASS` / `TARGETED_FIX` / `RETURN_TO_DESIGN` | Definition of Done |
@@ -186,6 +186,8 @@ make verify-full PACKET=docs/tasks/<task>.md
 `make workflow-check` 校验工作流文档、skill frontmatter 和 Claude symlink，可独立运行，也由 CI 执行。
 Pull Request 只要修改代码、测试、脚本、skills、CI、依赖或迁移，就必须同时且只修改一份 Task Packet；CI 会从 PR base 自动选择该 packet 并执行同一范围门禁。纯文档修订不强制新建 packet。
 
+`verify-task` 可以在 dirty diff 上提前运行，但交给 GPT 做代码审查前必须有干净、可定位的 candidate HEAD。由获得 Git 写权限的执行者或用户创建本地候选提交（不等于推送或验收），随后记录 HEAD 和对应测试日志；不得把 dirty worktree 的结果称为 exact-head 证据。
+
 ## 10. 用户操作顺序与提示词
 
 ### A. 把任务交给 Claude：只调查和计划
@@ -216,6 +218,7 @@ GPT 对 <TASK-ID> 的结论是 PLAN_APPROVED。
 按已批准的 docs/tasks/<TASK-ID>-<slug>.md 实现。
 先落冻结的失败测试，再做最小补丁；只改 allowed_paths。
 完成后运行目标测试、make verify-task，并填写执行者自审。
+通过后创建本地 candidate commit（不要推送），记录 exact HEAD 和对应测试日志。
 不要处理合同外问题，不要自行宣布最终验收。
 ```
 
@@ -238,7 +241,7 @@ GPT 对 <TASK-ID> 的结论是 PLAN_APPROVED。
 <粘贴完整 issue ledger>
 先复现、加一个最小回归测试、做最小补丁并运行对应门禁。
 禁止修复未列出问题、顺手重构或扩大 allowed_paths。
-完成后输出 issue 到修改/测试的映射。
+完成后创建本地 repair commit（不要推送），输出 issue 到修改/测试和 exact HEAD 的映射。
 ```
 
 ### F. 把修复结果交给 GPT：终局复核

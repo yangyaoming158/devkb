@@ -129,7 +129,7 @@ size_exception = "一次性安装跨模型规则、skills、守卫脚本与 CI �
 ## Review Ledger
 
 - 审查基准：本 Task Packet、批准计划、`4955fbea...HEAD` diff 和本地测试日志。
-- 阻塞 issue：无。
+- `WF-001-R1`（P2，已关闭）：实现提示词只要求 dirty-worktree 可运行的 `verify-task`，而限定审查 skill 要求 exact HEAD，未明确候选提交时机会让 diff 与测试日志无法绑定同一版本。最小修复只改《开发工作流》和 Task Packet 模板，要求首审前创建 candidate commit、定向修复后创建 repair commit，并记录对应 HEAD。
 - P3：无；未将历史业务问题纳入本任务。
 - 裁决：`PASS`。
 
