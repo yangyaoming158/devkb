@@ -255,14 +255,19 @@ _PUNCT_EDGE = " \t\n。．.！!？?：:；;，,、"
 def _has_coordinator(text: str, *, target_on_right: bool) -> bool:
     """这段紧邻目标的文本里，是否存在**真正起并列作用**的连接词。
 
-    连接词靠目标的那一侧天然有内容（就是目标本身），故只需检查**背离目标的一侧**还有
-    没有实词：有 → 这是"目标 + 连接词 + 另一个目标"（"RagService、设计文档"）；没有 →
-    它只是句末/句首标点（"RagService 生产源码，"），ShortText 并未禁止句末标点，把它
-    当连接词会让合法输出重新与"被挤出"三态说明并存（五审 P1）。
+    连接词靠目标的那一侧天然有内容（就是目标本身），故只判**背离目标的一侧**有没有
+    真正的并列对象。两类东西不算并列对象：
+
+    - 纯标点/空白——那只是句末或句首标点（"RagService 生产源码，"）。``ShortText``
+      并未禁止句末标点，把它当连接词会让合法输出重新与"被挤出"三态说明并存（五审 P1）。
+    - **可剥离的缺失措辞与范围前缀**——"证据中，RagService 的生产源码" 里的"证据中"
+      是 T23 ``_ORPHAN_PREFIXES`` 明确要剥掉的范围限定，不是第二个目标；把它当并列
+      对象会让"加不加逗号"改变吸收结果（六审 P1）。故用 T23 同一个去标记器判定，
+      与后面算限定词用的是同一套口径。
     """
     for match in _CONNECTOR.finditer(text):
         outward = text[: match.start()] if target_on_right else text[match.end() :]
-        if outward.strip(_PUNCT_EDGE):
+        if strip_absence_markers(outward).strip(_PUNCT_EDGE):
             return True
     return False
 

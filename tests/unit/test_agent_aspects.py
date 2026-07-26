@@ -44,7 +44,7 @@ from devkb.agent.nodes import (
     AgentRuntime,
     strip_items_contradicting_displaced_notes,
 )
-from devkb.agent.not_found import NotFoundInput
+from devkb.agent.not_found import _ABSENCE_MARKERS, _ORPHAN_PREFIXES, NotFoundInput
 from devkb.agent.state import (
     AgentInput,
     AgentState,
@@ -478,6 +478,13 @@ def test_diagnostic_anchor_never_evicts_the_whole_refill_round() -> None:
         ("RagService 生产源码;", True),
         ("当前证据未覆盖 RagService 的生产源码。", True),
         ("，RagService 生产源码", True),  # 句首标点同理
+        # 六审 P1：范围前缀与目标之间的标点不是枚举连接符（复审给的最小等价对）
+        ("证据中 RagService 的生产源码", True),
+        ("证据中，RagService 的生产源码", True),
+        # 但前缀后面接的若是真并列，仍不得吸收
+        ("证据中，RagService 和测试", False),
+        ("证据中，RagService、设计文档", False),
+        ("关于订单，RagService 的生产源码", False),  # 非可剥离前缀 → 保守保留
     ],
 )
 def test_absorption_only_swallows_pure_identity_gaps(text: str, absorbed: bool) -> None:
@@ -517,6 +524,20 @@ def test_absorption_reads_the_full_gap_text_not_a_truncated_prefix() -> None:
     )
 
     assert dropped == [] and [item.text for item in kept] == [text]
+
+
+@pytest.mark.parametrize("punct", ["", "，", ",", "；", ";", "：", " "])
+@pytest.mark.parametrize("prefix", [*_ORPHAN_PREFIXES, *_ABSENCE_MARKERS])
+def test_strippable_prefix_never_changes_absorption(prefix: str, punct: str) -> None:
+    """六审 P1 的变形不变量：往已认定的纯身份缺口前插入**可剥离**的缺失措辞/范围前缀
+    及其标点，不得改变吸收结果——它们是 T23 明确要剥掉的限定，不是第二个目标。"""
+    required = parse_required_evidence("请引用 RagService 的生产实现。")
+    text = f"{prefix}{punct}RagService 的生产源码"
+    items = [NotFoundInput(text=text, source="evaluator_missing")]
+
+    kept, dropped = strip_items_contradicting_displaced_notes(items, required, frozenset({"R1"}))
+
+    assert dropped == [text] and kept == []
 
 
 def test_target_tokens_all_match_sees_through_merged_spans() -> None:
@@ -937,6 +958,25 @@ async def test_evaluator_missing_bound_to_required_item_yields_one_statement() -
         "未取得用户要求的必需证据" in item and "RagSupport" in item
         for item in result["final_not_found"]
     )
+
+
+async def test_scope_prefixed_missing_still_yields_one_statement() -> None:
+    """六审 P1 的图级锁定：末轮把被挤出的 RagService 报成"证据中，RagService 生产源码"
+    （范围前缀 + 标点，`ShortText` 完全允许）时，终态仍只能有一条 RagService 说明。"""
+    eval2_prefixed = (
+        '{"sufficiency":"insufficient","supported_aspects":["非法引用编号处理"],'
+        '"missing_aspects":["证据中，RagService 生产源码","RagSupport 生产源码"]}'
+    )
+    runtime = _rounds_runtime(
+        [PLAN, EVAL_ROUND1, REFINE, eval2_prefixed, GEN_PARTIAL],
+        [[RAG_SERVICE], [CITATION_PARSER]],
+        max_evidences=1,
+    )
+    result = await run_agent(runtime, _input(CASE9_QUESTION))
+
+    displaced = [item for item in result["final_not_found"] if "RagService" in item]
+    assert len(displaced) == 1 and "被挤出" in displaced[0]
+    assert any("缺失项已由确定性说明覆盖" in warning for warning in result["warnings"])
 
 
 async def test_elimination_records_are_replayable_beyond_summary_clip() -> None:
