@@ -32,6 +32,25 @@ GEN_BAD_QUOTE = (
     '"evidence_ids":["E1"],"quotes":["这段引文在任何证据中都不存在"]}],"not_found":[]}'
 )
 
+M14_TAMPERED_WORD_DRAFT = (
+    '{"answer_text":"库存扣减使用数据库表锁保证并发安全 [E1]。","claims":'
+    '[{"text":"库存扣减使用数据库表锁保证并发安全","evidence_ids":["E1"],'
+    '"quotes":["库存扣减使用数据库表锁（`SELECT ... FOR UPDATE`）保证并发安全"]}],'
+    '"not_found":["回滚补偿的具体重试次数未在证据中给出"]}'
+)
+M14_CROSS_CHUNK_DRAFT = (
+    '{"answer_text":"库存扣减发生在订单创建事务内并由行锁保证 [E1][E2]。","claims":'
+    '[{"text":"库存扣减发生在订单创建事务内并由行锁保证","evidence_ids":["E1","E2"],'
+    '"quotes":["扣减发生在订单创建事务内。库存扣减使用数据库行锁"]}],'
+    '"not_found":["回滚补偿的具体重试次数未在证据中给出"]}'
+)
+M14_SECOND_DRAFT = (
+    '{"answer_text":"库存扣减使用数据库行锁保证并发安全 [E1]。","claims":'
+    '[{"text":"库存扣减使用数据库行锁保证并发安全","evidence_ids":["E1"],'
+    '"quotes":["库存扣减使用数据库行锁"]}],'
+    '"not_found":["回滚补偿的具体重试次数未在证据中给出","源码中不存在 table.md 的说明"]}'
+)
+
 
 async def _seeded_project(session: AsyncSession) -> uuid.UUID:
     project = await ProjectRepo(session).create(slug=f"t17-{uuid.uuid4().hex[:8]}", name="t17")
@@ -419,5 +438,108 @@ async def test_agentic_answer_classifies_not_found_against_real_corpus_snapshot(
     # not_found 契约不变：仍是 list[str]，与 details 一一对应
     assert answer["not_found"] == [d["text"] for d in answer["not_found_details"]]
     run = await RunRepo(session, project_id).get(uuid.UUID(answer["run_id"]))
+    assert run is not None and run.answer is not None
+    assert run.answer["not_found_details"] == answer["not_found_details"]
+
+
+# ---- T25.2 I1：m14 断言 1–3 的绑定用例（真实 PG + FakeLLM 脚本） -------------
+#
+# 合同：docs/tasks/T25.2-regen-coverage-diff.md（冻结测试 I1，用户裁决 A + D1）。
+# 放在集成层而非 tests/unit 是因为 evalsets/v1.5/mechanism_checks.md:11 把 m14 的执行层
+# 写明为「FakeLLM 脚本 + 真实测试 PG」：只有真实 documents 表才能证明
+# basis == "corpus_index" 来自 service.py 注入的语料快照，而不是手工构造的 CorpusProfile。
+# m14 第 4 条断言（warning 区分 resolved/final active 并带 attempt）归 T30.2，本用例不断言。
+
+M14_ACTIVE_UNRECALLED_PATH = "table.md"
+M14_SECOND_DRAFT_QUOTE = "库存扣减使用数据库行锁"
+# 收窄判据（裁决 A）：终态不得把 active/已索引路径断言为不存在
+M14_FORBIDDEN_ABSENCE_CLAIMS = ("不存在", "仓库无此文件", "查无此文件")
+
+
+@pytest.mark.parametrize(
+    ("first_draft", "bad_quote", "source_fragments"),
+    [
+        pytest.param(
+            M14_TAMPERED_WORD_DRAFT,
+            "库存扣减使用数据库表锁（`SELECT ... FOR UPDATE`）保证并发安全",
+            ("库存扣减使用数据库行锁（`SELECT ... FOR UPDATE`）保证并发安全",),
+            id="tampered_word",
+        ),
+        pytest.param(
+            M14_CROSS_CHUNK_DRAFT,
+            "扣减发生在订单创建事务内。库存扣减使用数据库行锁",
+            ("扣减发生在订单创建事务内。", "库存扣减使用数据库行锁"),
+            id="cross_chunk_splice",
+        ),
+    ],
+)
+async def test_i1_regeneration_over_real_corpus_binds_m14_assertions(
+    session: AsyncSession,
+    first_draft: str,
+    bad_quote: str,
+    source_fragments: tuple[str, ...],
+) -> None:
+    """I1：L1 失败重生成 × 真实语料——恰好一次重生成、第二稿走 L1 正向、缺口有事实依据。"""
+    corpus_text = (CORPUS_MD / "zh.md").read_text(encoding="utf-8")
+    # 构造有效性：每个片段都是语料原文，拼出来的 quote 不是——失败源于篡改/拼接本身
+    assert all(fragment in corpus_text for fragment in source_fragments)
+    assert bad_quote not in corpus_text
+
+    project_id = await _seeded_project(session)
+    llm = FakeLLM([PLAN, EVAL_OK, first_draft, M14_SECOND_DRAFT], model="deepseek-v4-flash")
+
+    answer = await agentic_answer_question(
+        session, project_id, "库存怎么保证并发安全？", embedder=FakeEmbedder(), llm=llm, top_k=2
+    )
+
+    run_id = uuid.UUID(answer["run_id"])
+    trace = await get_run_trace(session, project_id, run_id)
+
+    # ① 恰好触发一次重生成（Answer 不含 node_history，故经持久化轨迹观测）
+    assert [step["node"] for step in trace["steps"]] == [
+        "plan",
+        "retrieve",
+        "evaluate",
+        "generate",
+        "verify",
+        "generate",
+        "verify",
+        "finalize",
+    ]
+
+    # ② 第一稿未过、第二稿过，且第二稿走的是 L1 正向路径——不是零 quote 的空洞满足
+    verifies = [step for step in trace["steps"] if step["node"] == "verify"]
+    assert verifies[0]["output_summary"]["passed"] is False
+    assert any("no_verbatim_match" in error for error in verifies[0]["output_summary"]["errors"])
+    assert verifies[1]["output_summary"]["passed"] is True
+    assert verifies[1]["output_summary"]["l1_passed"] is True
+    (claim,) = answer["claims"]
+    assert claim["quotes"] == [M14_SECOND_DRAFT_QUOTE]
+    assert M14_SECOND_DRAFT_QUOTE in corpus_text
+    assert [citation["rel_path"] for citation in answer["citations"]] == ["zh.md"]
+
+    # ③ 收窄判据（裁决 A）：新增缺口经 T23 事实校验，且不得断言 active 路径不存在。
+    #    basis == "corpus_index" 证明的是 documents 表 → service.py → AgentRuntime.corpus
+    #    这段真实接线；手工注入 CorpusProfile 的图测试证不到它。
+    by_basis = {detail["basis"]: detail for detail in answer["not_found_details"]}
+    indexed = by_basis["corpus_index"]
+    assert indexed["category"] == "missing_from_current_evidence"
+    assert indexed["refs"] == [M14_ACTIVE_UNRECALLED_PATH]
+    assert indexed["original_text"] == "源码中不存在 table.md 的说明"
+    assert M14_ACTIVE_UNRECALLED_PATH in answer["not_found_details"][1]["text"]
+    for text in (answer["answer_text"], *answer["not_found"]):
+        for word in M14_FORBIDDEN_ABSENCE_CLAIMS:
+            assert word not in text, (word, text)
+    # 条数由 1 增至 2 是允许的（裁决 A：判据是事实性而非条数）；跨稿复检据此只发计数披露
+    assert len(answer["not_found"]) == 2
+    assert (
+        "finalize: 第一稿 not_found 1 条、第二稿 2 条，两稿逐条对应关系未作判定"
+        in answer["warnings"]
+    )
+    assert not any("据此不判 full" in warning for warning in answer["warnings"])
+    assert answer["mode"] == "partial"
+
+    # ④ 落库一致
+    run = await RunRepo(session, project_id).get(run_id)
     assert run is not None and run.answer is not None
     assert run.answer["not_found_details"] == answer["not_found_details"]

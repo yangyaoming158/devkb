@@ -135,6 +135,21 @@ class GenerateOutput(StrictModel):
     not_found: list[ShortText] = Field(default_factory=list, max_length=10)
 
 
+class DraftSnapshot(BaseModel):
+    """第一稿的跨稿复检快照（T25.2）：只留判据求值用得到的两项事实。
+
+    不留正文、claim 与引用账本：finalize 在 claim 被移除时按保留 claim **重建**正文并
+    丢弃原正文独立 ``[E#]`` 标记（``nodes.py`` 的 removed 分支），两稿引用账本口径无法在
+    不改动既有构造的前提下对齐，据此做子集比较只会造出虚假的覆盖收缩（用户裁决 C1）。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    # 第一稿 GenerateOutput.not_found 的原始字段（未经 T23 校准）
+    not_found: tuple[str, ...] = ()
+    evidence_ids: tuple[str, ...] = ()
+
+
 class Evidence(StrictModel):
     evidence_id: Annotated[str, StringConstraints(pattern=r"^E[1-9][0-9]*$")]
     chunk_id: uuid.UUID
@@ -187,6 +202,10 @@ class AgentState(TypedDict):
     evidence_eliminations: Annotated[list[EliminationRecord], operator.add]
     evaluation: EvaluateOutput | None
     answer_draft: GenerateOutput | None
+    # T25.2 跨稿复检快照：generate 每次直接覆写 answer_draft，第一稿的自述缺口在状态里
+    # 不留痕，finalize 因而只看得到最终那一稿——模型删掉自己的缺口自述即可把终态升成
+    # full。首次 generate 写入后只读，最多两稿（MAX_GENERATE_CALLS）故只需一份。
+    first_draft: DraftSnapshot | None
     verification: VerificationOutput | None
     verification_feedback: list[str]
     final_answer: str | None
@@ -229,6 +248,7 @@ def initial_agent_state(agent_input: AgentInput) -> AgentState:
         evidence_eliminations=[],
         evaluation=None,
         answer_draft=None,
+        first_draft=None,
         verification=None,
         verification_feedback=[],
         final_answer=None,

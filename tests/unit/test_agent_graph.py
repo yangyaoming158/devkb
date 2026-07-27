@@ -21,9 +21,12 @@ Evaluation-v1 §5.3 十二类路径在本仓库的覆盖映射：
 
 from __future__ import annotations
 
+import random
 import uuid
 from typing import Any, cast
 
+import pytest
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from devkb.agent.answer import build_answer
@@ -33,16 +36,23 @@ from devkb.agent.graph import (
     route_after_evaluate,
     run_agent,
 )
-from devkb.agent.nodes import AgentRuntime, finalize_consistency, make_pg_retriever
+from devkb.agent.nodes import (
+    AgentNodes,
+    AgentRuntime,
+    finalize_consistency,
+    make_pg_retriever,
+    regen_full_block,
+)
 from devkb.agent.state import (
     AgentInput,
     ClaimOutput,
+    DraftSnapshot,
     EvaluateOutput,
     Evidence,
     GenerateOutput,
     initial_agent_state,
 )
-from devkb.agent.verification import l0_errors
+from devkb.agent.verification import l0_errors, verify_draft
 from devkb.embedding import FakeEmbedder
 from devkb.errors import LLMTimeoutError
 from devkb.llm import FakeLLM
@@ -761,3 +771,405 @@ def test_u10_refusal_is_never_upgraded_and_residues_are_reported() -> None:
     assert mode == "refusal"
     assert any("残留结构化 claim" in warning for warning in warnings)
     assert any("残留引用标记" in warning for warning in warnings)
+
+
+# ---- T25.2 第二稿覆盖与一致性复检 -------------------------------------------
+#
+# 合同：docs/tasks/T25.2-regen-coverage-diff.md
+# 测试 ID 前缀 t252_：本文件已被 T25.1 占用同名 U/I 编号，前缀保持两套账本各自可追溯。
+# 真值表七行（packet「关键不变量 · warning 真值表」）与本节用例一一对应：
+#   行1→U7/I4  行2→U18  行3→U8/I7  行4→U10  行5→U17  行6→U6/I2/I3  行7→U9/U11/I7
+
+# 首稿：L1 篡改一字（"事务"→"锁"）触发重生成，且自述一条缺口
+T252_GEN_GAP_BAD_L1 = (
+    '{"answer_text":"库存扣减由锁保护 [E1]。","claims":[{"text":"篡改断言",'
+    '"evidence_ids":["E1"],"quotes":["库存扣减由锁保护。"]}],'
+    '"not_found":["回滚补偿细节"]}'
+)
+# 第二稿：缺口由 1 条增至 2 条（P3 不成立，真值表行 7）
+T252_GEN_TWO_GAPS = (
+    '{"answer_text":"库存扣减由事务保护 [E1]。","claims":[{"text":"库存扣减由事务保护",'
+    '"evidence_ids":["E1"],"quotes":["库存扣减由事务保护。"]}],'
+    '"not_found":["回滚补偿细节","延迟队列重放细节"]}'
+)
+T252_EVAL_MISSING = (
+    '{"sufficiency":"sufficient","supported_aspects":["库存"],"missing_aspects":["补偿路径"]}'
+)
+# 诚实边界（继承 T25.1 并按 packet 扩四条）：跨稿复检推不出这些措辞
+T252_FORBIDDEN = (*FORBIDDEN_CLAIMS, "仍然存在", "隐瞒", "遗漏", "更差")
+
+T252_BLOCK_WARNING = (
+    "finalize: 第一稿声明过 1 条未覆盖方面、第二稿未再声明，其间无新证据，据此不判 full"
+)
+T252_NO_SNAPSHOT_WARNING = "finalize: 发生重生成但第一稿快照缺失，跨稿复检不适用"
+T252_EVIDENCE_DIFF_WARNING = "finalize: 两稿证据集不同，跨稿复检不适用"
+
+
+def _t252_snapshot(*gaps: str, evidence_ids: tuple[str, ...] = ("E1",)) -> DraftSnapshot:
+    return DraftSnapshot(not_found=gaps, evidence_ids=evidence_ids)
+
+
+def _t252_count_warning(first_count: int, second_count: int) -> str:
+    return (
+        f"finalize: 第一稿 not_found {first_count} 条、第二稿 {second_count} 条，"
+        "两稿逐条对应关系未作判定"
+    )
+
+
+def test_t252_u1_draft_snapshot_is_frozen_strict_and_closed() -> None:
+    """U1：DraftSnapshot 只有两个字段，且 frozen / extra=forbid / strict 三件套齐备。"""
+    snapshot = DraftSnapshot(not_found=("回滚补偿细节",), evidence_ids=("E1", "E2"))
+
+    assert set(DraftSnapshot.model_fields) == {"not_found", "evidence_ids"}
+    with pytest.raises(ValidationError):
+        snapshot.not_found = ()  # type: ignore[misc]
+    with pytest.raises(ValidationError):
+        DraftSnapshot(not_found=(), evidence_ids=(), extra="x")  # type: ignore[call-arg]
+    # strict：list 不得被静默转成 tuple，元素类型不得被强转
+    with pytest.raises(ValidationError):
+        DraftSnapshot(not_found=["回滚补偿细节"], evidence_ids=())  # type: ignore[arg-type]
+    with pytest.raises(ValidationError):
+        DraftSnapshot(not_found=(), evidence_ids=(1,))  # type: ignore[arg-type]
+
+
+def test_t252_u2_initial_state_carries_no_first_draft_snapshot() -> None:
+    """U2：初态无快照。"""
+    assert initial_agent_state(_input())["first_draft"] is None
+
+
+async def test_t252_u4_first_generate_snapshots_gaps_and_evidence_ids() -> None:
+    """U4：首次 generate 后快照 == （该稿原始 not_found，当前证据编号）。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_OK, GENERATE_PART], retrievals), _input())
+
+    assert result["generate_calls"] == 1
+    assert result["first_draft"] == _t252_snapshot("回滚补偿细节")
+
+
+async def test_t252_u5_snapshot_presence_matches_generate_calls() -> None:
+    """U5：不变式 first_draft is not None ⟺ generate_calls >= 1（0/1/2 稿三态）。"""
+    retrievals: list[tuple[str, ...]] = []
+    no_draft = await run_agent(_runtime([PLAN, EVAL_NO, REFINE, EVAL_NO], retrievals), _input())
+    one_draft = await run_agent(_runtime([PLAN, EVAL_OK, GENERATE], retrievals), _input())
+    two_drafts = await run_agent(
+        _runtime([PLAN, EVAL_OK, T252_GEN_GAP_BAD_L1, GENERATE], retrievals), _input()
+    )
+
+    for result in (no_draft, one_draft, two_drafts):
+        assert (result["first_draft"] is not None) is (result["generate_calls"] >= 1)
+    assert no_draft["generate_calls"] == 0
+    assert one_draft["generate_calls"] == 1
+    assert two_drafts["generate_calls"] == 2
+    # 两稿路径下快照留的是**第一稿**的缺口，不是终稿的
+    assert two_drafts["first_draft"] == _t252_snapshot("回滚补偿细节")
+
+
+async def test_t252_u12_generate_reask_does_not_overwrite_the_snapshot() -> None:
+    """U12：首次 generate 的格式重问不推进 generate_calls，快照只写一次且不被第二稿覆写。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, EVAL_OK, "{}", T252_GEN_GAP_BAD_L1, GENERATE], retrievals), _input()
+    )
+
+    assert result["retry_counts"] == {"generate:1": 1}
+    assert result["generate_calls"] == 2 and result["llm_calls"] == 5
+    draft = result["answer_draft"]
+    assert draft is not None and draft.not_found == []  # 终稿无缺口
+    assert result["first_draft"] == _t252_snapshot("回滚补偿细节")
+
+
+async def test_t252_u13_snapshot_ignores_failed_claims_and_body_marks() -> None:
+    """U13（裁决 C1）：首稿含 L1 失败 claim 与正文独立标记，快照仍只有两个字段。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, EVAL_OK, T252_GEN_GAP_BAD_L1, GEN_MIXED], retrievals), _input()
+    )
+
+    snapshot = result["first_draft"]
+    assert snapshot is not None
+    assert snapshot.model_dump() == {"not_found": ("回滚补偿细节",), "evidence_ids": ("E1",)}
+
+
+def test_t252_u6_all_three_preconditions_block_full() -> None:
+    """U6（行 6）：P1∧P2∧P3 全成立 → 否决 full + 恰好一条否决 warning。"""
+    blocked, warnings = regen_full_block(2, _t252_snapshot("回滚补偿细节"), [], ("E1",))
+
+    assert blocked is True
+    assert warnings == [T252_BLOCK_WARNING]
+
+
+def test_t252_u7_single_draft_state_is_a_legal_negative() -> None:
+    """U7（行 1，P1 独立负例）：单稿通过验证是合法常态，零新增 warning。"""
+    assert regen_full_block(1, _t252_snapshot("回滚补偿细节"), [], ("E1",)) == (False, [])
+
+
+def test_t252_u18_regeneration_without_snapshot_fails_closed() -> None:
+    """U18（行 2，PG-11）：重生成但快照缺失时只陈述自身状态，不断言两稿证据集。"""
+    blocked, warnings = regen_full_block(2, None, [], ("E1",))
+
+    assert blocked is False
+    assert warnings == [T252_NO_SNAPSHOT_WARNING]
+    assert T252_EVIDENCE_DIFF_WARNING not in warnings
+
+
+def test_t252_u8_different_evidence_sets_skip_the_cross_draft_check() -> None:
+    """U8（行 3，P2 独立负例）：两稿证据集不同 → 不否决，只留一条不适用 warning。"""
+    first = _t252_snapshot("回滚补偿细节", evidence_ids=("E1", "E2"))
+
+    assert regen_full_block(2, first, [], ("E1",)) == (False, [T252_EVIDENCE_DIFF_WARNING])
+
+
+def test_t252_u9_empty_first_draft_only_yields_a_count_warning() -> None:
+    """U9（行 7，P3 负例一）：第一稿无缺口、第二稿有缺口 → 只发计数 warning。"""
+    blocked, warnings = regen_full_block(2, _t252_snapshot(), ["回滚补偿细节"], ("E1",))
+
+    assert blocked is False
+    assert warnings == [_t252_count_warning(0, 1)]
+
+
+def test_t252_u10_identical_empty_not_found_adds_no_warning() -> None:
+    """U10（行 4）：两稿逐字相同且均空 → 零新增 warning。"""
+    assert regen_full_block(2, _t252_snapshot(), [], ("E1",)) == (False, [])
+
+
+def test_t252_u17_identical_non_empty_not_found_adds_no_warning() -> None:
+    """U17（行 5，PG-06-R）：逐字相同且均非空同样零 warning——非空侧不得一律报警。"""
+    first = _t252_snapshot("回滚补偿细节", "延迟队列重放细节")
+    second = ["回滚补偿细节", "延迟队列重放细节"]
+
+    assert regen_full_block(2, first, second, ("E1",)) == (False, [])
+
+
+def test_t252_u11_reworded_gap_gets_only_a_count_warning() -> None:
+    """U11（行 7，N-2）：同一缺口改写措辞时不做逐条身份标注，只发计数并声明未判定。"""
+    first = _t252_snapshot("回滚补偿细节未召回")
+    blocked, warnings = regen_full_block(2, first, ["补偿回滚的细节没有找到"], ("E1",))
+
+    assert blocked is False
+    assert warnings == [_t252_count_warning(1, 1)]
+    assert "两稿逐条对应关系未作判定" in warnings[0]
+
+
+def test_t252_u15_new_warnings_stay_within_the_provable_boundary() -> None:
+    """U15（N-1）：全部新增 warning 无禁用措辞；否决 warning 逐字含三段可证事实。"""
+    emitted = [
+        *regen_full_block(2, _t252_snapshot("缺口"), [], ("E1",))[1],
+        *regen_full_block(2, None, [], ("E1",))[1],
+        *regen_full_block(2, _t252_snapshot("缺口", evidence_ids=("E2",)), [], ("E1",))[1],
+        *regen_full_block(2, _t252_snapshot(), ["缺口"], ("E1",))[1],
+        *regen_full_block(2, _t252_snapshot("缺口甲"), ["缺口乙", "缺口丙"], ("E1",))[1],
+    ]
+
+    assert len(emitted) == 5
+    for warning in emitted:
+        for word in T252_FORBIDDEN:
+            assert word not in warning, (word, warning)
+    for fragment in ("第一稿声明过", "第二稿未再声明", "其间无新证据"):
+        assert fragment in emitted[0], fragment
+
+
+def test_t252_u14_randomized_truth_table_probe() -> None:
+    """U14：300 例随机组合逐例对表——否决 ⟺ P1∧P2∧P3，且每例 warning 条数与行号一致。"""
+    rng = random.Random(20260727)
+    pool = ["回滚补偿细节", "延迟队列重放", "补偿任务的重放口径"]
+    evidence_ids = ("E1", "E2")
+    expected_count = {1: 0, 2: 1, 3: 1, 4: 0, 5: 0, 6: 1, 7: 1}
+    hits = dict.fromkeys(expected_count, 0)
+    blocked_side = 0
+
+    for _ in range(300):
+        generate_calls = rng.choice([1, 2])
+        first_gaps = tuple(rng.sample(pool, rng.randint(0, 3)))
+        roll = rng.random()
+        if roll < 0.3:
+            second_gaps = list(first_gaps)  # 强制"逐字相同"（行 4/5）
+        elif roll < 0.6:
+            second_gaps = []  # 强制第二稿为空（行 6 候选）
+        else:
+            second_gaps = rng.sample(pool, rng.randint(0, 3))
+        first = (
+            None
+            if rng.random() < 0.15
+            else DraftSnapshot(
+                not_found=first_gaps,
+                evidence_ids=evidence_ids if rng.random() < 0.8 else ("E1",),
+            )
+        )
+
+        blocked, warnings = regen_full_block(generate_calls, first, second_gaps, evidence_ids)
+
+        if generate_calls != 2:
+            row = 1
+        elif first is None:
+            row = 2
+        elif first.evidence_ids != evidence_ids:
+            row = 3
+        elif first.not_found == tuple(second_gaps):
+            row = 4 if not second_gaps else 5
+        elif first.not_found and not second_gaps:
+            row = 6
+        else:
+            row = 7
+        hits[row] += 1
+        blocked_side += blocked
+
+        assert blocked is (row == 6)
+        assert len(warnings) == expected_count[row] <= 1, (row, warnings)
+
+    assert all(count > 0 for count in hits.values()), hits
+    assert 0 < blocked_side < 300
+
+
+async def test_t252_i2_second_draft_dropping_its_gap_cannot_reach_full() -> None:
+    """I2（行 6）：场景 B——第二稿删掉自述缺口不得把终态升成 full。
+
+    基线 be35c12 下本脚本产出 final_mode == "full"（探针实测），这正是 RT-08 的对偶缺陷。
+    """
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, EVAL_OK, T252_GEN_GAP_BAD_L1, GENERATE], retrievals), _input()
+    )
+
+    assert result["generate_calls"] == 2
+    assert result["final_mode"] == "partial"
+    # 只否决 full 与发 warning：其余三项与基线逐字一致，缺口一条都不许回填
+    assert result["final_answer"] == "库存扣减由事务保护 [E1]。"
+    assert result["final_not_found"] == []
+    assert result["final_not_found_details"] == ()
+    assert result["warnings"] == ["verify:l0_l1_failed", T252_BLOCK_WARNING]
+    answer = build_answer(result)
+    assert any("本次未列出具体未覆盖方面" in item for item in answer["limitations"])
+    for blob in (*answer["not_found"], *answer["limitations"], *answer["warnings"]):
+        for word in T252_FORBIDDEN:
+            assert word not in blob, (word, blob)
+
+
+async def test_t252_i3_frozen_default_second_draft_still_evaluates_the_check() -> None:
+    """I3（PG-14）：第二稿走冻结默认值时 mode 本就是 partial——只有 warning 能证明判据求值。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, EVAL_OK, T252_GEN_GAP_BAD_L1, "{}", "{}"], retrievals), _input()
+    )
+
+    assert result["generate_failed"] is True and result["generate_calls"] == 2
+    assert T252_BLOCK_WARNING in result["warnings"]
+    # 与基线一致仍为 partial：本例不作为 full→partial 的证据（那由 I2 单独证明）
+    assert result["final_mode"] == "partial"
+    assert result["final_answer"] == "现有证据不足以可靠生成回答。"
+
+
+async def test_t252_i4_budget_exhausted_run_matches_the_baseline_byte_for_byte() -> None:
+    """I4（行 1）：未发生重生成时终态含 warnings 与基线 be35c12 逐字节一致。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime(["{}", PLAN, "{}", EVAL_OK, "{}", BAD_GEN_L1], retrievals), _input()
+    )
+
+    assert result["generate_calls"] == 1
+    assert result["final_mode"] == "refusal"
+    assert result["final_answer"] == "现有资料不足以回答该问题。"
+    assert result["final_not_found"] == []
+    assert result["final_not_found_details"] == ()
+    assert result["warnings"] == [
+        "plan:invalid_structured_output",
+        "evaluate:1:invalid_structured_output",
+        "generate:1:invalid_structured_output",
+        "verify:l0_l1_failed",
+        "finalize: 已移除 1 个未通过验证的 claim，正文按保留 claim 重建",
+    ]
+
+
+async def test_t252_i6_check_reads_the_raw_second_draft_not_the_calibrated_list() -> None:
+    """I6（PG-13）：判据必须读第二稿原始 draft.not_found，而不是 T23 校准后的清单。
+
+    判别器是两条 warning 的**有/无组合**：误传校准结果时 P3 不成立、无否决 warning，
+    full_candidate 仍为真而落定 full，再被既有 finalize_consistency 降级并留下降级 warning。
+    只断 final_mode != "full" 在两种接线下都成立，证不到任何东西。
+    """
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, T252_EVAL_MISSING, T252_GEN_GAP_BAD_L1, GENERATE], retrievals), _input()
+    )
+
+    draft = result["answer_draft"]
+    assert draft is not None and draft.not_found == []  # 第二稿原始字段为空
+    assert result["final_not_found"] == ["补偿路径"]  # T23 校准后非空
+    assert T252_BLOCK_WARNING in result["warnings"]
+    assert "finalize: full 终态存在未覆盖缺口，降级 partial" not in result["warnings"]
+
+
+async def _t252_finalize_once(
+    *,
+    generate_calls: int,
+    first_draft: DraftSnapshot | None,
+    draft: GenerateOutput,
+    evidences: list[Evidence],
+) -> dict[str, Any]:
+    """直接跑 finalize 节点观测终态四项。
+
+    真值表行 3（两稿证据集不同）在当前拓扑不可达——两次 generate 之间没有 retrieve 边
+    （graph.py:185-190），故只能手工构造状态；它作为结构性 fail-closed 保留。
+    """
+    state = initial_agent_state(_input())
+    state["evidences"] = evidences
+    state["evidence_path_history"] = [evidence.rel_path for evidence in evidences]
+    state["evaluation"] = EvaluateOutput(
+        sufficiency="sufficient", supported_aspects=["库存"], missing_aspects=[]
+    )
+    state["answer_draft"] = draft
+    state["verification"] = verify_draft(draft, evidences)
+    state["generate_calls"] = generate_calls
+    state["first_draft"] = first_draft
+    return await AgentNodes(_custom_runtime([], evidences), None).finalize(state)
+
+
+@pytest.mark.parametrize("row", ["row3_evidence_set_differs", "row7_gaps_differ"])
+async def test_t252_i7_non_blocking_rows_leave_the_final_state_untouched(row: str) -> None:
+    """I7（PG-10）：行 3/7 的终态侧——四项与基线一致，warnings 恰好多一条约定 warning。"""
+    if row == "row7_gaps_differ":
+        retrievals: list[tuple[str, ...]] = []
+        result = await run_agent(
+            _runtime([PLAN, EVAL_OK, T252_GEN_GAP_BAD_L1, T252_GEN_TWO_GAPS], retrievals), _input()
+        )
+
+        assert result["generate_calls"] == 2
+        # 四项与基线 be35c12 逐字一致（探针实测）
+        assert result["final_mode"] == "partial"
+        assert result["final_answer"] == "库存扣减由事务保护 [E1]。"
+        assert result["final_not_found"] == ["回滚补偿细节", "延迟队列重放细节"]
+        assert [detail.text for detail in result["final_not_found_details"]] == [
+            "回滚补偿细节",
+            "延迟队列重放细节",
+        ]
+        assert result["warnings"] == ["verify:l0_l1_failed", _t252_count_warning(1, 2)]
+        return
+
+    draft = GenerateOutput(
+        answer_text="库存扣减由事务保护 [E1]。",
+        claims=[
+            ClaimOutput(
+                text="库存扣减由事务保护",
+                evidence_ids=["E1"],
+                quotes=["库存扣减由事务保护。"],
+            )
+        ],
+        not_found=["回滚补偿细节", "延迟队列重放细节"],
+    )
+    evidences = [_evidence()]
+    # 对照组走真值表行 1（P1 不成立，由 U7 证明零新增 warning），即基线行为
+    baseline = await _t252_finalize_once(
+        generate_calls=1,
+        first_draft=_t252_snapshot("回滚补偿细节"),
+        draft=draft,
+        evidences=evidences,
+    )
+    actual = await _t252_finalize_once(
+        generate_calls=2,
+        first_draft=_t252_snapshot("回滚补偿细节", evidence_ids=("E1", "E2")),
+        draft=draft,
+        evidences=evidences,
+    )
+
+    for field_name in ("final_mode", "final_answer", "final_not_found", "final_not_found_details"):
+        assert actual[field_name] == baseline[field_name], field_name
+    assert actual["warnings"] == [*baseline["warnings"], T252_EVIDENCE_DIFF_WARNING]

@@ -58,6 +58,7 @@ from devkb.agent.state import (
     MAX_RETRIEVAL_ROUNDS,
     AgentState,
     ClaimOutput,
+    DraftSnapshot,
     EvaluateOutput,
     Evidence,
     FinalMode,
@@ -443,6 +444,52 @@ def finalize_consistency(
     if mode == "refusal" and _EVIDENCE_MARK.search(answer_text):
         warnings.append("finalize: refusal 正文残留引用标记")
     return min(mode, resolved, key=lambda candidate: _MODE_RANK[candidate]), warnings
+
+
+def regen_full_block(
+    generate_calls: int,
+    first: DraftSnapshot | None,
+    draft_not_found: Sequence[str],
+    evidence_ids: Sequence[str],
+) -> tuple[bool, list[str]]:
+    """T25.2 跨稿确定性复检：发生重生成时决定是否否决 ``full``（规格 §7 第 3 句）。
+
+    动机（RT-08 的对偶）：``full_candidate`` 里的 ``not draft.not_found`` 读的是**最终
+    那一稿**的自述，故第一稿声明缺口、第二稿把缺口删掉，就能把终态升成本项目最强的
+    ``full``——而两次 generate 之间没有 retrieve 边，不可能有新证据进来。
+
+    三个前置条件全部成立才否决：**P1** 确实发生了重生成、**P2** 两稿看到的是同一套
+    证据、**P3** 第一稿声明过缺口而第二稿的**原始** ``not_found`` 为空。
+
+    只做两件事：否决 ``full`` 与发 warning。**不新增、不删除、不改写任何一条
+    ``final_not_found``**——"第一稿那条缺口仍然存在"是推不出来的（第二稿可能确实解决了
+    它，只是没再声明），把它回填进用户可见清单等于用未经证明的话冒充事实。
+
+    七行真值表（完整、互斥、穷尽，每行至多一条 warning）见任务合同；行 2
+    （``generate_calls == 2`` 且快照缺失）在当前拓扑不可达，但类型上合法：此时 P2
+    **不可求值**，并入"两稿证据集不同"会发出一句我们并不知道真假的断言，故单列并
+    fail-closed 到不否决。判据因此不依赖"重生成必有快照"这条不变式成立。
+    """
+    if generate_calls != 2:  # 行 1：未发生重生成，跨稿复检整体不适用
+        return False, []
+    if first is None:  # 行 2：只陈述我们自己的状态，不碰两稿证据集
+        return False, ["finalize: 发生重生成但第一稿快照缺失，跨稿复检不适用"]
+    if first.evidence_ids != tuple(evidence_ids):  # 行 3
+        return False, ["finalize: 两稿证据集不同，跨稿复检不适用"]
+    second = tuple(draft_not_found)
+    if first.not_found == second:  # 行 4/5：逐字相同（空与非空同理），无可披露的差分
+        return False, []
+    if first.not_found and not second:  # 行 6：P3 成立
+        return True, [
+            f"finalize: 第一稿声明过 {len(first.not_found)} 条未覆盖方面、第二稿未再声明，"
+            "其间无新证据，据此不判 full"
+        ]
+    # 行 7：两稿都非空且不同。第二稿改写措辞即可让朴素集合差分同时报出一增一减，
+    # 跨稿逐条身份不可确定性建立，故只披露条数并显式声明未作判定。
+    return False, [
+        f"finalize: 第一稿 not_found {len(first.not_found)} 条、第二稿 {len(second)} 条，"
+        "两稿逐条对应关系未作判定"
+    ]
 
 
 def _with_citation_scope(
@@ -906,6 +953,16 @@ class AgentNodes:
         return {
             **call.updates,
             "answer_draft": call.value,
+            # T25.2：第一稿在被第二稿覆写前留一份跨稿复检快照。格式/传输重问不推进
+            # generate_calls，故重问不会写第二份；此后只读。
+            "first_draft": (
+                DraftSnapshot(
+                    not_found=tuple(call.value.not_found),
+                    evidence_ids=tuple(evidence.evidence_id for evidence in state["evidences"]),
+                )
+                if state["generate_calls"] == 0
+                else state["first_draft"]
+            ),
             "generate_calls": state["generate_calls"] + 1,
             "generate_failed": call.used_default,
             "node_history": ["generate"],
@@ -1048,7 +1105,17 @@ class AgentNodes:
             matrix,
         )
         warnings.extend(required_warnings)
-        if full_candidate and satisfied:
+        # T25.2 跨稿复检：重生成缩小自述缺口不得把终态升成 full（判据见 regen_full_block）。
+        # 输入取第二稿**原始** draft.not_found，与上面 full_candidate 的 not draft.not_found
+        # 同源——T23 校准后的清单会混入 evaluator missing 与确定性说明，口径不同。
+        regen_blocked, regen_warnings = regen_full_block(
+            state["generate_calls"],
+            state["first_draft"],
+            draft.not_found if draft else [],
+            [evidence.evidence_id for evidence in state["evidences"]],
+        )
+        warnings.extend(regen_warnings)
+        if full_candidate and satisfied and not regen_blocked:
             mode = "full"
 
         # T23 确定性收尾：四分类 + 全轮历史事实校验（只读结构化状态，零 LLM 调用）。
