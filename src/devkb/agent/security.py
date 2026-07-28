@@ -45,8 +45,10 @@ _PREDICATE_KEYWORD = re.compile(r"\b(?:WHERE|AND|ON)\b")
 _COMPARISON = re.compile(r"!=|<>|=|\bIN\b")
 
 _LAYER_PREFIX = "（本次隔离层级分层："
+# 引号用 ASCII 直引号，与任务合同的冻结模板逐字节一致（首审 T26.2-CR-02：实现此前
+# 用了中文弯引号，而 U2 的预期跟着实现一起漂移，绿测证不到"逐字等于冻结模板"）。
 _SERVICE_LAYER_UNJUDGED = (
-    "“Service 前置校验后调用非 owner-scoped 语句”需跨 chunk 调用链判定，本阶段不作判定。"
+    '"Service 前置校验后调用非 owner-scoped 语句"需跨 chunk 调用链判定，本阶段不作判定。'
 )
 # 末句刻意避开 T26.1 的闭合全称词表（_UNIVERSAL_TERMS）：写成"不代表…全部查询"会命中
 # "全部"，让本段自触发 T26.1 的全称披露 warning（前审 PG-01）。

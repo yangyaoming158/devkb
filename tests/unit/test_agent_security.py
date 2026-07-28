@@ -131,7 +131,7 @@ def test_t262_u2_note_matches_the_frozen_template() -> None:
     assert note == (
         "（本次隔离层级分层：已交付引用中，2 条语句片段内含 owner 谓词（A.java(E1)、B.java(E2)）；"
         "1 条片段内未见 owner 谓词（C.java(E3)）。"
-        "“Service 前置校验后调用非 owner-scoped 语句”需跨 chunk 调用链判定，本阶段不作判定。"
+        '"Service 前置校验后调用非 owner-scoped 语句"需跨 chunk 调用链判定，本阶段不作判定。'
         "本分层只覆盖上述引用片段，未覆盖同一文件或方法中未被引用的其余语句。）"
     )
 

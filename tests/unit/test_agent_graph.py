@@ -1734,14 +1734,39 @@ async def test_t262_u6c_security_refusal_carries_no_layer_note() -> None:
 
 
 async def test_t262_u7_generate_failure_partial_still_layers_delivered_citations() -> None:
-    """U7：生成失败降级的 partial，只要仍有交付引用就照常分层。"""
-    retrievals: list[tuple[str, ...]] = []
-    result = await run_agent(_runtime([PLAN, EVAL_OK, "{}", "{}"], retrievals), _t262_input())
+    """U7：`generate_failed` 的 partial，只要仍有交付引用就照常分层，并与范围句共存。
 
-    # 该路径零交付引用（正文是确定性降级文案，无 claim 也无 [E#]）→ 无分层对象
-    assert result["final_mode"] == "partial" and result["generate_failed"] is True
-    assert T262_PREFIX not in (result["final_answer"] or "")
-    assert (result["final_answer"] or "").endswith(T261_NO_CITATION)
+    首审 T26.2-CR-01：该状态经 `run_agent` 不可达（默认降级文案既无 claim 也无
+    `[E#]`，`visible_citations` 恒空），但**合同前提本身成立**——`generate_failed`
+    分支同样跑 `apply_l0`，上一稿正文保留的 `[E#]` 就是交付引用。故沿用本文件
+    `_t252_finalize_once` 的先例直接跑 finalize 节点构造该状态，不改冻结前提。
+    """
+    evidences = [_t262_evidence(1, owner_scoped=True)]
+    draft = GenerateOutput(
+        answer_text="隔离由 Repository 语句强制 [E1]。",
+        claims=[],
+        not_found=["当前证据未覆盖审计日志"],
+    )
+    state = initial_agent_state(_t262_input())
+    state["evidences"] = evidences
+    state["evidence_path_history"] = [evidence.rel_path for evidence in evidences]
+    state["evaluation"] = EvaluateOutput(
+        sufficiency="sufficient", supported_aspects=["隔离"], missing_aspects=[]
+    )
+    state["answer_draft"] = draft
+    state["generate_failed"] = True
+    state["generate_calls"] = 1
+    result = await AgentNodes(_custom_runtime([], evidences), None).finalize(state)
+    answer = result["final_answer"] or ""
+
+    assert result["final_mode"] == "partial"
+    # 交付引用来自正文过 L0 的裸 [E1]（claims 为空），分层段照常产出
+    assert T262_PREFIX in answer
+    assert "1 条语句片段内含 owner 谓词" in answer
+    assert f"{evidences[0].rel_path}(E1)" in answer
+    # 与 T26.1 范围句共存，且范围句仍收尾
+    assert answer.index(T262_PREFIX) < answer.index(T261_PREFIX)
+    assert answer.endswith(_t261_note([evidences[0].rel_path], len(result["final_not_found"])))
 
 
 async def test_t262_u6b_regeneration_appends_the_layer_note_exactly_once() -> None:
