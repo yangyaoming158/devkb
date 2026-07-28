@@ -1610,3 +1610,213 @@ async def test_t261_i1_case7_partial_is_scoped_to_the_three_verified_repositorie
     for blob in (answer["answer_text"], *answer["warnings"], *answer["limitations"]):
         for word in T261_FORBIDDEN:
             assert word not in blob, (word, blob)
+
+
+# ---- T26.2 安全隔离层级分层（RT-18 / 案例七）----
+#
+# 纯函数矩阵在 tests/unit/test_agent_security.py；这里只测图级行为与终态收尾顺序。
+
+T262_PREFIX = "（本次隔离层级分层："
+T262_WARNING_PREFIX = "finalize: 问题命中隔离触发词（"
+# T26.1 禁用词 ∪ T26.2 专属；后三条是 PG-06-R 补入的**旧错误措辞**——不进表的话，
+# warning 退回旧写法仍能通过冻结测试（修复与测试脱钩）。
+T262_FORBIDDEN = (
+    *T261_FORBIDDEN,
+    "没有 owner",
+    "缺少 owner",
+    "未做隔离",
+    "存在越权",
+    "无越权风险",
+    "已完成安全审查",
+    "双重防线",
+    "均带 owner",
+    "所有查询",
+    "安全隔离题",
+    "这是安全问题",
+    "判定为安全",
+)
+T262_QUESTION = "用户 A 能否读取或删除用户 B 的资源？owner_id 隔离在哪些 Repository 强制实现？"
+
+
+def _t262_evidence(index: int, *, owner_scoped: bool) -> Evidence:
+    content = (
+        f"SELECT * FROM t{index} WHERE id = ? AND owner_id = ?"
+        if owner_scoped
+        else f"SELECT * FROM t{index} WHERE kb_id = ?"  # §10.3 中央反例：只按 kb_id 过滤
+    )
+    return Evidence(
+        evidence_id=f"E{index}",
+        chunk_id=uuid.UUID(int=200 + index),
+        rel_path=f"src/main/java/com/example/repo/Repo{index}.java",
+        title_path=f"Repo{index}",
+        content=content,
+        start_line=10,
+        end_line=20,
+        score=1.0 / index,
+    )
+
+
+def _t262_gen(evidence_ids: list[str], not_found: list[str]) -> str:
+    return json.dumps(
+        {
+            "answer_text": "隔离由各 Repository 语句强制 "
+            + "".join(f"[{eid}]" for eid in evidence_ids)
+            + "。",
+            "claims": [
+                {
+                    "text": f"Repo{eid[1:]} 的查询带过滤条件",
+                    "evidence_ids": [eid],
+                    "quotes": [_t262_evidence(int(eid[1:]), owner_scoped=True).content]
+                    if eid in ("E1", "E2")
+                    else [_t262_evidence(int(eid[1:]), owner_scoped=False).content],
+                }
+                for eid in evidence_ids
+            ],
+            "not_found": not_found,
+        },
+        ensure_ascii=False,
+    )
+
+
+def _t262_input(question: str = T262_QUESTION) -> AgentInput:
+    return AgentInput(run_id=uuid.uuid4(), project_id=uuid.uuid4(), question=question)
+
+
+async def test_t262_u6_non_security_question_is_byte_identical_to_the_t261_baseline() -> None:
+    """U6（零回归护栏）：非安全题正文逐字等于 T26.1 基线，绝不追加分层段。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_OK, GENERATE_PART], retrievals), _input())
+
+    assert result["final_mode"] == "partial"
+    # 单轮脚本 → 只有 draft 自述的 1 条缺口（T26.1 的 :181 用例走双轮，故那里是 2 条）
+    assert (result["final_answer"] or "") == "仅库存部分有证据 [E1]。" + _t261_note(
+        ["docs/order.md"], 1
+    )
+    assert T262_PREFIX not in (result["final_answer"] or "")
+    assert not [w for w in result["warnings"] if "隔离触发词" in w]
+
+
+async def test_t262_u6d_partial_orders_layer_note_before_the_scope_note() -> None:
+    """U6d（PG-02）：partial 顺序为 正文 → 分层段 → 范围句，且**仍以范围句结尾**。"""
+    evidences = [_t262_evidence(i, owner_scoped=i != 3) for i in (1, 2, 3)]
+    draft = _t262_gen(["E1", "E2", "E3"], ["当前证据未覆盖审计日志"])
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, draft], evidences), _t262_input())
+    answer = result["final_answer"] or ""
+
+    assert result["final_mode"] == "partial"
+    cited = [c["rel_path"] for c in build_answer(result)["citations"]]
+    scope = _t261_note(cited, len(result["final_not_found"]))
+    assert answer.endswith(scope), "T26.1 的尾部不变量必须保持"
+    assert answer.index(T262_PREFIX) < answer.index(T261_PREFIX), "分层段在范围句之前"
+    assert answer.count(T262_PREFIX) == 1
+
+
+async def test_t262_u7b_security_full_answer_ends_with_the_layer_note() -> None:
+    """U7b（PG-02）：安全题 full 也分层；full 无范围句，故正文以分层段结尾。"""
+    evidences = [_t262_evidence(1, owner_scoped=True)]
+    draft = _t262_gen(["E1"], [])
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, draft], evidences), _t262_input())
+    answer = result["final_answer"] or ""
+
+    assert result["final_mode"] == "full"
+    assert T261_PREFIX not in answer  # full 没有 T26.1 范围句
+    assert answer.endswith("其余语句。）") and T262_PREFIX in answer
+    assert "1 条语句片段内含 owner 谓词" in answer
+
+
+async def test_t262_u6c_security_refusal_carries_no_layer_note() -> None:
+    """U6c：安全题但终态 refusal——正文由 _refusal_text 重建，不追加分层段。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_NO, REFINE, EVAL_NO], retrievals), _t262_input())
+
+    assert result["final_mode"] == "refusal"
+    assert T262_PREFIX not in (result["final_answer"] or "")
+
+
+async def test_t262_u7_generate_failure_partial_still_layers_delivered_citations() -> None:
+    """U7：生成失败降级的 partial，只要仍有交付引用就照常分层。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_OK, "{}", "{}"], retrievals), _t262_input())
+
+    # 该路径零交付引用（正文是确定性降级文案，无 claim 也无 [E#]）→ 无分层对象
+    assert result["final_mode"] == "partial" and result["generate_failed"] is True
+    assert T262_PREFIX not in (result["final_answer"] or "")
+    assert (result["final_answer"] or "").endswith(T261_NO_CITATION)
+
+
+async def test_t262_u6b_regeneration_appends_the_layer_note_exactly_once() -> None:
+    """U6b：重生成后 finalize 仍只跑一次，分层段恰好 1 段。"""
+    evidences = [_t262_evidence(1, owner_scoped=True)]
+    bad = _t262_gen(["E1"], []).replace(
+        "SELECT * FROM t1 WHERE id = ? AND owner_id = ?", "篡改引文"
+    )
+    good = _t262_gen(["E1"], ["当前证据未覆盖审计日志"])
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, bad, good], evidences), _t262_input())
+
+    assert result["generate_calls"] == 2 and result["final_mode"] == "partial"
+    assert (result["final_answer"] or "").count(T262_PREFIX) == 1
+
+
+async def test_t262_u11_question_outside_the_table_omits_the_section_entirely() -> None:
+    """U11（fail-closed #4）：表外的安全问法漏判时整段省略，而不是输出错误分层。"""
+    evidences = [_t262_evidence(1, owner_scoped=True)]
+    draft = _t262_gen(["E1"], ["当前证据未覆盖审计日志"])
+    # 语义是安全问题，但不含表 A 任一词条（"权限"/"越权" 已按 PG-05 删除）
+    result = await run_agent(
+        _custom_runtime([PLAN, EVAL_OK, draft], evidences),
+        _t262_input("这个项目怎么防止用户互相看到对方数据？有没有越权风险？"),
+    )
+    answer = result["final_answer"] or ""
+
+    assert T262_PREFIX not in answer
+    assert not [w for w in result["warnings"] if "隔离触发词" in w]
+    # 降级到 T26.1 的范围句，而不是留下一段错误分层
+    assert T261_PREFIX in answer
+
+
+async def test_t262_u12_layer_note_and_warning_never_overclaim() -> None:
+    """U12（诚实边界 + PG-06-R）：正文与 warning 两处零禁用词；warning 前缀逐字锁定。"""
+    evidences = [_t262_evidence(i, owner_scoped=i != 3) for i in (1, 2, 3)]
+    draft = _t262_gen(["E1", "E2", "E3"], ["当前证据未覆盖审计日志"])
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, draft], evidences), _t262_input())
+    answer = build_answer(result)
+
+    (warning,) = [w for w in answer["warnings"] if "隔离触发词" in w]
+    assert warning.startswith(T262_WARNING_PREFIX), "正向锁定：只靠禁用词表挡不住改写"
+    assert "service_precheck 层未判定" in warning
+    layer = (result["final_answer"] or "")[(result["final_answer"] or "").index(T262_PREFIX) :]
+    for blob in (layer, warning):
+        for word in T262_FORBIDDEN:
+            assert word not in blob, (word, blob)
+
+
+async def test_t262_i1_case7_shape_separates_the_two_enforcement_layers() -> None:
+    """I1（图级复现案例七）：三条 Repository 不再被概括成统一双重防线。"""
+    evidences = [_t262_evidence(i, owner_scoped=i != 3) for i in (1, 2, 3)]
+    draft = _t262_gen(
+        ["E1", "E2", "E3"],
+        ["当前证据未覆盖 RagService.findConversation 的实现"],
+    )
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, draft], evidences), _t262_input())
+    answer = build_answer(result)
+    text = answer["answer_text"]
+
+    assert answer["mode"] == "partial"
+    # ① 顺序：模型正文 → 分层段 → T26.1 范围句，两段各 1 次，且以范围句结尾
+    cited = [c["rel_path"] for c in answer["citations"]]
+    assert text.index(T262_PREFIX) < text.index(T261_PREFIX)
+    assert text.count(T262_PREFIX) == 1 and text.count(T261_PREFIX) == 1
+    assert text.endswith(_t261_note(cited, len(answer["not_found"])))
+    # ② 两层被分开：2 条含 owner 谓词、1 条（只按 kb_id 过滤）未见
+    assert "2 条语句片段内含 owner 谓词" in text
+    repo = "src/main/java/com/example/repo/Repo"
+    assert f"{repo}1.java(E1)、{repo}2.java(E2)" in text
+    assert f"1 条片段内未见 owner 谓词（{repo}3.java(E3)）" in text
+    # ③ service_precheck 层显式未判定
+    assert "需跨 chunk 调用链判定，本阶段不作判定。" in text
+    # ④ 诚实边界：正文/warning/limitations 三处零禁用词
+    for blob in (text, *answer["warnings"], *answer["limitations"]):
+        for word in T262_FORBIDDEN:
+            assert word not in blob, (word, blob)
+    # ⑤ 真实缺口未被分层段顶掉
+    assert len(answer["not_found"]) == 1

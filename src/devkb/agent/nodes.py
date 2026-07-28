@@ -52,6 +52,11 @@ from devkb.agent.not_found import (
     calibrate_not_found,
     strip_absence_markers,
 )
+from devkb.agent.security import (
+    enforcement_layer_note,
+    is_isolation_question,
+    owner_predicate_in,
+)
 from devkb.agent.state import (
     MAX_GENERATE_CALLS,
     MAX_LLM_REQUESTS,
@@ -1227,13 +1232,38 @@ class AgentNodes:
         mode, consistency_warnings = finalize_consistency(mode, kept, not_found, answer)
         warnings.extend(consistency_warnings)
 
+        # T26.2（规格 §8 第 2 句）：安全隔离题按交付引用逐行分层。追加点分终态处理——
+        # 范围句只存在于 partial 分支且 T26.1 要求它收尾，故 partial 走"分层段→范围句"，
+        # full 独立追加，refusal 不追加（正文随后由 _refusal_text 重建）。
+        layer_note = ""
+        isolation_hits = is_isolation_question(state["question"])
+        if isolation_hits and mode != "refusal":
+            layer_note = enforcement_layer_note(
+                [
+                    (
+                        evidence_id,
+                        rel_path,
+                        owner_predicate_in(evidence_by_id[evidence_id].content),
+                        classify_path(rel_path) == "production_source",
+                    )
+                    for evidence_id, rel_path in visible_citations
+                    if evidence_id in evidence_by_id
+                ]
+            )
+            if layer_note:
+                # 只陈述词法事实：命中触发词 ≠ "这是安全问题"（判据可证边界 #4）。
+                warnings.append(
+                    f"finalize: 问题命中隔离触发词（{'、'.join(isolation_hits)}），"
+                    "已按交付引用输出层级分层；service_precheck 层未判定"
+                )
+
         if mode == "refusal":
             answer = _refusal_text(not_found)
             kept = []
         elif mode == "partial":
             # T26.1（规格 §8 第 1 句）：partial 正文必须限定在已验证范围。
-            # 扫描**必须早于**追加——范围句一旦落进 answer，再扫就会把它自己的措辞
-            # 算成模型的全称断言（此刻它还不存在，故该顺序结构性成立）。
+            # 扫描**必须早于**两段追加——任何一段落进 answer，再扫就会把确定性文案
+            # 算成模型的全称断言（此刻两段都还不存在，故该顺序结构性成立）。
             hits = universal_claim_hits(answer)
             if hits and not_found:
                 # 只披露共存，不判冲突：证不出全称断言的论域与缺口论域重叠（需 L2/NLI，
@@ -1242,7 +1272,11 @@ class AgentNodes:
                     f"finalize: partial 正文含 {len(hits)} 类全称表述（{'、'.join(hits)}），"
                     f"本次仍有 {len(not_found)} 条未覆盖方面；两者论域关系未作判定"
                 )
+            # 分层段在前、范围句在后：范围句必须是 partial 正文的最后一段（T26.1 合同）
+            answer += layer_note
             answer += verified_scope_note(cited_paths, len(not_found))
+        else:  # full：无范围句，分层段直接收尾
+            answer += layer_note
         return {
             "final_answer": answer,
             "final_mode": mode,
