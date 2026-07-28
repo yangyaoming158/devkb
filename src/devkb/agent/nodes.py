@@ -511,7 +511,7 @@ _UNIVERSAL_TERMS: tuple[str, ...] = (
     "从不",
 )
 _SCOPE_NOTE_PREFIX = "（本次已验证范围："
-_SCOPE_NOTE_NO_CITATION = "（本次已验证范围：本次未产生引用来源，本回答未取得可核验的引用支撑。）"
+_SCOPE_NOTE_NO_CITATION_BODY = "本次未产生引用来源，本回答未取得可核验的引用支撑。"
 
 
 def verified_scope_note(cited_paths: Sequence[str], not_found_count: int) -> str:
@@ -530,13 +530,18 @@ def verified_scope_note(cited_paths: Sequence[str], not_found_count: int) -> str
     渲染口径与 ``not_found._render_refs`` 同源（前 3 条 + "等 N 条"），不另建第二套
     列表截断规则。措辞对 ``_UNIVERSAL_TERMS`` 恒零命中——否则扫描顺序一变即自触发。
     """
-    if not cited_paths:
-        return _SCOPE_NOTE_NO_CITATION
+    if cited_paths:
+        body = (
+            f"本回答的结论仅覆盖以下 {len(cited_paths)} 个引用来源——"
+            f"{_render_refs(cited_paths)}；其余资源与操作未经本次证据核验。"
+        )
+    else:
+        body = _SCOPE_NOTE_NO_CITATION_BODY
+    # 计数分句独立于引用分支拼接（首审 T26.1-CR-01）：此前"零引用"是一条提前返回，
+    # 把缺口条数一并吞掉——零引用恰恰是最需要说明"还差几条"的状态。省略的**唯一**
+    # 条件是 not_found_count == 0，与 U6 同一口径。
     tail = f"另有 {not_found_count} 条未覆盖方面见 not_found。" if not_found_count else ""
-    return (
-        f"{_SCOPE_NOTE_PREFIX}本回答的结论仅覆盖以下 {len(cited_paths)} 个引用来源——"
-        f"{_render_refs(cited_paths)}；其余资源与操作未经本次证据核验。{tail}）"
-    )
+    return f"{_SCOPE_NOTE_PREFIX}{body}{tail}）"
 
 
 def universal_claim_hits(answer_text: str) -> tuple[str, ...]:

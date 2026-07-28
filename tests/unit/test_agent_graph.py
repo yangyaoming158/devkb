@@ -1204,7 +1204,8 @@ T261_TERMS = (
     "从不",
 )
 T261_PREFIX = "（本次已验证范围："
-T261_NO_CITATION = "（本次已验证范围：本次未产生引用来源，本回答未取得可核验的引用支撑。）"
+T261_NO_CITATION_BODY = "（本次已验证范围：本次未产生引用来源，本回答未取得可核验的引用支撑。"
+T261_NO_CITATION = f"{T261_NO_CITATION_BODY}）"
 # 诚实边界禁用词：范围句与 warning 都不得声称"已验证/无越界/存在冲突/不存在"
 T261_FORBIDDEN = (
     *FORBIDDEN_CLAIMS,
@@ -1224,12 +1225,16 @@ T261_FORBIDDEN = (
 
 
 def _t261_note(paths: list[str], gaps: int) -> str:
-    """按合同逐字重建范围句（测试侧独立实现，故实现漂移必红）。"""
+    """按合同逐字重建范围句（测试侧独立实现，故实现漂移必红）。
+
+    计数分句独立于引用分支：**唯一**的省略条件是 gaps == 0（首审 T26.1-CR-01——
+    此前这里跟着实现一起在零引用时提前返回，把缺口条数吞掉了）。
+    """
+    tail = f"另有 {gaps} 条未覆盖方面见 not_found。" if gaps else ""
     if not paths:
-        return T261_NO_CITATION
+        return f"{T261_NO_CITATION_BODY}{tail}）"
     shown = "、".join(paths[:3])
     refs = f"{shown} 等 {len(paths)} 条" if len(paths) > 3 else shown
-    tail = f"另有 {gaps} 条未覆盖方面见 not_found。" if gaps else ""
     return (
         f"{T261_PREFIX}本回答的结论仅覆盖以下 {len(paths)} 个引用来源——{refs}；"
         f"其余资源与操作未经本次证据核验。{tail}）"
@@ -1433,9 +1438,21 @@ async def test_t261_u11_real_refusal_entry_leaves_the_body_untouched() -> None:
 
 
 def test_t261_u12_scope_note_is_a_pure_function_of_the_structured_state() -> None:
-    """U12：随机 300 组直接喂纯函数，三条恒等式全成立（含零引用/零缺口两个边界）。"""
+    """U12：随机 300 组直接喂纯函数，三条恒等式全成立（含零引用/零缺口两个边界）。
+
+    首审 T26.1-CR-01：③ 原写作 `if gaps and count`，把"零引用"也当成省略条件，
+    与合同"**唯一**的省略条件是 gaps == 0"不符——300 组里有 39 组落在"零引用且
+    缺口非零"，全被这个多余的 and 掩盖。现按合同判定，并显式钉住 ([], 2)。
+    """
+    assert verified_scope_note([], 2) == (
+        "（本次已验证范围：本次未产生引用来源，本回答未取得可核验的引用支撑。"
+        "另有 2 条未覆盖方面见 not_found。）"
+    )
+    assert verified_scope_note([], 0) == T261_NO_CITATION
+
     rng = random.Random(2610)
     seen_zero_paths = seen_zero_gaps = seen_truncated = False
+    seen_zero_paths_with_gaps = False
     for _ in range(300):
         count = rng.randint(0, 6)
         paths = [f"src/pkg/File{i}.java" for i in range(count)]
@@ -1454,15 +1471,19 @@ def test_t261_u12_scope_note_is_a_pure_function_of_the_structured_state() -> Non
                 assert f"等 {count} 条" in note
                 assert paths[3] not in note
         else:
-            assert note == T261_NO_CITATION
+            assert note.startswith(T261_NO_CITATION_BODY)
+            assert "引用来源——" not in note  # 零引用时绝不凭空列路径
             seen_zero_paths = True
-        if gaps and count:
+            seen_zero_paths_with_gaps |= gaps > 0
+        # 省略计数分句的唯一条件是 gaps == 0——与引用条数无关（CR-01）
+        if gaps:
             assert f"另有 {gaps} 条未覆盖方面" in note
         else:
             assert "另有" not in note
-            seen_zero_gaps |= gaps == 0
+            seen_zero_gaps = True
         assert note == _t261_note(paths, gaps)
     assert seen_zero_paths and seen_zero_gaps and seen_truncated
+    assert seen_zero_paths_with_gaps, "随机序列须覆盖'零引用且缺口非零'（CR-01 的漏网状态）"
 
 
 def test_t261_u13b_scope_note_ignores_how_the_body_is_worded() -> None:
