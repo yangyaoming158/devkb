@@ -14,7 +14,7 @@ from devkb.contracts import PROMPT_VERSION
 
 def test_prompt_snapshot_locks_version_security_and_output_contract() -> None:
     snapshot = prompt_snapshot()
-    assert snapshot["version"] == PROMPT_VERSION == "p1.5-agent-v4"
+    assert snapshot["version"] == PROMPT_VERSION == "p1.5-agent-v5"
     assert set(snapshot) == {"version", "plan", "evaluate", "refine", "generate"}
     for name in ("plan", "evaluate", "refine", "generate"):
         prompt = snapshot[name]
@@ -29,11 +29,15 @@ def test_prompt_snapshot_locks_version_security_and_output_contract() -> None:
     assert "required_evidence" in snapshot["generate"]
     # T23：generate 的 not_found 只准写当前证据范围内的缺口（确定性校准仍是最终防线）
     assert "不得断言仓库或项目中不存在某文件/实现" in snapshot["generate"]
+    # T26.1：范围限定指令必须**同时**挂在 not_found 这一支上——sufficiency=sufficient 时
+    # requested_mode 是 "full"，只认 partial 会在案例七（全称正文 + 自述缺口）上失效
+    assert "当你在 not_found 写入任何条目、或 requested_mode 为 partial 时" in snapshot["generate"]
+    assert "已引用证据实际覆盖的资源与操作" in snapshot["generate"]
 
     serialized = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     assert (
         hashlib.sha256(serialized.encode()).hexdigest()
-        == "962421982a8d61a1c142e05a195258120154c09fa46f1f4b6cb6276ceae0cb60"
+        == "ff75c32f7647bc866ea407b0a7547585b81e4c5c90b399a15d35c7a39203b298"
     )
 
 

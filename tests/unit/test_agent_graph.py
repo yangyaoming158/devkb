@@ -21,7 +21,9 @@ Evaluation-v1 §5.3 十二类路径在本仓库的覆盖映射：
 
 from __future__ import annotations
 
+import json
 import random
+import re
 import uuid
 from typing import Any, cast
 
@@ -42,6 +44,8 @@ from devkb.agent.nodes import (
     finalize_consistency,
     make_pg_retriever,
     regen_full_block,
+    universal_claim_hits,
+    verified_scope_note,
 )
 from devkb.agent.state import (
     AgentInput,
@@ -178,7 +182,7 @@ async def test_partial_evidence_yields_partial_answer_with_merged_not_found() ->
 
     assert result["node_history"][-3:] == ["generate", "verify", "finalize"]
     assert result["final_mode"] == "partial"
-    assert result["final_answer"] == "仅库存部分有证据 [E1]。"
+    assert result["final_answer"] == "仅库存部分有证据 [E1]。" + _t261_note(["docs/order.md"], 2)
     assert [claim.text for claim in result["final_claims"]] == ["库存扣减由事务保护"]
     assert result["final_not_found"] == ["回滚补偿细节", "回滚补偿"]
 
@@ -232,7 +236,7 @@ async def test_l1_tampered_quote_second_failure_strips_claims_and_downgrades() -
     assert [claim.text for claim in result["final_claims"]] == ["正确断言"]
     assert result["final_mode"] == "partial"
     # 正文按保留 claim 重建，失败 claim 的句子与标记不残留
-    assert result["final_answer"] == "正确断言 [E1]。"
+    assert result["final_answer"] == "正确断言 [E1]。" + _t261_note(["docs/order.md"], 0)
     assert any("已移除 1 个" in warning for warning in result["warnings"])
 
 
@@ -275,7 +279,7 @@ async def test_stripped_claims_leave_no_untrusted_text_marks_or_citations() -> N
     result = await run_agent(runtime, _input())
 
     assert result["final_mode"] == "partial"
-    assert result["final_answer"] == "库存扣减由事务保护 [E1]。"
+    assert result["final_answer"] == "库存扣减由事务保护 [E1]。" + _t261_note(["docs/order.md"], 0)
     assert "编造" not in (result["final_answer"] or "")
     assert "[E2]" not in (result["final_answer"] or "")
     assert [claim.text for claim in result["final_claims"]] == ["库存扣减由事务保护"]
@@ -330,7 +334,9 @@ async def test_rebuilt_answer_strips_unchecked_marks_inside_kept_claim_text() ->
 
     assert result["final_mode"] == "partial"
     # 终稿只含由 evidence_ids 规范生成的 [E1]；text 内嵌的 E9/E2 全部剔除
-    assert result["final_answer"] == "库存扣减由事务保护，另见 [E1]。"
+    assert result["final_answer"] == "库存扣减由事务保护，另见 [E1]。" + _t261_note(
+        ["docs/order.md"], 0
+    )
     assert "[E9]" not in (result["final_answer"] or "")
     assert "[E2]" not in (result["final_answer"] or "")
 
@@ -397,7 +403,7 @@ async def test_llm_double_timeout_on_generate_degrades_deterministically() -> No
     assert result["generate_failed"] is True and result["generate_calls"] == 1
     assert result["llm_calls"] == 4
     assert result["final_mode"] == "partial"
-    assert result["final_answer"] == "现有证据不足以可靠生成回答。"
+    assert result["final_answer"] == "现有证据不足以可靠生成回答。" + _t261_note([], 0)
 
 
 async def test_regeneration_blocked_when_budget_exhausted() -> None:
@@ -490,7 +496,7 @@ async def test_generate_failure_uses_deterministic_partial_instead_of_full() -> 
     assert result["generate_failed"] is True
     assert result["generate_calls"] == 1 and result["retry_counts"]["generate:1"] == 1
     assert result["final_mode"] == "partial"
-    assert result["final_answer"] == "现有证据不足以可靠生成回答。"
+    assert result["final_answer"] == "现有证据不足以可靠生成回答。" + _t261_note([], 0)
 
 
 async def test_global_budget_can_reach_but_never_exceed_six() -> None:
@@ -659,7 +665,7 @@ async def test_i3_generate_failure_limitation_names_the_deterministic_fallback()
     result = await run_agent(_runtime([PLAN, EVAL_OK, "{}", "{}"], retrievals), _input())
 
     assert result["final_mode"] == "partial" and result["generate_failed"] is True
-    assert result["final_answer"] == "现有证据不足以可靠生成回答。"
+    assert result["final_answer"] == "现有证据不足以可靠生成回答。" + _t261_note([], 0)
     limitations = build_answer(result)["limitations"]
     assert any("正文为确定性降级文案" in item for item in limitations)
     assert not any("仅回答了现有证据支持的部分" in item for item in limitations)
@@ -671,7 +677,7 @@ async def test_i7_no_claims_without_generate_failure_reports_the_real_limitation
     result = await run_agent(_runtime([PLAN, EVAL_OK, GENERATE_NOCLAIMS], retrievals), _input())
 
     assert result["final_mode"] == "partial" and result["generate_failed"] is False
-    assert result["final_answer"] == "库存扣减由事务保护。"
+    assert result["final_answer"] == "库存扣减由事务保护。" + _t261_note([], 0)
     limitations = build_answer(result)["limitations"]
     assert any("未经逐条引用验证" in item for item in limitations)
     assert not any("确定性降级文案" in item for item in limitations)
@@ -1033,7 +1039,7 @@ async def test_t252_i2_second_draft_dropping_its_gap_cannot_reach_full() -> None
     assert result["generate_calls"] == 2
     assert result["final_mode"] == "partial"
     # 只否决 full 与发 warning：其余三项与基线逐字一致，缺口一条都不许回填
-    assert result["final_answer"] == "库存扣减由事务保护 [E1]。"
+    assert result["final_answer"] == "库存扣减由事务保护 [E1]。" + _t261_note(["docs/order.md"], 0)
     assert result["final_not_found"] == []
     assert result["final_not_found_details"] == ()
     assert result["warnings"] == ["verify:l0_l1_failed", T252_BLOCK_WARNING]
@@ -1055,7 +1061,7 @@ async def test_t252_i3_frozen_default_second_draft_still_evaluates_the_check() -
     assert T252_BLOCK_WARNING in result["warnings"]
     # 与基线一致仍为 partial：本例不作为 full→partial 的证据（那由 I2 单独证明）
     assert result["final_mode"] == "partial"
-    assert result["final_answer"] == "现有证据不足以可靠生成回答。"
+    assert result["final_answer"] == "现有证据不足以可靠生成回答。" + _t261_note([], 0)
 
 
 async def test_t252_i4_budget_exhausted_run_matches_the_baseline_byte_for_byte() -> None:
@@ -1135,7 +1141,9 @@ async def test_t252_i7_non_blocking_rows_leave_the_final_state_untouched(row: st
         assert result["generate_calls"] == 2
         # 四项与基线 be35c12 逐字一致（探针实测）
         assert result["final_mode"] == "partial"
-        assert result["final_answer"] == "库存扣减由事务保护 [E1]。"
+        assert result["final_answer"] == "库存扣减由事务保护 [E1]。" + _t261_note(
+            ["docs/order.md"], 2
+        )
         assert result["final_not_found"] == ["回滚补偿细节", "延迟队列重放细节"]
         assert [detail.text for detail in result["final_not_found_details"]] == [
             "回滚补偿细节",
@@ -1173,3 +1181,411 @@ async def test_t252_i7_non_blocking_rows_leave_the_final_state_untouched(row: st
     for field_name in ("final_mode", "final_answer", "final_not_found", "final_not_found_details"):
         assert actual[field_name] == baseline[field_name], field_name
     assert actual["warnings"] == [*baseline["warnings"], T252_EVIDENCE_DIFF_WARNING]
+
+
+# ---- T26.1 partial 正文限定已验证范围（RT-18 / 案例七）----
+#
+# 命名前缀 test_t261_：test_u*_/test_i*_ 已被 T25.1 占用、test_t252_* 已被 T25.2 占用。
+# 冻结口径全部来自 docs/tasks/T26.1-partial-verified-scope.md，测试侧**不导入**生产常量
+# ——这里的字面量就是合同，实现改一个字就必须在这里同步改，避免测试镜像实现的同义反复。
+
+T261_TERMS = (
+    "任何",
+    "所有",
+    "全部",
+    "一切",
+    "每个",
+    "各个",
+    "均",
+    "都",
+    "一律",
+    "无一",
+    "毫无",
+    "从不",
+)
+T261_PREFIX = "（本次已验证范围："
+T261_NO_CITATION = "（本次已验证范围：本次未产生引用来源，本回答未取得可核验的引用支撑。）"
+# 诚实边界禁用词：范围句与 warning 都不得声称"已验证/无越界/存在冲突/不存在"
+T261_FORBIDDEN = (
+    *FORBIDDEN_CLAIMS,
+    "均已验证",
+    "已验证全部",
+    "无越界",
+    "已消除",
+    "冲突",
+    "互斥",
+    "已合规",
+    "支撑上述全部结论",
+    "不存在",
+    "仓库无",
+    "不安全",
+    "全部成立",
+)
+
+
+def _t261_note(paths: list[str], gaps: int) -> str:
+    """按合同逐字重建范围句（测试侧独立实现，故实现漂移必红）。"""
+    if not paths:
+        return T261_NO_CITATION
+    shown = "、".join(paths[:3])
+    refs = f"{shown} 等 {len(paths)} 条" if len(paths) > 3 else shown
+    tail = f"另有 {gaps} 条未覆盖方面见 not_found。" if gaps else ""
+    return (
+        f"{T261_PREFIX}本回答的结论仅覆盖以下 {len(paths)} 个引用来源——{refs}；"
+        f"其余资源与操作未经本次证据核验。{tail}）"
+    )
+
+
+def _t261_evidence(index: int) -> Evidence:
+    return Evidence(
+        evidence_id=f"E{index}",
+        chunk_id=uuid.UUID(int=100 + index),
+        rel_path=f"src/main/java/com/example/repo/Repo{index}.java",
+        title_path=f"Repo{index}",
+        content=f"SELECT * FROM t{index} WHERE owner_id = ?",
+        start_line=10,
+        end_line=20,
+        score=1.0 / index,
+    )
+
+
+def _t261_gen(answer_text: str, evidence_ids: list[str], not_found: list[str]) -> str:
+    claims = [
+        {
+            "text": f"Repo{eid[1:]} 按 owner_id 过滤",
+            "evidence_ids": [eid],
+            "quotes": [f"SELECT * FROM t{eid[1:]} WHERE owner_id = ?"],
+        }
+        for eid in evidence_ids
+    ]
+    return json.dumps(
+        {"answer_text": answer_text, "claims": claims, "not_found": not_found},
+        ensure_ascii=False,
+    )
+
+
+def _t261_question() -> AgentInput:
+    return AgentInput(
+        run_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        question="用户 A 能否读取或删除用户 B 的资源？",
+    )
+
+
+async def test_t261_u1_partial_body_ends_with_the_verified_scope_note() -> None:
+    """U1：partial 正文尾部必带范围句，路径集合与 citations 逐一相同、两个计数相符。"""
+    evidences = [_t261_evidence(i) for i in (1, 2, 3)]
+    draft = _t261_gen(
+        "用户 A 无法读取或删除用户 B 的任何资源 [E1][E2][E3]。",
+        ["E1", "E2", "E3"],
+        ["当前证据未覆盖 RagService 的会话删除实现", "当前证据未覆盖审计日志"],
+    )
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, draft], evidences), _t261_question())
+
+    assert result["final_mode"] == "partial"
+    answer = build_answer(result)
+    cited = [citation["rel_path"] for citation in answer["citations"]]
+    expected = _t261_note(cited, len(result["final_not_found"]))
+    assert (result["final_answer"] or "").endswith(expected)
+    assert (result["final_answer"] or "").count(T261_PREFIX) == 1
+    # 范围句列出的就是用户在 citations 里看到的那一套（同源，不是另算一遍）
+    for path in cited:
+        assert path in expected
+    assert "3 个引用来源" in expected and "另有 2 条未覆盖方面" in expected
+
+
+async def test_t261_u2_full_answer_carries_no_scope_note() -> None:
+    """U2：full 终态无未覆盖方面，恒不追加范围句（既有精确断言同时守住逐字不变）。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_OK, GENERATE], retrievals), _input())
+
+    assert result["final_mode"] == "full"
+    assert result["final_answer"] == "库存扣减由事务保护 [E1]。"
+    assert T261_PREFIX not in (result["final_answer"] or "")
+
+
+async def test_t261_u3_refusal_answer_carries_no_scope_note() -> None:
+    """U3：refusal 正文由 _refusal_text 确定性重建，追加范围声明会自相矛盾。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_NO, REFINE, EVAL_NO], retrievals), _input())
+
+    assert result["final_mode"] == "refusal"
+    assert T261_PREFIX not in (result["final_answer"] or "")
+
+
+async def test_t261_u4_zero_citation_partial_states_it_without_inventing_paths() -> None:
+    """U4：零交付引用时逐字走零引用变体，不凭空列路径，且该变体对闭合词表零命中。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_OK, "{}", "{}"], retrievals), _input())
+
+    assert result["final_mode"] == "partial" and result["generate_failed"] is True
+    assert (result["final_answer"] or "").endswith(T261_NO_CITATION)
+    assert "docs/order.md" not in (result["final_answer"] or "")
+    for term in T261_TERMS:
+        assert term not in T261_NO_CITATION, term
+
+
+async def test_t261_u5_more_than_three_citations_use_the_frozen_truncation() -> None:
+    """U5：超 3 条沿用 _render_refs 的"前 3 条 + 等 N 条"，N 是实际条数不是 3。"""
+    evidences = [_t261_evidence(i) for i in (1, 2, 3, 4, 5)]
+    draft = _t261_gen(
+        "五个仓储都带 owner 过滤 [E1][E2][E3][E4][E5]。",
+        ["E1", "E2", "E3", "E4", "E5"],
+        ["当前证据未覆盖审计日志"],
+    )
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, draft], evidences), _t261_question())
+
+    assert result["final_mode"] == "partial"
+    assert "Repo1.java、" in (result["final_answer"] or "")
+    assert "等 5 条" in (result["final_answer"] or "")
+    assert "5 个引用来源" in (result["final_answer"] or "")
+    assert "Repo5.java；" not in (result["final_answer"] or "")  # 第 4/5 条不逐条列出
+
+
+async def test_t261_u6_empty_not_found_omits_the_gap_clause_entirely() -> None:
+    """U6：not_found 被 T23 剔空后省略整个计数分句，绝不写"另有 0 条"。"""
+    eval_supported = (
+        '{"sufficiency":"sufficient","supported_aspects":["回滚补偿"],"missing_aspects":[]}'
+    )
+    # 正文刻意含全称词"所有"：本用例同时锁定"缺口为空 ⇒ 不发全称 warning"这一支
+    generate = (
+        '{"answer_text":"所有库存扣减都由事务保护 [E1]。","claims":[{"text":"库存扣减由事务保护",'
+        '"evidence_ids":["E1"],"quotes":["库存扣减由事务保护"]}],"not_found":["回滚补偿"]}'
+    )
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, EVAL_PART, REFINE, eval_supported, generate], retrievals), _input()
+    )
+
+    assert result["final_mode"] == "partial" and result["final_not_found"] == []
+    assert T261_PREFIX in (result["final_answer"] or "")
+    assert "另有 0 条" not in (result["final_answer"] or "")
+    assert "未覆盖方面见 not_found" not in (result["final_answer"] or "")
+    # 三条触发条件缺一不发：命中非空但 not_found 为空 ⇒ 无披露 warning
+    assert universal_claim_hits(result["final_answer"] or "")
+    assert not [w for w in result["warnings"] if "全称表述" in w]
+
+
+async def test_t261_u8_generate_failure_partial_still_gets_the_scope_note() -> None:
+    """U8：确定性降级文案同样是 partial 正文，判据覆盖全部 partial 终态。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_OK, "{}", "{}"], retrievals), _input())
+
+    assert result["final_mode"] == "partial"
+    assert (result["final_answer"] or "").startswith("现有证据不足以可靠生成回答。")
+    assert (result["final_answer"] or "").endswith(T261_NO_CITATION)
+    limitations = build_answer(result)["limitations"]
+    assert any("正文为确定性降级文案" in item for item in limitations)
+
+
+async def test_t261_u9_regeneration_appends_the_scope_note_exactly_once() -> None:
+    """U9：重生成后 finalize 仍只跑一次，范围句恰好出现 1 次。"""
+    evidences = [_t261_evidence(1)]
+    bad = _t261_gen("首稿 [E1]。", ["E1"], ["首稿缺口"]).replace(
+        "SELECT * FROM t1 WHERE owner_id = ?", "篡改后的引文"
+    )
+    good = _t261_gen("所有查询都带 owner 过滤 [E1]。", ["E1"], ["当前证据未覆盖审计日志"])
+    result = await run_agent(
+        _custom_runtime([PLAN, EVAL_OK, bad, good], evidences), _t261_question()
+    )
+
+    assert result["generate_calls"] == 2 and result["final_mode"] == "partial"
+    assert (result["final_answer"] or "").count(T261_PREFIX) == 1
+
+
+async def test_t261_u10_scope_note_follows_the_consistency_downgrade() -> None:
+    """U10：full 被 finalize_consistency 降为 partial 后，范围句基于降级后终态出现。"""
+    evidences = [_t261_evidence(1)]
+    # sufficiency=sufficient + 验证通过 + 无自述缺口 → full_candidate 成立；
+    # evaluator missing 经 T23 校准后进 not_found，finalize_consistency 据此降级。
+    draft = _t261_gen("Repo1 按 owner_id 过滤 [E1]。", ["E1"], [])
+    evaluation = (
+        '{"sufficiency":"sufficient","supported_aspects":["隔离"],'
+        '"missing_aspects":["当前证据未覆盖审计日志留存策略"]}'
+    )
+    result = await run_agent(
+        _custom_runtime([PLAN, evaluation, draft], evidences), _t261_question()
+    )
+
+    assert result["final_mode"] == "partial" and result["final_not_found"]
+    assert any("降级 partial" in warning for warning in result["warnings"])
+    assert (result["final_answer"] or "").endswith(
+        _t261_note(
+            [_t261_evidence(1).rel_path],
+            len(result["final_not_found"]),
+        )
+    )
+
+
+async def test_t261_u11_real_refusal_entry_leaves_the_body_untouched() -> None:
+    """U11：真实 refusal 入口（claims 全数 L1 失败 → kept 空），正文无范围句。
+
+    PG-04：初稿设想的"被 finalize_consistency 降为 refusal"在本仓库不可达——
+    nodes.py 的两条赋值分支都只写 partial，refusal 分支只追加 warning 不改 mode。
+    """
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, EVAL_OK, BAD_GEN_L1, BAD_GEN_L1], retrievals), _input()
+    )
+
+    assert result["final_mode"] == "refusal" and result["final_claims"] == []
+    assert T261_PREFIX not in (result["final_answer"] or "")
+
+
+def test_t261_u12_scope_note_is_a_pure_function_of_the_structured_state() -> None:
+    """U12：随机 300 组直接喂纯函数，三条恒等式全成立（含零引用/零缺口两个边界）。"""
+    rng = random.Random(2610)
+    seen_zero_paths = seen_zero_gaps = seen_truncated = False
+    for _ in range(300):
+        count = rng.randint(0, 6)
+        paths = [f"src/pkg/File{i}.java" for i in range(count)]
+        gaps = rng.randint(0, 4)
+        note = verified_scope_note(paths, gaps)
+
+        # ② 句中路径 ⊆ 入参，且按入参顺序（超 3 条时只前 3 条可见）
+        visible = paths[:3] if count > 3 else paths
+        assert all(path in note for path in visible)
+        assert note.index(T261_PREFIX) == 0
+        # ③ 引用计数恒出现且相等；缺口计数非零时出现且相等、为零时整句省略
+        if count:
+            assert f"{count} 个引用来源" in note
+            seen_truncated |= count > 3
+            if count > 3:
+                assert f"等 {count} 条" in note
+                assert paths[3] not in note
+        else:
+            assert note == T261_NO_CITATION
+            seen_zero_paths = True
+        if gaps and count:
+            assert f"另有 {gaps} 条未覆盖方面" in note
+        else:
+            assert "另有" not in note
+            seen_zero_gaps |= gaps == 0
+        assert note == _t261_note(paths, gaps)
+    assert seen_zero_paths and seen_zero_gaps and seen_truncated
+
+
+def test_t261_u13b_scope_note_ignores_how_the_body_is_worded() -> None:
+    """U13b：正文里增删全称词不改变范围句——它只依赖结构化状态。"""
+    paths = ["src/pkg/A.java", "src/pkg/B.java"]
+    baseline = verified_scope_note(paths, 2)
+    for _body in ("所有资源都受保护", "", "用户 A 读不到 B 的东西", "任何人均无法访问"):
+        assert verified_scope_note(paths, 2) == baseline
+
+
+async def test_t261_u13_scope_note_and_warning_never_overclaim() -> None:
+    """U13（诚实边界）：范围句与全称 warning 在正文和 warning 两处均无禁用措辞。"""
+    evidences = [_t261_evidence(i) for i in (1, 2)]
+    draft = _t261_gen(
+        "所有仓储方法都带 owner 过滤，用户 A 无法访问任何资源 [E1][E2]。",
+        ["E1", "E2"],
+        ["当前证据未覆盖审计日志"],
+    )
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, draft], evidences), _t261_question())
+
+    assert result["final_mode"] == "partial"
+    answer = build_answer(result)
+    scope_note = (result["final_answer"] or "")[(result["final_answer"] or "").index(T261_PREFIX) :]
+    universal = [w for w in answer["warnings"] if "全称表述" in w]
+    assert len(universal) == 1
+    for blob in (scope_note, *universal):
+        for word in T261_FORBIDDEN:
+            assert word not in blob, (word, blob)
+
+
+async def test_t261_u14_universal_warning_discloses_counts_but_judges_no_overlap() -> None:
+    """U14（fail-closed #2）：论域无关时也只报共存，逐字声明未作判定。"""
+    evidences = [_t261_evidence(1)]
+    draft = _t261_gen(
+        # "所有""都"各出现两次：去重规则若退化成按出现次数计数，本用例即红
+        "所有资源与任何操作都经过校验，全部路径均已覆盖，所有分支都已核对 [E1]。",
+        ["E1"],
+        ["当前证据未覆盖 application.yml 的配置项默认值"],
+    )
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, draft], evidences), _t261_question())
+
+    (warning,) = [w for w in result["warnings"] if "全称表述" in w]
+    # 按词表项去重（"所有"与"都"各出现 2 次仍各计 1 项）、按词表声明顺序排列
+    assert warning == (
+        "finalize: partial 正文含 5 类全称表述（任何、所有、全部、均、都），"
+        "本次仍有 1 条未覆盖方面；两者论域关系未作判定"
+    )
+
+
+async def test_t261_u15_absolute_wording_outside_the_table_stays_silent() -> None:
+    """U15（fail-closed #3）：词表外的绝对措辞不命中，系统也不反过来宣称正文合规。"""
+    evidences = [_t261_evidence(1)]
+    draft = _t261_gen("用户 A 读不到 B 的东西 [E1]。", ["E1"], ["当前证据未覆盖审计日志"])
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, draft], evidences), _t261_question())
+
+    assert result["final_mode"] == "partial"
+    assert not [w for w in result["warnings"] if "全称表述" in w]
+    for blob in ((result["final_answer"] or ""), *result["warnings"]):
+        for word in ("正文合规", "无越界", "未越界"):
+            assert word not in blob
+
+
+def test_t261_u15b_universal_hits_need_all_three_trigger_conditions() -> None:
+    """U15b：三条触发条件缺一不发——纯函数层锁定词表与去重口径。"""
+    assert universal_claim_hits("所有查询均带 owner 过滤，所有路径都覆盖") == (
+        "所有",
+        "均",
+        "都",
+    )
+    assert universal_claim_hits("用户 A 读不到 B 的东西") == ()
+    assert universal_claim_hits("") == ()
+    # 规范化后再匹配：全角与空白不得让全称词逃逸
+    assert universal_claim_hits("所 有 查询") == ("所有",)
+
+
+def test_t261_u18_scope_note_template_is_scan_safe_and_mark_free() -> None:
+    """U18（fail-closed 结构性保险）：固定文案对闭合词表零命中，且恒无 [E#]。
+
+    ① 只约束模板骨架——句中插值的 rel_path 来自语料，可能含"全部"这类汉字，
+       确定性代码管不住语料命名（PG-02-R 收窄）。
+    ② evaluation.py 的 Answer L0 会把范围句里的 [E#] 当未知标记，eval-ci 即红。
+    """
+    rng = random.Random(618)
+    for _ in range(300):
+        count = rng.randint(0, 6)
+        paths = [f"src/pkg/File{i}.java" for i in range(count)]
+        note = verified_scope_note(paths, rng.randint(0, 4))
+        skeleton = note
+        for path in paths:
+            skeleton = skeleton.replace(path, "")
+        for term in T261_TERMS:
+            assert term not in skeleton, (term, skeleton)
+        # evaluation.py:214 用 [E\d+] 扫 answer_text；范围句只列 rel_path，恒无标记
+        assert "[E" not in note and not re.search(r"\[E\d+\]", note)
+
+
+async def test_t261_i1_case7_partial_is_scoped_to_the_three_verified_repositories() -> None:
+    """I1（图级复现案例七）：全称正文 + 自述缺口 → 范围句限定到 3 个已验证引用来源。"""
+    evidences = [_t261_evidence(i) for i in (1, 2, 3)]
+    draft = _t261_gen(
+        "用户 A 无法读取或删除用户 B 的任何资源 [E1]。"
+        "所有关键 Repository 方法都包含 owner_id 过滤，Service 层也重复校验 [E2][E3]。",
+        ["E1", "E2", "E3"],
+        [
+            "当前证据未覆盖 RagService.findConversation 的实现，无法确认会话删除是否强制 owner",
+            "当前证据未覆盖 DocumentRepository 的按 owner 读取方法",
+        ],
+    )
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, draft], evidences), _t261_question())
+    answer = build_answer(result)
+
+    assert answer["mode"] == "partial"
+    # ① 模型原文逐字保留在前，确定性范围句追加在后——不改写、不删除
+    assert answer["answer_text"].startswith("用户 A 无法读取或删除用户 B 的任何资源 [E1]。")
+    cited = [citation["rel_path"] for citation in answer["citations"]]
+    assert cited == [f"src/main/java/com/example/repo/Repo{i}.java" for i in (1, 2, 3)]
+    assert answer["answer_text"].endswith(_t261_note(cited, 2))
+    # ② 全称越界被披露，但只报共存不报冲突
+    (warning,) = [w for w in answer["warnings"] if "全称表述" in w]
+    assert "两者论域关系未作判定" in warning
+    # ③ 两条真实缺口原样保留，未被范围句顶掉
+    assert len(answer["not_found"]) == 2
+    # ④ 全文诚实边界
+    for blob in (answer["answer_text"], *answer["warnings"], *answer["limitations"]):
+        for word in T261_FORBIDDEN:
+            assert word not in blob, (word, blob)

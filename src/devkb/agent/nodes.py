@@ -48,6 +48,7 @@ from devkb.agent.not_found import (
     CorpusProfile,
     NotFoundInput,
     NotFoundSource,
+    _render_refs,
     calibrate_not_found,
     strip_absence_markers,
 )
@@ -69,7 +70,7 @@ from devkb.agent.state import (
     VerificationOutput,
 )
 from devkb.agent.trace import TraceRecorder, clip_list
-from devkb.agent.verification import verify_draft
+from devkb.agent.verification import normalize_for_l1, verify_draft
 from devkb.answer import apply_l0
 from devkb.embedding import Embedder
 from devkb.llm import LLMClient, compute_cost
@@ -490,6 +491,68 @@ def regen_full_block(
         f"finalize: 第一稿 not_found {len(first.not_found)} 条、第二稿 {len(second)} 条，"
         "两稿逐条对应关系未作判定"
     ]
+
+
+# T26.1 全称量化闭合词表（**有序**；扩充需新任务，不得在实现中临时加词）。
+# 子串匹配的假阳性是刻意接受的：命中只驱动一条"两者论域关系未作判定"的披露
+# warning，永不改判终态、永不断言缺陷，故宁可多报也不漏报。
+_UNIVERSAL_TERMS: tuple[str, ...] = (
+    "任何",
+    "所有",
+    "全部",
+    "一切",
+    "每个",
+    "各个",
+    "均",
+    "都",
+    "一律",
+    "无一",
+    "毫无",
+    "从不",
+)
+_SCOPE_NOTE_PREFIX = "（本次已验证范围："
+_SCOPE_NOTE_NO_CITATION = "（本次已验证范围：本次未产生引用来源，本回答未取得可核验的引用支撑。）"
+
+
+def verified_scope_note(cited_paths: Sequence[str], not_found_count: int) -> str:
+    """T26.1 partial 正文的确定性范围声明（规格 §8 第 1 句）。
+
+    动机（RT-18 / 案例七）：`partial` 只约束响应模式，不约束正文的认知口径——模型可以
+    一边在 `not_found` 承认两条路径未确认，一边在正文断言"用户 A 无法读取或删除用户 B
+    的任何资源"。确定性代码改写不了模型的语义，但能把**本次到底验证了什么**这件可证
+    事实追加在正文里，使全称表述不再处于无限定状态。
+
+    只陈述两类事实：本次交付了哪些引用来源（与 Answer ``citations`` 同源的
+    ``visible_citations``），以及仍有几条未覆盖方面。**推不出**的一律不写——
+    不写"以下引用支撑上述全部结论"（L0 只判标记存在、L1 只判引文逐字子串，
+    ``quotes`` 还允许为空），也不写"其余资源不安全/不存在"（只能说未经本次核验）。
+
+    渲染口径与 ``not_found._render_refs`` 同源（前 3 条 + "等 N 条"），不另建第二套
+    列表截断规则。措辞对 ``_UNIVERSAL_TERMS`` 恒零命中——否则扫描顺序一变即自触发。
+    """
+    if not cited_paths:
+        return _SCOPE_NOTE_NO_CITATION
+    tail = f"另有 {not_found_count} 条未覆盖方面见 not_found。" if not_found_count else ""
+    return (
+        f"{_SCOPE_NOTE_PREFIX}本回答的结论仅覆盖以下 {len(cited_paths)} 个引用来源——"
+        f"{_render_refs(cited_paths)}；其余资源与操作未经本次证据核验。{tail}）"
+    )
+
+
+def universal_claim_hits(answer_text: str) -> tuple[str, ...]:
+    """正文命中了哪些全称量化词（T26.1，闭合词表、可逐字复算）。
+
+    只是**词法事实**，不是缺陷判定：证不出该全称断言的论域与某条 ``not_found`` 的论域
+    重叠（那需要 L2/NLI，D9 与规格 §14 禁止其进入在线路径，与 T25.1 裁决 A 同构），
+    故调用方只披露共存、不报冲突。反过来，词表外的措辞（"用户 A 读不到 B 的东西"）
+    不命中也**不代表**没有越界——不得据"零命中"宣称正文合规。
+
+    按词表项去重（同一词出现多次仍计 1 项），按词表**声明顺序**返回，与
+    ``PYTHONHASHSEED`` 无关。规范化复用 ``normalize_for_l1``（NFKC + 中文标点 +
+    去空白），使全角与插入空白骗不过匹配。
+    """
+    normalized = normalize_for_l1(answer_text)
+    return tuple(term for term in _UNIVERSAL_TERMS if term in normalized)
 
 
 def _with_citation_scope(
@@ -1162,6 +1225,19 @@ class AgentNodes:
         if mode == "refusal":
             answer = _refusal_text(not_found)
             kept = []
+        elif mode == "partial":
+            # T26.1（规格 §8 第 1 句）：partial 正文必须限定在已验证范围。
+            # 扫描**必须早于**追加——范围句一旦落进 answer，再扫就会把它自己的措辞
+            # 算成模型的全称断言（此刻它还不存在，故该顺序结构性成立）。
+            hits = universal_claim_hits(answer)
+            if hits and not_found:
+                # 只披露共存，不判冲突：证不出全称断言的论域与缺口论域重叠（需 L2/NLI，
+                # D9 与规格 §14 禁止在线），末句因此逐字声明未作判定。
+                warnings.append(
+                    f"finalize: partial 正文含 {len(hits)} 类全称表述（{'、'.join(hits)}），"
+                    f"本次仍有 {len(not_found)} 条未覆盖方面；两者论域关系未作判定"
+                )
+            answer += verified_scope_note(cited_paths, len(not_found))
         return {
             "final_answer": answer,
             "final_mode": mode,
