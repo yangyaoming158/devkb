@@ -200,6 +200,10 @@ def summarize_input(node: str, state: dict[str, Any]) -> dict[str, Any]:
             "has_draft": state["answer_draft"] is not None,
             "generate_failed": state["generate_failed"],
         }
+    if node == "policy_refuse":
+        # T27.1：触发层是本终态唯一需要回放的结构化信号（规格 §9"记录触发层 rule/plan"）。
+        # 不记问题文本——攻击串没有进入持久化摘要的理由。
+        return {"trigger_layer": state["policy_trigger"]}
     return {}
 
 
@@ -275,6 +279,14 @@ def summarize_output(node: str, updates: dict[str, Any]) -> dict[str, Any]:
             "not_found": clip_list(updates.get("final_not_found") or []),
             "answer_chars": len(updates.get("final_answer") or ""),
             "warnings": clip_list(updates.get("warnings") or []),
+        }
+    if node == "policy_refuse":
+        # tool_count 恒 0 由拓扑保证（retrieve 不可达）；显式落盘使"零工具调用"
+        # 在持久化轨迹里可直接核对，而不必反推 tool_invocations 的缺席。
+        return {
+            "final_mode": updates.get("final_mode"),
+            "trigger_layer": updates.get("policy_trigger"),
+            "tool_count": 0,
         }
     return {}
 

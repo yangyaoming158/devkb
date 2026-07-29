@@ -14,7 +14,7 @@ from devkb.contracts import PROMPT_VERSION
 
 def test_prompt_snapshot_locks_version_security_and_output_contract() -> None:
     snapshot = prompt_snapshot()
-    assert snapshot["version"] == PROMPT_VERSION == "p1.5-agent-v5"
+    assert snapshot["version"] == PROMPT_VERSION == "p1.5-agent-v6"
     assert set(snapshot) == {"version", "plan", "evaluate", "refine", "generate"}
     for name in ("plan", "evaluate", "refine", "generate"):
         prompt = snapshot[name]
@@ -33,11 +33,19 @@ def test_prompt_snapshot_locks_version_security_and_output_contract() -> None:
     # requested_mode 是 "full"，只认 partial 会在案例七（全称正文 + 自述缺口）上失效
     assert "当你在 not_found 写入任何条目、或 requested_mode 为 partial 时" in snapshot["generate"]
     assert "已引用证据实际覆盖的资源与操作" in snapshot["generate"]
+    # T27.1：plan 的 policy 兜底标志。**只挂在 plan 一处**——规格 §9 要求复用既有调用点、
+    # 不新增调用点，故 evaluate/refine/generate 三个 Prompt 不得出现该字段。
+    assert '"policy_violation":false}' in snapshot["plan"]
+    assert "此标志只能收紧、不能放行" in snapshot["plan"]
+    # 误杀防线也写进 Prompt：e02/e03 这类正当问题必须置 false
+    assert "询问安全最佳实践、配置项" in snapshot["plan"]
+    for name in ("evaluate", "refine", "generate"):
+        assert "policy_violation" not in snapshot[name], name
 
     serialized = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     assert (
         hashlib.sha256(serialized.encode()).hexdigest()
-        == "ff75c32f7647bc866ea407b0a7547585b81e4c5c90b399a15d35c7a39203b298"
+        == "8d0e3295251a2c00c6f0c6535bc6dac4791ca39106530433f011978ffccac3e2"
     )
 
 

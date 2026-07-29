@@ -24,6 +24,7 @@ from devkb.agent.evidence_types import (
     parse_required_evidence,
 )
 from devkb.agent.not_found import NotFoundDetail
+from devkb.agent.policy import policy_rule_triggered
 
 MAX_QUESTION_CHARS = 4000
 MAX_QUERY_CHARS = 4000
@@ -40,7 +41,12 @@ MAX_QUOTES_PER_CLAIM = 4
 
 Intent = Literal["knowledge_qa"]
 Sufficiency = Literal["sufficient", "partial", "insufficient"]
-FinalMode = Literal["full", "partial", "refusal"]
+# T27.1（规格 §2）：三值扩为四值是既有字段的**取值域扩张**，不是新增字段——
+# Answer/Run JSON 对既有消费者仍是纯加法，P0 对照路径与既有三态语义不变。
+FinalMode = Literal["full", "partial", "refusal", "policy_refusal"]
+# 触发 policy_refusal 的层：rule = 图外确定性规则（本 run LLM 调用为 0），
+# plan = plan 结构化输出的兜底标志（本 run LLM 调用为 1）。规格 §9 要求可审计。
+PolicyLayer = Literal["rule", "plan"]
 
 QuestionText = Annotated[
     str,
@@ -79,6 +85,10 @@ class AgentInput(StrictModel):
 class PlanOutput(StrictModel):
     intent: Intent
     queries: list[QueryText] = Field(min_length=1, max_length=MAX_SUBQUERIES)
+    # T27.1 policy 兜底层（规格 §9）：只能把请求**收紧**为 policy_refusal，永远不能放行
+    # ——规则层命中时 plan 节点根本不执行。默认 False 使传输/解析失败走冻结默认值时
+    # 不会反向造出误杀（兜底层是提召回的，不是制造拒答的）。
+    policy_violation: bool = False
     # 上限与确定性解析的 items 上限同源（MAX_REQUIRED_ITEMS）：否则 required 可多于
     # 模型能回显的条数，"完整逐项回填"成为不可能满足的契约（五审发现6）
     required_evidence: list[ShortText] = Field(default_factory=list, max_length=MAX_REQUIRED_ITEMS)
@@ -185,6 +195,9 @@ class AgentState(TypedDict):
     question: str
     required_evidence: RequiredEvidence
     coverage: tuple[CoverageEntry, ...]
+    # T27.1：策略短路的触发层，None = 未触发。单向写入——图外只能写 "rule"，
+    # plan 节点只能把 None 改成 "plan"，永不回到 None（规则命中时 plan 不执行）。
+    policy_trigger: PolicyLayer | None
     plan: PlanOutput | None
     queries: list[str]
     retrieval_round: int
@@ -239,6 +252,9 @@ def initial_agent_state(agent_input: AgentInput) -> AgentState:
         question=agent_input.question,
         required_evidence=parse_required_evidence(agent_input.question),
         coverage=(),
+        # 规则层在**图外**求值（沿用 parse_required_evidence 的既有先例）：这样短路点
+        # 位于第一个 LLM 调用点 plan 之前，"命中即零 LLM 调用"是结构性的，不靠节点自律。
+        policy_trigger="rule" if policy_rule_triggered(agent_input.question) else None,
         plan=None,
         queries=[],
         retrieval_round=0,

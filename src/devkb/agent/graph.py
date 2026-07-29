@@ -29,9 +29,26 @@ from devkb.agent.trace import (
 NodeFn = Callable[[AgentState], Awaitable[dict[str, Any]]]
 
 GRAPH_RECURSION_LIMIT = 20
+RouteFromStart = Literal["plan", "policy_refuse"]
+RouteAfterPlan = Literal["retrieve", "policy_refuse"]
 RouteAfterEvaluate = Literal["refine", "generate", "finalize"]
 RouteAfterRefine = Literal["retrieve", "generate", "finalize"]
 RouteAfterVerify = Literal["generate", "finalize"]
+
+
+def route_from_start(state: AgentState) -> RouteFromStart:
+    """T27.1 规则层短路（规格 §9）：判定在 `initial_agent_state` 图外已完成。
+
+    放在 START 而非 plan 节点体内，是为了让"命中即零 LLM 调用"由**拓扑**保证：
+    plan 是第一个供应商调用点，绕过该节点就绕过了全部四个调用点。
+    """
+    return "policy_refuse" if state["policy_trigger"] is not None else "plan"
+
+
+def route_after_plan(state: AgentState) -> RouteAfterPlan:
+    """T27.1 plan 兜底层短路：必须早于 retrieve——规格 §9 要求"在检索潜在敏感语料和
+    调用任何工具之前"。retrieve 是本阶段唯一的工具，故此处短路即零 tool invocation。"""
+    return "policy_refuse" if state["policy_trigger"] is not None else "retrieve"
 
 
 def remaining_llm_requests(state: AgentState) -> int:
@@ -168,9 +185,18 @@ def build_agent_graph(runtime: AgentRuntime, recorder: TraceRecorder | None = No
     graph.add_node("generate", _traced("generate", nodes.generate, recorder))
     graph.add_node("verify", _traced("verify", nodes.verify, recorder))
     graph.add_node("finalize", _traced("finalize", nodes.finalize, recorder))
+    graph.add_node("policy_refuse", _traced("policy_refuse", nodes.policy_refuse, recorder))
 
-    graph.add_edge(START, "plan")
-    graph.add_edge("plan", "retrieve")
+    graph.add_conditional_edges(
+        START,
+        route_from_start,
+        {"plan": "plan", "policy_refuse": "policy_refuse"},
+    )
+    graph.add_conditional_edges(
+        "plan",
+        route_after_plan,
+        {"retrieve": "retrieve", "policy_refuse": "policy_refuse"},
+    )
     graph.add_edge("retrieve", "evaluate")
     graph.add_conditional_edges(
         "evaluate",
@@ -189,6 +215,7 @@ def build_agent_graph(runtime: AgentRuntime, recorder: TraceRecorder | None = No
         {"generate": "generate", "finalize": "finalize"},
     )
     graph.add_edge("finalize", END)
+    graph.add_edge("policy_refuse", END)
     return graph.compile()
 
 

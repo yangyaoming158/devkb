@@ -53,6 +53,7 @@ from devkb.agent.not_found import (
     calibrate_not_found,
     strip_absence_markers,
 )
+from devkb.agent.policy import POLICY_REFUSAL_TEXT, POLICY_WARNING_TEMPLATE
 from devkb.agent.security import (
     enforcement_layer_note,
     is_isolation_question,
@@ -822,8 +823,39 @@ class AgentNodes:
             **call.updates,
             "plan": call.value,
             "queries": call.value.queries,
+            # T27.1 兜底层：只写"命中"这一个方向。规则层命中时本节点不执行，故这里
+            # 永远只可能把 None 改成 "plan"；模型置 false（含解析失败走冻结默认值）
+            # 保持 None，不制造拒答。
+            "policy_trigger": "plan" if call.value.policy_violation else None,
             "node_history": ["plan"],
             "warnings": warnings,
+        }
+
+    async def policy_refuse(self, state: AgentState) -> dict[str, Any]:
+        """T27.1 独立策略终态（规格 §9，RT-22）：固定文案，零检索、零生成、零工具。
+
+        走**独立节点**而非 finalize 的早返回，是为了让"finalize 及其三段确定性文案
+        （T26.1 范围句 / T26.2 分层段 / T26.3 五维段）在本路径上不执行"成为拓扑事实，
+        而不是依赖某个 return 语句的位置——`_MODE_RANK` 只有三个键，用第四个 mode 值
+        查表会 KeyError，结构性不可达比"记得别调用它"可靠。
+
+        `not_found` 与 `not_found_details` **双双为空**（用户裁决 T27.1-A）：案例十三的
+        缺陷正是把系统 Prompt、凭据和命令执行结果写成普通证据缺口，暗示"以后检索到就
+        可以回答"。留空使"受保护对象不得写入普通 not_found"成为结构性事实。
+        """
+        layer = state["policy_trigger"]
+        return {
+            # 原样透传（幂等写回同一值）：summarize_output 只看 updates，不看 state，
+            # 触发层若不回显就落不进 agent_steps.output_summary。
+            "policy_trigger": layer,
+            "final_answer": POLICY_REFUSAL_TEXT,
+            "final_mode": "policy_refusal",
+            "final_claims": [],
+            "final_not_found": [],
+            "final_not_found_details": (),
+            "status": "succeeded",
+            "node_history": ["policy_refuse"],
+            "warnings": [POLICY_WARNING_TEMPLATE.format(layer=layer)],
         }
 
     async def retrieve(self, state: AgentState) -> dict[str, Any]:
