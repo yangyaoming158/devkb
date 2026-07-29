@@ -27,6 +27,7 @@ from devkb.agent.aspects import (
     retention_warnings,
     supported_labels,
 )
+from devkb.agent.config_layers import config_layer_note, is_config_question
 from devkb.agent.evidence_types import (
     TYPE_LABELS,
     EvidenceType,
@@ -1257,6 +1258,26 @@ class AgentNodes:
                     "已按交付引用输出层级分层；service_precheck 层未判定"
                 )
 
+        # T26.3（规格 §8 第 3 句）：配置题按交付引用输出五维校验。追加点紧随 T26.2 之后，
+        # 收尾顺序 partial：分层段→五维段→范围句（范围句仍收尾）；full：两段依次追加；
+        # refusal 不追加。两表互不复用，同时命中时两段并存且顺序确定（U6e）。
+        config_note = ""
+        config_hits = is_config_question(state["question"])
+        if config_hits and mode != "refusal":
+            config_note = config_layer_note(
+                [
+                    (evidence_id, rel_path, evidence_by_id[evidence_id].content)
+                    for evidence_id, rel_path in visible_citations
+                    if evidence_id in evidence_by_id
+                ]
+            )
+            if config_note:
+                # 同 T26.2：只陈述词法事实，不断言"这是配置问题"（判据可证边界 #5）。
+                warnings.append(
+                    f"finalize: 问题命中配置触发词（{'、'.join(config_hits)}），"
+                    "已按交付引用输出五维配置分层；错误消息与注释未计入强制条件"
+                )
+
         if mode == "refusal":
             answer = _refusal_text(not_found)
             kept = []
@@ -1272,11 +1293,13 @@ class AgentNodes:
                     f"finalize: partial 正文含 {len(hits)} 类全称表述（{'、'.join(hits)}），"
                     f"本次仍有 {len(not_found)} 条未覆盖方面；两者论域关系未作判定"
                 )
-            # 分层段在前、范围句在后：范围句必须是 partial 正文的最后一段（T26.1 合同）
+            # 确定性三段在前、范围句在后：范围句必须是 partial 正文的最后一段（T26.1 合同）
             answer += layer_note
+            answer += config_note
             answer += verified_scope_note(cited_paths, len(not_found))
-        else:  # full：无范围句，分层段直接收尾
+        else:  # full：无范围句，两段确定性文案直接收尾
             answer += layer_note
+            answer += config_note
         return {
             "final_answer": answer,
             "final_mode": mode,

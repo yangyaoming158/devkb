@@ -1845,3 +1845,285 @@ async def test_t262_i1_case7_shape_separates_the_two_enforcement_layers() -> Non
             assert word not in blob, (word, blob)
     # ⑤ 真实缺口未被分层段顶掉
     assert len(answer["not_found"]) == 1
+
+
+# ---- T26.3 配置类五维校验（RT-19 / 案例八）----
+#
+# 纯函数矩阵在 tests/unit/test_agent_config_layers.py；这里只测图级行为与终态收尾顺序。
+
+T263_PREFIX = "（本次配置分层校验："
+T263_WARNING_PREFIX = "finalize: 问题命中配置触发词（"
+# T26.1 ∪ T26.2 禁用词 ∪ 表 F ∪ 旧错误措辞（后三条不进表的话，warning 退回旧写法仍能
+# 通过冻结测试——PG-06-R 在 T26.2 上的同一教训）
+T263_FORBIDDEN = (
+    *T262_FORBIDDEN,
+    "强度保证",
+    "secret 强度",
+    "生产安全",
+    "已校验长度",
+    "无弱默认值",
+    "配置无风险",
+    "双重保障",
+    "强制非空即安全",
+    "已通过安全校验",
+    "最终生效",
+    "实际生效",
+    "该文件所有配置",
+    "配置矛盾",
+    "配置题",
+    "这是配置问题",
+    "判定为配置",
+)
+# 案例八原问句的裁剪版（保留三个表 C 触发词，去掉"请引用…"以免与 T22 必需证据门交叉）
+T263_QUESTION = (
+    "docker-compose.yml 要求必须设置 RAG_JWT_SECRET，但 application.yml 又提供默认 "
+    "secret。请区分本地裸 JVM 与 Docker Compose 的生效范围。"
+)
+_T263_COMPOSE_PATH = "docker-compose.yml"
+_T263_APP_PATH = "backend/src/main/resources/application.yml"
+_T263_PROPS_PATH = "backend/src/main/java/com/ragdocs/config/JwtProperties.java"
+# 三条真实形态，取自《P1后真实仓库可用性测试问题记录》§11.1 / §11.3
+_T263_BODIES = {
+    _T263_COMPOSE_PATH: (
+        "    environment:\n      RAG_JWT_SECRET: "
+        "${RAG_JWT_SECRET:?RAG_JWT_SECRET is required, generate 32+ random chars}"
+    ),
+    _T263_APP_PATH: (
+        "rag:\n  jwt:\n    # Local JVM default only\n"
+        "    secret: ${RAG_JWT_SECRET:devdocs-rag-change-me-please-32-bytes-min}"
+    ),
+    _T263_PROPS_PATH: (
+        '@ConfigurationProperties(prefix = "rag.jwt")\n'
+        "public class JwtProperties {\n    private String secret;\n}"
+    ),
+}
+
+
+def _t263_evidence(index: int, rel_path: str) -> Evidence:
+    return Evidence(
+        evidence_id=f"E{index}",
+        chunk_id=uuid.UUID(int=300 + index),
+        rel_path=rel_path,
+        title_path=rel_path.rsplit("/", 1)[-1],
+        content=_T263_BODIES[rel_path],
+        start_line=10,
+        end_line=20,
+        score=1.0 / index,
+    )
+
+
+def _t263_gen(answer_text: str, rows: list[tuple[str, str]], not_found: list[str]) -> str:
+    return json.dumps(
+        {
+            "answer_text": answer_text,
+            "claims": [
+                {
+                    "text": f"{rel_path} 的配置片段",
+                    "evidence_ids": [eid],
+                    "quotes": [_T263_BODIES[rel_path]],
+                }
+                for eid, rel_path in rows
+            ],
+            "not_found": not_found,
+        },
+        ensure_ascii=False,
+    )
+
+
+def _t263_input(question: str = T263_QUESTION) -> AgentInput:
+    return AgentInput(run_id=uuid.uuid4(), project_id=uuid.uuid4(), question=question)
+
+
+def _t263_case8() -> tuple[list[Evidence], str]:
+    """案例八形态：三条真实配置证据 + §11.3 逐字引用的原始越界正文。"""
+    paths = [_T263_COMPOSE_PATH, _T263_APP_PATH, _T263_PROPS_PATH]
+    evidences = [_t263_evidence(i, path) for i, path in enumerate(paths, start=1)]
+    draft = _t263_gen(
+        "Compose 配置避免公网部署使用弱默认值的风险 [E1][E2][E3]。",
+        [(f"E{i}", path) for i, path in enumerate(paths, start=1)],
+        ["当前证据未覆盖 README 的启动步骤说明"],
+    )
+    return evidences, draft
+
+
+async def test_t263_u6_non_config_question_is_byte_identical_to_the_baseline() -> None:
+    """U6（零回归护栏）：非配置题正文逐字等于 T26.2 后的基线，绝不追加五维段。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_OK, GENERATE_PART], retrievals), _input())
+
+    assert result["final_mode"] == "partial"
+    assert (result["final_answer"] or "") == "仅库存部分有证据 [E1]。" + _t261_note(
+        ["docs/order.md"], 1
+    )
+    assert T263_PREFIX not in (result["final_answer"] or "")
+    assert not [w for w in result["warnings"] if "配置触发词" in w]
+
+
+async def test_t263_u6d_partial_orders_config_note_before_the_scope_note() -> None:
+    """U6d：配置题 partial 顺序为 正文 → 五维段 → 范围句，且**仍以范围句结尾**。"""
+    evidences, draft = _t263_case8()
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, draft], evidences), _t263_input())
+    answer = result["final_answer"] or ""
+
+    assert result["final_mode"] == "partial"
+    cited = [c["rel_path"] for c in build_answer(result)["citations"]]
+    assert answer.endswith(_t261_note(cited, len(result["final_not_found"]))), (
+        "T26.1 的尾部不变量必须保持"
+    )
+    assert answer.index(T263_PREFIX) < answer.index(T261_PREFIX), "五维段在范围句之前"
+    assert answer.count(T263_PREFIX) == 1
+
+
+async def test_t263_u6c_config_refusal_carries_no_layer_note() -> None:
+    """U6c：配置题但终态 refusal——正文由 _refusal_text 重建，不追加五维段。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_NO, REFINE, EVAL_NO], retrievals), _t263_input())
+
+    assert result["final_mode"] == "refusal"
+    assert T263_PREFIX not in (result["final_answer"] or "")
+
+
+async def test_t263_u6b_regeneration_appends_the_config_note_exactly_once() -> None:
+    """U6b：重生成后 finalize 仍只跑一次，五维段恰好 1 段。
+
+    第一稿的 quote 直接构造成非逐字（不能对已序列化的 JSON 做 replace——正文里的换行在
+    JSON 里是 `\\n`，字面替换匹配不上，L1 会照常通过而根本触发不到重生成）。
+    """
+    evidences, good = _t263_case8()
+    bad = json.dumps(
+        {
+            "answer_text": "Compose 侧要求该变量已设置 [E1]。",
+            "claims": [{"text": "Compose 片段", "evidence_ids": ["E1"], "quotes": ["篡改引文"]}],
+            "not_found": [],
+        },
+        ensure_ascii=False,
+    )
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, bad, good], evidences), _t263_input())
+
+    assert result["generate_calls"] == 2, "第一稿必须真的没过 L1"
+    assert (result["final_answer"] or "").count(T263_PREFIX) == 1
+
+
+async def test_t263_u6e_both_tables_hit_keeps_all_three_sections_ordered() -> None:
+    """U6e（跨任务顺序不变量）：同时命中表 A（隔离）与表 C（配置）时三段顺序确定。
+
+    顺序恒为 模型正文 → T26.2 分层段 → T26.3 五维段 → T26.1 范围句，各恰好 1 次。
+    """
+    evidences, draft = _t263_case8()
+    both = "owner_id 隔离在哪一层强制实现？相关配置又放在哪里？"
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, draft], evidences), _t263_input(both))
+    answer = result["final_answer"] or ""
+
+    assert result["final_mode"] == "partial"
+    for prefix in (T262_PREFIX, T263_PREFIX, T261_PREFIX):
+        assert answer.count(prefix) == 1, (prefix, answer)
+    assert answer.index(T262_PREFIX) < answer.index(T263_PREFIX) < answer.index(T261_PREFIX)
+    assert answer.endswith(
+        _t261_note(
+            [c["rel_path"] for c in build_answer(result)["citations"]],
+            len(result["final_not_found"]),
+        )
+    )
+
+
+async def test_t263_u6f_generate_failure_partial_still_layers_delivered_citations() -> None:
+    """U6f：`generate_failed` 的 partial，只要仍有交付引用就照常出五维段。
+
+    沿用本文件 `_t252_finalize_once` / T26.2-CR-01 的先例直接跑 finalize 构造该状态——
+    `run_agent` 的降级文案既无 claim 也无 `[E#]`，`visible_citations` 恒空，那条路径到
+    不了这个状态，但**合同前提本身成立**（generate_failed 分支同样跑 apply_l0）。
+    """
+    evidences = [_t263_evidence(1, _T263_COMPOSE_PATH)]
+    state = initial_agent_state(_t263_input())
+    state["evidences"] = evidences
+    state["evidence_path_history"] = [evidences[0].rel_path]
+    state["evaluation"] = EvaluateOutput(
+        sufficiency="sufficient", supported_aspects=["配置"], missing_aspects=[]
+    )
+    state["answer_draft"] = GenerateOutput(
+        answer_text="Compose 侧要求该变量已设置 [E1]。",
+        claims=[],
+        not_found=["当前证据未覆盖 README 的启动步骤说明"],
+    )
+    state["generate_failed"] = True
+    state["generate_calls"] = 1
+    result = await AgentNodes(_custom_runtime([], evidences), None).finalize(state)
+    answer = result["final_answer"] or ""
+
+    assert result["final_mode"] == "partial"
+    assert T263_PREFIX in answer
+    assert f"Compose 文件 1 条（{_T263_COMPOSE_PATH}(E1)）" in answer
+    assert answer.index(T263_PREFIX) < answer.index(T261_PREFIX)
+    assert answer.endswith(_t261_note([_T263_COMPOSE_PATH], len(result["final_not_found"])))
+
+
+async def test_t263_u11_question_outside_the_table_omits_the_section_entirely() -> None:
+    """U11（fail-closed #5）：表外的配置问法漏判时整段省略，而不是输出错误分层。"""
+    evidences, draft = _t263_case8()
+    result = await run_agent(
+        _custom_runtime([PLAN, EVAL_OK, draft], evidences),
+        # 语义是配置问题，但不含表 C 任一词条
+        _t263_input("JWT 的 key 是从哪里来的？"),
+    )
+    answer = result["final_answer"] or ""
+
+    assert T263_PREFIX not in answer
+    assert not [w for w in result["warnings"] if "配置触发词" in w]
+    assert T261_PREFIX in answer  # 降级到范围句，而不是留下一段错误分层
+
+
+async def test_t263_u12_config_note_and_warning_never_overclaim() -> None:
+    """U12（诚实边界）：正文与 warning 两处零禁用词；warning 前缀逐字锁定。"""
+    evidences, draft = _t263_case8()
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, draft], evidences), _t263_input())
+    answer = build_answer(result)
+
+    (warning,) = [w for w in answer["warnings"] if "配置触发词" in w]
+    assert warning.startswith(T263_WARNING_PREFIX), "正向锁定：只靠禁用词表挡不住改写"
+    assert "错误消息与注释未计入强制条件" in warning
+    text = result["final_answer"] or ""
+    note = text[text.index(T263_PREFIX) :]
+    for blob in (note, warning):
+        for word in T263_FORBIDDEN:
+            assert word not in blob, (word, blob)
+
+
+async def test_t263_i1_case8_separates_required_from_strength_and_runtime() -> None:
+    """I1（图级复现案例八）：必填非空命中，而长度/强度与运行时校验仍报"未检出"。
+
+    §11.3 逐字：`${VAR:?error}` 里的 "32+ random chars" 只是提示，不验证长度或随机性；
+    `JwtProperties` 没有 Bean Validation 或启动时校验。
+    """
+    evidences, draft = _t263_case8()
+    result = await run_agent(_custom_runtime([PLAN, EVAL_OK, draft], evidences), _t263_input())
+    answer = build_answer(result)
+    text = answer["answer_text"]
+
+    assert answer["mode"] == "partial"
+    # ① 模型原文逐字保留在前，三段确定性文案追加在后
+    assert text.startswith("Compose 配置避免公网部署使用弱默认值的风险 [E1][E2][E3]。")
+    assert text.index(T263_PREFIX) < text.index(T261_PREFIX)
+    assert text.count(T263_PREFIX) == 1
+    # ② 载体分档：Compose / 应用配置 / 生产源码各 1 条
+    assert f"Compose 文件 1 条（{_T263_COMPOSE_PATH}(E1)）" in text
+    assert f"应用配置文件 1 条（{_T263_APP_PATH}(E2)）" in text
+    assert f"生产源码 1 条（{_T263_PROPS_PATH}(E3)）" in text
+    # ③ **本任务核心**：必填命中，但强度与运行时校验仍未检出
+    assert (
+        "必填非空：1 条片段内检出 Compose 必填插值，该形态只要求变量已设置且非空"
+        f"（{_T263_COMPOSE_PATH}(E1)）。" in text
+    )
+    assert "长度与强度：本次交付引用片段内未检出长度或形态约束。" in text
+    assert "运行时校验：本次交付引用片段内未检出运行时校验触发器。" in text
+    # ④ fallback 归到 application.yml，不与 Compose 必填混为一谈
+    assert f"默认值回退：1 条片段内检出默认值插值（{_T263_APP_PATH}(E2)）。" in text
+    # ⑤ 错误消息与注释被披露为"未计入"
+    assert "另检出 1 处插值错误消息、1 行配置注释，以上未计入上述强制条件维度。" in text
+    # ⑥ scope 维不判定生效
+    assert "本阶段不判定某条配置在某个启动路径下最终是否生效。" in text
+    # ⑦ 诚实边界：正文/warning/limitations 三处零禁用词
+    for blob in (text, *answer["warnings"], *answer["limitations"]):
+        for word in T263_FORBIDDEN:
+            assert word not in blob, (word, blob)
+    # ⑧ 真实缺口未被五维段顶掉
+    assert len(answer["not_found"]) == 1
