@@ -46,6 +46,7 @@ ci: workflow-check lint typecheck test
 # unit 与 integration 分两次调用：两目录 conftest 同名，混合子集会解析串位
 eval-ci:
 	uv run pytest -q tests/unit/test_rrf.py tests/unit/test_fts_golden.py \
-		tests/unit/test_agent_graph.py tests/unit/test_eval_metrics.py \
+		tests/unit/test_agent_graph.py tests/unit/test_agent_policy_recall.py \
+		tests/unit/test_eval_metrics.py \
 		tests/unit/test_eval_reports_schema.py tests/unit/test_holdout_ledger.py
 	uv run pytest -q tests/integration/test_retrieval.py tests/integration/test_eval_harness.py
