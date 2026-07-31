@@ -2395,6 +2395,24 @@ T281_FORBIDDEN_INSTANCE_CLAIMS = (
     "本项目没有",
     "本项目索引",
 )
+# 一级扫描面（全正文 + warnings + limitations）的仓库级禁用词：与 T23 同口径，
+# 任何一层都不得断言仓库有无某文件。"不存在" 必须在表内——它是 T23/T27.1 两处禁用表
+# 的共同项，漏掉它，一条"源码中不存在 X"原样漏出正文也不会转红（首审 T281-CR-01）。
+T281_FORBIDDEN_REPO_CLAIMS = (
+    *FORBIDDEN_CLAIMS,
+    "不存在",
+    "仓库无",
+    "仓库中没有",
+    "没有源码",
+    "确实没有",
+)
+# c03 形态：evaluate 报出的缺口点名 .vue → T23 判 unsupported_or_not_ingested，
+# 与 T28.1 的静态披露在同一份拒答里共存（两层各说各的：前者查过语料快照逐条下结论，
+# 后者只陈述管线能力）
+EVAL_NO_VUE = (
+    '{"sufficiency":"insufficient","supported_aspects":[],'
+    '"missing_aspects":["未找到 frontend/src/ChatView.vue 的 NO_ANSWER 渲染实现"]}'
+)
 
 
 def _t281_note() -> str:
@@ -2412,7 +2430,37 @@ def _t281_slice(answer: str, *, mode: str) -> str:
 
 
 async def test_t281_g1_refusal_body_ends_with_the_coverage_disclosure() -> None:
-    """G1：拒答正文以披露收尾，且缺口清单原句仍在其前（不被顶替）。"""
+    """G1：c03 型拒答——缺口被判 unsupported_or_not_ingested，正文仍以披露收尾。
+
+    合同要的是**两层共存**（首审 T281-CR-01：原用例拿"补偿"这种与格式无关的缺口，
+    证不出 c03 形态）。这里 evaluate 报出的缺口点名 `.vue`：
+
+    - T23 逐条层：查过语料快照后给该条追加"不在当前摄取范围…"，属**实例级**结论；
+    - T28.1 静态层：句末附管线能力披露，与本题命中与否无关。
+
+    两者必须同时在正文里、且顺序确定（逐条结论在前、静态披露收尾），否则用户仍分不清
+    "没召回"与"格式没摄取"——这正是案例三的原始缺陷。
+    """
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, EVAL_NO_VUE, REFINE, EVAL_NO_VUE], retrievals), _input()
+    )
+    answer = build_answer(result)
+    text = answer["answer_text"]
+
+    assert result["final_mode"] == "refusal"
+    assert [d["category"] for d in answer["not_found_details"]] == ["unsupported_or_not_ingested"]
+    assert ".vue" in answer["not_found_details"][0]["refs"]
+    # T23 的逐条结论在前，T28.1 的静态披露收尾，各恰好一次
+    assert "不在当前摄取范围" in text
+    assert text.index("不在当前摄取范围") < text.index(T281_PREFIX)
+    assert text.count(T281_PREFIX) == 1
+    assert text.endswith(_t281_note())
+    assert text == "现有资料不足以回答该问题。缺少：" + answer["not_found"][0] + "。" + _t281_note()
+
+
+async def test_t281_g1c_refusal_with_a_format_agnostic_gap_also_discloses() -> None:
+    """G1c：与格式无关的缺口同样附披露——披露无条件，不依赖 T23 是否判出未摄取。"""
     retrievals: list[tuple[str, ...]] = []
     result = await run_agent(_runtime([PLAN, EVAL_NO, REFINE, EVAL_NO], retrievals), _input())
     answer = result["final_answer"] or ""
@@ -2579,8 +2627,8 @@ async def test_t281_g5b_same_mode_different_questions_render_identical_disclosur
     assert rendered[0] == rendered[1] == T281_FROZEN_TEXT
 
 
-async def test_t281_g6a_generate_failure_degradations_still_disclose() -> None:
-    """G6a（失败路径）：生成调用失败的确定性降级文案同样附披露。"""
+async def test_t281_g6a_generate_failure_partial_still_discloses() -> None:
+    """G6a-partial（失败路径）：生成调用失败的确定性降级文案同样附披露。"""
     retrievals: list[tuple[str, ...]] = []
     result = await run_agent(
         _runtime(
@@ -2595,23 +2643,69 @@ async def test_t281_g6a_generate_failure_degradations_still_disclose() -> None:
     assert answer.index(T281_PREFIX) < answer.index(T261_PREFIX)
 
 
-@pytest.mark.parametrize("mode", ["refusal", "partial"])
-async def test_t281_g6b_disclosure_makes_no_forbidden_claim_anywhere(mode: str) -> None:
-    """G6b（诚实边界，两级扫描面）：全正文/warnings/limitations 一级 + 披露段二级。"""
-    retrievals: list[tuple[str, ...]] = []
-    script: list[str | Exception] = (
-        [PLAN, EVAL_NO, REFINE, EVAL_NO] if mode == "refusal" else [PLAN, EVAL_OK, GENERATE_PART]
-    )
-    result = await run_agent(_runtime(script, retrievals), _input())
-    answer = build_answer(result)
+async def test_t281_g6a2_generate_failure_refusal_still_discloses() -> None:
+    """G6a-refusal（失败路径的另一半，首审 T281-CR-01）：`generate_failed` 且零证据。
 
-    assert answer["mode"] == mode
+    `finalize` 的降级分支按证据集分岔——`mode = "partial" if state["evidences"] else
+    "refusal"`。原用例只跑到 partial 那半边，refusal 半边（零证据）没有任何断言。
+
+    这个状态 `run_agent` 到不了（零证据时 `route_after_evaluate` 不会放行 generate，见
+    `test_empty_evidence_cannot_be_promoted_to_full_by_evaluate` 的 node_history），故沿用
+    本文件 `_t263_u6f` / `_t252_finalize_once` 的先例直接跑 `finalize` 构造——**合同前提
+    本身成立**：该分支就是按 mode 而非按证据决定要不要披露。
+    """
+    state = initial_agent_state(_input())
+    state["evidences"] = []
+    state["evaluation"] = EvaluateOutput(
+        sufficiency="insufficient", supported_aspects=[], missing_aspects=["回滚补偿"]
+    )
+    state["answer_draft"] = GenerateOutput(
+        answer_text="现有证据不足以可靠生成回答。", claims=[], not_found=[]
+    )
+    state["generate_failed"] = True
+    state["generate_calls"] = 1
+    result = await AgentNodes(_custom_runtime([], []), None).finalize(state)
+    answer = result["final_answer"] or ""
+
+    assert result["final_mode"] == "refusal"
+    assert answer.count(T281_PREFIX) == 1
+    assert answer.endswith(_t281_note()), "refusal 分支的披露必须收尾"
+    assert T261_PREFIX not in answer, "refusal 不追加范围句（T26.1 合同）"
+
+
+@pytest.mark.parametrize("mode", ["refusal", "refusal_vue", "partial"])
+async def test_t281_g6b_disclosure_makes_no_forbidden_claim_anywhere(mode: str) -> None:
+    """G6b（诚实边界，两级扫描面）：全正文/warnings/limitations 一级 + 披露段二级。
+
+    两级不是冗余，`refusal_vue` 这一档就是它的存在理由：该形态的正文里**确实**含有
+    T23 的实例结论（"…未纳入本项目索引…不会出现…"），那是合法的——T23 查过语料快照。
+    所以实例断言词只能扫**披露段**；而仓库级禁用词（含"不存在"）与全称量化词扫**整份
+    输出**，任何一层都不得越界。首审 T281-CR-01：原版一级扫描漏了"不存在"，全称量化词
+    也只扫了披露切片，两处都比合同里写的弱。
+    """
+    retrievals: list[tuple[str, ...]] = []
+    scripts: dict[str, list[str | Exception]] = {
+        "refusal": [PLAN, EVAL_NO, REFINE, EVAL_NO],
+        "refusal_vue": [PLAN, EVAL_NO_VUE, REFINE, EVAL_NO_VUE],
+        "partial": [PLAN, EVAL_OK, GENERATE_PART],
+    }
+    result = await run_agent(_runtime(scripts[mode], retrievals), _input())
+    answer = build_answer(result)
+    final_mode = "partial" if mode == "partial" else "refusal"
+
+    assert answer["mode"] == final_mode
+    # 一级：整份输出。全称量化词在此扫的是**确定性段落**——本组 fixture 的模型正文
+    # 自身不含全称词（GENERATE_PART/拒答模板逐字可见），故命中只可能来自确定性文案。
     for blob in (answer["answer_text"], *answer["warnings"], *answer["limitations"]):
-        for word in (*FORBIDDEN_CLAIMS, "仓库无", "仓库中没有", "没有源码", "确实没有"):
+        for word in (*T281_FORBIDDEN_REPO_CLAIMS, *T261_TERMS):
             assert word not in blob, (word, blob)
-    disclosure = _t281_slice(answer["answer_text"], mode=mode)
-    for word in (*T281_FORBIDDEN_INSTANCE_CLAIMS, *T261_TERMS):
+    # 二级：只有披露段还要额外满足"零项目实例断言"
+    disclosure = _t281_slice(answer["answer_text"], mode=final_mode)
+    for word in T281_FORBIDDEN_INSTANCE_CLAIMS:
         assert word not in disclosure, word
+    if mode == "refusal_vue":
+        # 同一份正文里，T23 的实例结论合法存在；两级扫描面因此必须分开
+        assert "未纳入本项目索引" in answer["answer_text"]
 
 
 @pytest.mark.parametrize("mode", ["refusal", "partial"])
