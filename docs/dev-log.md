@@ -1220,3 +1220,12 @@
 - **G6b 顺手长出第三档 `refusal_vue`，它是两级扫描面存在的理由**：那种正文里**合法地**含有 T23 的实例结论（"…未纳入本项目索引…不会出现…"，因为 T23 查过语料快照）。所以实例断言词只能扫披露段，而仓库级词与全称词扫整份输出。这一档现在正向断言"未纳入本项目索引"确实在正文里——把"为什么要分两级"写成机器断言，而不是只写在注释里。
 - **G6a2 用了直接跑 `finalize` 的先例**：`generate_failed` + 零证据 → refusal 这条分支 `run_agent` 到不了（零证据时 `route_after_evaluate` 不放行 generate，`test_empty_evidence_cannot_be_promoted_to_full_by_evaluate` 的 node_history 里没有 generate），沿用本文件 `_t263_u6f` / `_t252_finalize_once` 的构造方式，并在 docstring 里写明"合同前提本身成立"而不是含糊带过。
 - **自审那一行被更正而不是改数字**：candidate 提交里我写"冻结测试真实运行（逐行对表勾掉）…22 例"，并把 G1/G6a/G6b 三行也勾了。现在那行留着修正说明——**曾经勾过、勾错了、错在哪**，而不是把 22 悄悄改成 25 就算了。修复只动测试与文档，`src/` 零改动。
+
+## 2026-07-31 · T29：把"两个 factory 0 次"从口号变成有判别力的断言
+
+- **缺陷本身两行就能修，难的是证明它被修了**。`ask()` 里 `_get_embedder()/_get_llm()` 排在 `_resolve_project()` 前面，unknown project 于是要先加载数秒级模型；CI 不装 ml 组时更糟——`import torch` 直接 `ImportError → EmbeddingError`，本该 404 的请求变成 503。可这条路径已经有两条 unknown-project 测试了，它们**注入的是已实例化的 Fake**，生产工厂根本不在调用图上，缺陷在时也全绿。所以本任务真正的产出是那组冷 service + 真实构造接缝上的 spy。
+- **计划前审第一轮就打掉了我自己写的一句话**：packet 里我写"c1–c8 对单/双 session 两种实现都成立"，本意是说测试矩阵稳健，审查者（PG-T29-01）直接指出——那正好说明这批测试**证不出**会话刚裁决的两-session 契约，单 session 实现照样全绿。改法是给 c2 加一条有序事件账本：把 `_session_factory` 换成记录进出的包装（只在测试内替换实例属性，`src/` 不加钩子），两个 spy 被调用时记下当时的活动 session 数，然后对整条流做逐项相等断言 `[session enter, session exit, embedder@0, llm@0, session enter, session exit]`。旧顺序、单 session、正确实现三者产出三条不同的账本。
+- **c2 因此从"绿"变成"红"，这件事必须写清楚**：它同时承担两个角色——计数断言 `(1,1)` 证明 spy 挂在真实接缝上（对顺序不敏感、任何实现都该绿），事件账本证明顺序（旧实现必红）。所以合同里给它写了停止条件：base 上的红**必须**落在账本；如果红在计数，说明 monkeypatch 根本没挂上、后面所有 0 次断言全是空的，得停。实测正是账本红、计数先过。
+- **PG-T29-02 抓到的是"判据落地不全"**：`mechanism_checks.md` 的 m17 要求零 **project**/run/step/tool 四类持久化，我只统计了后三表；更要命的是 `Makefile` 的 `eval-ci` 两条 pytest 调用是**显式文件名列表**，新文件不加进去就永远不被收集——m17 是 §5.2 冻结机制检查，回归缺席时 eval-ci 仍然绿。两处都补了，`Makefile` 也据此进了 allowed_paths（7 文件）。
+- **c8 是这次最想留下的东西**：它用**和 c1 完全相同**的 `(0, 0)` 断言，但跑在注入 Fake 的**成功路径**上——照样通过。一条通过的测试用来证明另一批测试的形态是空的，比在 packet 里写一段"注意不要用注入 Fake"有效得多。
+- **一处计划更正，标注而不是改写**：packet 初稿说 `ingest()` 缺目录会 `OSError → DatabaseError`。实测 `scan_files` 对不存在的目录返回 `[]`（`root.rglob` 不抛），真实形态是"先加载模型 → 建一个空项目 → 交付空 report"。已在「非目标」标注更正，`T29-P3-01` 按实测措辞登记——`ingest` 没有 unknown-project 404 可 fail-fast，不在 T29 判据内，不顺手修。

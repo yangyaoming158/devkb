@@ -162,14 +162,20 @@ class AppService:
                 f"问题须为 1..{MAX_QUESTION_CHARS} 字符（当前 {len(question)}）"
             )
         async with map_errors():
+            # project 解析必须先于两个模型工厂（RT-23）：unknown project 要在加载
+            # SentenceTransformer / 构造 LLM client 之前 404，否则冷服务既白等数秒
+            # 模型加载，加载失败时还会把本应 404 的请求改写成 embedding 错误。
+            # 解析单独用一个只读 session 并立即退出：模型加载是数秒级同步工作，
+            # 不能占着已 checkout 的连接与已开启的事务（CLI 每条命令都是冷进程）。
+            async with self._session_factory() as session:
+                project_id = (await self._resolve_project(session, project_slug)).id
             embedder = await self._get_embedder()
             llm = self._get_llm()
+            answer_fn = answer_question if pipeline == "fixed-rag" else agentic_answer_question
             async with self._session_factory() as session:
-                project = await self._resolve_project(session, project_slug)
-                answer_fn = answer_question if pipeline == "fixed-rag" else agentic_answer_question
                 return await answer_fn(
                     session,
-                    project.id,
+                    project_id,
                     question,
                     embedder=embedder,
                     llm=llm,

@@ -49,4 +49,5 @@ eval-ci:
 		tests/unit/test_agent_graph.py tests/unit/test_agent_policy_recall.py \
 		tests/unit/test_eval_metrics.py \
 		tests/unit/test_eval_reports_schema.py tests/unit/test_holdout_ledger.py
-	uv run pytest -q tests/integration/test_retrieval.py tests/integration/test_eval_harness.py
+	uv run pytest -q tests/integration/test_retrieval.py tests/integration/test_eval_harness.py \
+		tests/integration/test_fail_fast_order.py
