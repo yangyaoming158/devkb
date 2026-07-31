@@ -1,6 +1,6 @@
 +++
 task_id = "T29"
-status = "approved"
+status = "accepted"
 risk = "medium"
 base_sha = "f51417d82624be3d63e1eb03dc1af8f57caa1d4d"
 max_changed_files = 8
@@ -191,16 +191,16 @@ size_exception = ""
 
 ## 验收标准
 
-- [ ] `src/devkb/service.py` 的 `ask()` 中，`_resolve_project` 早于 `_get_embedder()`/`_get_llm()`（源码顺序可读、有注释说明契约）
-- [ ] c1–c8 全部通过（9 个测试函数 / 11 条用例），且实现前的红绿分布与「冻结测试 · 红绿预测」表逐条一致
-- [ ] c2 的计数断言证明两个 spy 均能被真实调用（非空洞）；c2 的事件账本证明首次 session 已在两个工厂构造前退出（两-session 契约）；c8 证明注入形态下计数断言空洞
-- [ ] `tests/integration/test_service.py`、`test_api.py`、`tests/unit/test_service_errors.py` **零修改**且全绿
-- [ ] unknown project 路径**四表**（含 `projects`）零新增行（c5 实测，m17 断言 3）
-- [ ] HTTP 404 错误体形状与既有契约逐字一致；禁用词表零命中
-- [ ] 未新增依赖/迁移/schema/API/golden；`PROMPT_VERSION`、`AGENT_STATE_SCHEMA_VERSION`、`ANSWER_SCHEMA_VERSION` 均未变
-- [ ] 新测试文件已接入 `make eval-ci`（m17 属《Evaluation-v1.5》§5.2 冻结机制检查，不接入则本回归缺席时 eval-ci 仍绿）
-- [ ] `make verify-task PACKET=docs/tasks/T29-fail-fast-order.md` 通过；`make ci` 与 `make eval-ci` 全绿（数值见「冻结测试 · 规模」：`ci` 1018、`eval-ci` 199 + 30）
-- [ ] 《P1.5任务清单》T29.1 / T29.2 勾选并附结果与证据 commit；`docs/dev-log.md` 追加条目；`T29-P3-01` 登记 backlog
+- [x] `src/devkb/service.py` 的 `ask()` 中，`_resolve_project` 早于 `_get_embedder()`/`_get_llm()`（源码顺序可读、有注释说明契约）
+- [x] c1–c8 全部通过（9 个测试函数 / 11 条用例），且实现前的红绿分布与「冻结测试 · 红绿预测」表逐条一致
+- [x] c2 的计数断言证明两个 spy 均能被真实调用（非空洞）；c2 的事件账本证明首次 session 已在两个工厂构造前退出（两-session 契约）；c8 证明注入形态下计数断言空洞
+- [x] `tests/integration/test_service.py`、`test_api.py`、`tests/unit/test_service_errors.py` **零修改**且全绿
+- [x] unknown project 路径**四表**（含 `projects`）零新增行（c5 实测，m17 断言 3）
+- [x] HTTP 404 错误体形状与既有契约逐字一致；禁用词表零命中
+- [x] 未新增依赖/迁移/schema/API/golden；`PROMPT_VERSION`、`AGENT_STATE_SCHEMA_VERSION`、`ANSWER_SCHEMA_VERSION` 均未变
+- [x] 新测试文件已接入 `make eval-ci`（m17 属《Evaluation-v1.5》§5.2 冻结机制检查，不接入则本回归缺席时 eval-ci 仍绿）
+- [x] `make verify-task PACKET=docs/tasks/T29-fail-fast-order.md` 通过；`make ci` 与 `make eval-ci` 全绿（数值见「冻结测试 · 规模」：`ci` 1018、`eval-ci` 199 + 30）
+- [x] 《P1.5任务清单》T29.1 / T29.2 勾选并附结果与证据 commit；`docs/dev-log.md` 追加条目；`T29-P3-01` 登记 backlog
 
 ## GPT 前置计划审查
 
@@ -230,7 +230,7 @@ size_exception = ""
 - [x] 新增用户可见文案/warning 均有禁用措辞否定断言；新增确定性判据均已写明"推不出什么"且各有 fail-closed 负例 —— 本任务**不新增任何用户可见文案**，c1 反而对既有 404 文案做**逐字相等**断言以锁定"未改写"；禁用词表（含从 `migrated_db_url` 现取的口令）在异常消息与 HTTP 响应两处都扫
 - [x] `make verify-task PACKET=docs/tasks/T29-fail-fast-order.md` 通过
 - [x] 已创建或指定 candidate commit，工作区干净
-- [x] 日志记录 candidate HEAD 和对应命令结果 —— 见「最终验收」
+- [x] 日志记录 candidate HEAD 和对应命令结果 —— candidate HEAD `af1394f`，逐条见「最终验收 · 候选提交与门禁日志」
 - [x] 提交前一致性扫描（从改动反推，不凭记忆）：本轮改动的数字/结论为「7 文件、9 函数、11 用例、`ci` 1018、`eval-ci` 199+30、6 红/5 绿、新增 ID `T29-P3-01`」。命令 `grep -n "6 个\|实际 6\|计划 6\|10 条\|1017\|三表\|工作区 clean\|SELECT 往返\|c9\|OSError" docs/tasks/T29-fail-fast-order.md` → 残留命中**仅在**「计划前审修订表」与「非目标 · 实现期更正」两处，均为**刻意引用旧措辞以说明改了什么**；旧测试函数名 grep 零命中
 
 **实现期的红绿实测（与合同「红绿预测」表逐条比对）**：在 `f51417d`（`service.py` 未改）上跑新文件 → **6 failed / 5 passed**，失败集合恰为 `c1[agentic]`、`c1[fixed-rag]`、`c2`、`c3`、`c6`、`c7`，与预测**逐条相同**。两条停止条件均已核验：
@@ -257,11 +257,27 @@ size_exception = ""
 ## 最终验收
 
 - Base SHA：`f51417d82624be3d63e1eb03dc1af8f57caa1d4d`
-- Head SHA：
-- P0：
-- P1：
-- 当前合同内 P2：
-- P3/backlog：
-- `make verify-full`：
-- 远端 exact-head CI：
-- Reviewer 结论：`PENDING`
+- Head SHA：`af1394f8d5e9a74744442db60007ddf149ef23ac`（**唯一代码提交**；首审即终审，零 finding 故无定向修复提交）
+- P0：**0**
+- P1：**0**
+- 当前合同内 P2：**0**（首审 issue ledger 为空）
+- P3/backlog：**1 条新增**（`T29-P3-01` `ingest()` 在任何输入校验前加载 tokenizer+embedder；缺目录静默产出空 report。既有代码、不在本次 diff 内，`ingest` 路径无 `_resolve_project` 可提前）
+- `make verify-full`：**PASS，exit=0**，`status: clean`，changed files **7 / 8** 全在 `allowed_paths`（详见下表）
+- 远端 exact-head CI：待 T32.4 统一在 P1.5 头提交上核验（沿用 T27.1/T27.2/T28.1 口径，本任务不单独推送）
+- Reviewer 结论：**`PASS`**（2026-07-31 限定代码审查，**首审即终审、issue ledger 为空**）。审查者独立复核四点：①`service.py:164` 符合批准的双-session 顺序（解析并关闭首个 session → 构造两个工厂 → 第二个 session 执行问答）；②c2 的冻结事件账本能区分旧顺序、单 session 与批准实现，c1/c3/c5/c6/c7/c8 分别覆盖零构造、错误优先级、四表零持久化、HTTP 契约、重复调用与 spy 非空洞性；③`Makefile:47` 已把新测试接入 `eval-ci`；④exact-HEAD `make verify-full` exit 0、运行后工作区仍 clean
+
+### 候选提交与门禁日志
+
+| 项 | 结果 |
+|---|---|
+| 基线（base SHA `f51417d`） | `pytest --collect-only` **1007**；`eval-ci` **199 + 19** |
+| 实现前红绿（新文件跑在未改的 `service.py` 上） | **6 red / 5 green**，失败集合 = `c1[agentic]`、`c1[fixed-rag]`、`c2`、`c3`、`c6`、`c7`——与合同「红绿预测」表**逐条相同** |
+| 停止条件①（c2 的红必须在账本） | 通过：红在 `assert spies.ledger.events == FROZEN_SESSION_LEDGER`（`At index 0 diff: ('factory','embedder',0) != ('session','enter')`），其上一行 `assert spies.calls == (1, 1)` **先通过** → spy 挂在真实构造接缝上，0 次断言非空洞 |
+| 停止条件②（c5 不得意外转红） | 通过：c5 在 base 上即绿，零持久化本就是 `run_repo.create` 之前的顺序事实 |
+| RT-23 第二症状复现 | c3 在 base 上的实际异常为 `EmbeddingError('嵌入模型加载失败：RuntimeError')`，改后为 `NotFoundError`/`NOT_FOUND` |
+| `make ci`（exact HEAD `af1394f`） | **1018 passed**（1007 + 11）；ruff format/check、pyright 均 0 |
+| `make eval-ci`（exact HEAD） | **199 + 30**（integration 组 19 + 11） |
+| `make verify-task` / `make verify-full` | 均 **PASS**；后者 `--require-clean` 下 `status: clean`、exit=0 |
+| `git diff --numstat`（base→head） | `src/devkb/service.py` **9 / 3**；`Makefile` **2 / 1**；`tests/integration/test_fail_fast_order.py` 新增；4 份文档 |
+| 既有测试影响 | `test_service.py` / `test_api.py` / `test_service_errors.py` **零改动**（`git diff --stat` 为空）且继续全绿 |
+| 契约版本 | `PROMPT_VERSION`、`AGENT_STATE_SCHEMA_VERSION`、`ANSWER_SCHEMA_VERSION` 均**未变**；Answer JSON 字段集合、错误码集合、D6 四调用点与单 run ≤6 预算均未变 |
