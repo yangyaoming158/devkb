@@ -47,6 +47,7 @@ from devkb.agent.nodes import (
     universal_claim_hits,
     verified_scope_note,
 )
+from devkb.agent.not_found import CorpusProfile
 from devkb.agent.state import (
     AgentInput,
     ClaimOutput,
@@ -171,7 +172,7 @@ async def test_second_round_insufficient_finishes_with_deterministic_refusal() -
     assert result["final_mode"] == "refusal"
     assert result["generate_calls"] == 0
     # 拒答模板为确定性代码生成并说明缺什么；FakeLLM 脚本恰好耗尽证明无额外调用
-    assert result["final_answer"] == "现有资料不足以回答该问题。缺少：补偿。"
+    assert result["final_answer"] == "现有资料不足以回答该问题。缺少：补偿。" + _t281_note()
     assert result["final_not_found"] == ["补偿"]
 
 
@@ -183,7 +184,9 @@ async def test_partial_evidence_yields_partial_answer_with_merged_not_found() ->
 
     assert result["node_history"][-3:] == ["generate", "verify", "finalize"]
     assert result["final_mode"] == "partial"
-    assert result["final_answer"] == "仅库存部分有证据 [E1]。" + _t261_note(["docs/order.md"], 2)
+    assert result["final_answer"] == "仅库存部分有证据 [E1]。" + _t281_note() + _t261_note(
+        ["docs/order.md"], 2
+    )
     assert [claim.text for claim in result["final_claims"]] == ["库存扣减由事务保护"]
     assert result["final_not_found"] == ["回滚补偿细节", "回滚补偿"]
 
@@ -237,7 +240,9 @@ async def test_l1_tampered_quote_second_failure_strips_claims_and_downgrades() -
     assert [claim.text for claim in result["final_claims"]] == ["正确断言"]
     assert result["final_mode"] == "partial"
     # 正文按保留 claim 重建，失败 claim 的句子与标记不残留
-    assert result["final_answer"] == "正确断言 [E1]。" + _t261_note(["docs/order.md"], 0)
+    assert result["final_answer"] == "正确断言 [E1]。" + _t281_note() + _t261_note(
+        ["docs/order.md"], 0
+    )
     assert any("已移除 1 个" in warning for warning in result["warnings"])
 
 
@@ -280,7 +285,9 @@ async def test_stripped_claims_leave_no_untrusted_text_marks_or_citations() -> N
     result = await run_agent(runtime, _input())
 
     assert result["final_mode"] == "partial"
-    assert result["final_answer"] == "库存扣减由事务保护 [E1]。" + _t261_note(["docs/order.md"], 0)
+    assert result["final_answer"] == "库存扣减由事务保护 [E1]。" + _t281_note() + _t261_note(
+        ["docs/order.md"], 0
+    )
     assert "编造" not in (result["final_answer"] or "")
     assert "[E2]" not in (result["final_answer"] or "")
     assert [claim.text for claim in result["final_claims"]] == ["库存扣减由事务保护"]
@@ -335,7 +342,7 @@ async def test_rebuilt_answer_strips_unchecked_marks_inside_kept_claim_text() ->
 
     assert result["final_mode"] == "partial"
     # 终稿只含由 evidence_ids 规范生成的 [E1]；text 内嵌的 E9/E2 全部剔除
-    assert result["final_answer"] == "库存扣减由事务保护，另见 [E1]。" + _t261_note(
+    assert result["final_answer"] == "库存扣减由事务保护，另见 [E1]。" + _t281_note() + _t261_note(
         ["docs/order.md"], 0
     )
     assert "[E9]" not in (result["final_answer"] or "")
@@ -359,7 +366,7 @@ async def test_second_failure_with_all_claims_removed_refuses() -> None:
 
     assert result["generate_calls"] == 2
     assert result["final_claims"] == [] and result["final_mode"] == "refusal"
-    assert result["final_answer"] == "现有资料不足以回答该问题。"
+    assert result["final_answer"] == "现有资料不足以回答该问题。" + _t281_note()
 
 
 async def test_retriever_exception_records_error_and_refuses() -> None:
@@ -404,7 +411,9 @@ async def test_llm_double_timeout_on_generate_degrades_deterministically() -> No
     assert result["generate_failed"] is True and result["generate_calls"] == 1
     assert result["llm_calls"] == 4
     assert result["final_mode"] == "partial"
-    assert result["final_answer"] == "现有证据不足以可靠生成回答。" + _t261_note([], 0)
+    assert result["final_answer"] == "现有证据不足以可靠生成回答。" + _t281_note() + _t261_note(
+        [], 0
+    )
 
 
 async def test_regeneration_blocked_when_budget_exhausted() -> None:
@@ -446,7 +455,7 @@ async def test_empty_evidence_cannot_be_promoted_to_full_by_evaluate() -> None:
     ]
     assert result["retrieval_round"] == 2 and result["generate_calls"] == 0
     assert result["final_mode"] == "refusal"
-    assert result["final_answer"] == "现有资料不足以回答该问题。"
+    assert result["final_answer"] == "现有资料不足以回答该问题。" + _t281_note()
 
 
 async def test_invalid_structured_output_defaults_without_identity_override() -> None:
@@ -464,7 +473,10 @@ async def test_invalid_structured_output_defaults_without_identity_override() ->
     assert result["retry_counts"] == {"plan": 1, "evaluate:1": 1}
     assert result["final_mode"] == "refusal"
     # evaluate 双失败走冻结默认 insufficient；拒答模板说明缺什么
-    assert result["final_answer"] == "现有资料不足以回答该问题。缺少：证据充分性无法确认。"
+    assert (
+        result["final_answer"]
+        == "现有资料不足以回答该问题。缺少：证据充分性无法确认。" + _t281_note()
+    )
     assert all(count <= 1 for count in result["retry_counts"].values())
 
 
@@ -497,7 +509,9 @@ async def test_generate_failure_uses_deterministic_partial_instead_of_full() -> 
     assert result["generate_failed"] is True
     assert result["generate_calls"] == 1 and result["retry_counts"]["generate:1"] == 1
     assert result["final_mode"] == "partial"
-    assert result["final_answer"] == "现有证据不足以可靠生成回答。" + _t261_note([], 0)
+    assert result["final_answer"] == "现有证据不足以可靠生成回答。" + _t281_note() + _t261_note(
+        [], 0
+    )
 
 
 async def test_global_budget_can_reach_but_never_exceed_six() -> None:
@@ -666,7 +680,9 @@ async def test_i3_generate_failure_limitation_names_the_deterministic_fallback()
     result = await run_agent(_runtime([PLAN, EVAL_OK, "{}", "{}"], retrievals), _input())
 
     assert result["final_mode"] == "partial" and result["generate_failed"] is True
-    assert result["final_answer"] == "现有证据不足以可靠生成回答。" + _t261_note([], 0)
+    assert result["final_answer"] == "现有证据不足以可靠生成回答。" + _t281_note() + _t261_note(
+        [], 0
+    )
     limitations = build_answer(result)["limitations"]
     assert any("正文为确定性降级文案" in item for item in limitations)
     assert not any("仅回答了现有证据支持的部分" in item for item in limitations)
@@ -678,7 +694,7 @@ async def test_i7_no_claims_without_generate_failure_reports_the_real_limitation
     result = await run_agent(_runtime([PLAN, EVAL_OK, GENERATE_NOCLAIMS], retrievals), _input())
 
     assert result["final_mode"] == "partial" and result["generate_failed"] is False
-    assert result["final_answer"] == "库存扣减由事务保护。" + _t261_note([], 0)
+    assert result["final_answer"] == "库存扣减由事务保护。" + _t281_note() + _t261_note([], 0)
     limitations = build_answer(result)["limitations"]
     assert any("未经逐条引用验证" in item for item in limitations)
     assert not any("确定性降级文案" in item for item in limitations)
@@ -1040,7 +1056,9 @@ async def test_t252_i2_second_draft_dropping_its_gap_cannot_reach_full() -> None
     assert result["generate_calls"] == 2
     assert result["final_mode"] == "partial"
     # 只否决 full 与发 warning：其余三项与基线逐字一致，缺口一条都不许回填
-    assert result["final_answer"] == "库存扣减由事务保护 [E1]。" + _t261_note(["docs/order.md"], 0)
+    assert result["final_answer"] == "库存扣减由事务保护 [E1]。" + _t281_note() + _t261_note(
+        ["docs/order.md"], 0
+    )
     assert result["final_not_found"] == []
     assert result["final_not_found_details"] == ()
     assert result["warnings"] == ["verify:l0_l1_failed", T252_BLOCK_WARNING]
@@ -1062,7 +1080,9 @@ async def test_t252_i3_frozen_default_second_draft_still_evaluates_the_check() -
     assert T252_BLOCK_WARNING in result["warnings"]
     # 与基线一致仍为 partial：本例不作为 full→partial 的证据（那由 I2 单独证明）
     assert result["final_mode"] == "partial"
-    assert result["final_answer"] == "现有证据不足以可靠生成回答。" + _t261_note([], 0)
+    assert result["final_answer"] == "现有证据不足以可靠生成回答。" + _t281_note() + _t261_note(
+        [], 0
+    )
 
 
 async def test_t252_i4_budget_exhausted_run_matches_the_baseline_byte_for_byte() -> None:
@@ -1074,7 +1094,7 @@ async def test_t252_i4_budget_exhausted_run_matches_the_baseline_byte_for_byte()
 
     assert result["generate_calls"] == 1
     assert result["final_mode"] == "refusal"
-    assert result["final_answer"] == "现有资料不足以回答该问题。"
+    assert result["final_answer"] == "现有资料不足以回答该问题。" + _t281_note()
     assert result["final_not_found"] == []
     assert result["final_not_found_details"] == ()
     assert result["warnings"] == [
@@ -1142,7 +1162,7 @@ async def test_t252_i7_non_blocking_rows_leave_the_final_state_untouched(row: st
         assert result["generate_calls"] == 2
         # 四项与基线 be35c12 逐字一致（探针实测）
         assert result["final_mode"] == "partial"
-        assert result["final_answer"] == "库存扣减由事务保护 [E1]。" + _t261_note(
+        assert result["final_answer"] == "库存扣减由事务保护 [E1]。" + _t281_note() + _t261_note(
             ["docs/order.md"], 2
         )
         assert result["final_not_found"] == ["回滚补偿细节", "延迟队列重放细节"]
@@ -1690,7 +1710,7 @@ async def test_t262_u6_non_security_question_is_byte_identical_to_the_t261_basel
 
     assert result["final_mode"] == "partial"
     # 单轮脚本 → 只有 draft 自述的 1 条缺口（T26.1 的 :181 用例走双轮，故那里是 2 条）
-    assert (result["final_answer"] or "") == "仅库存部分有证据 [E1]。" + _t261_note(
+    assert (result["final_answer"] or "") == "仅库存部分有证据 [E1]。" + _t281_note() + _t261_note(
         ["docs/order.md"], 1
     )
     assert T262_PREFIX not in (result["final_answer"] or "")
@@ -1953,7 +1973,7 @@ async def test_t263_u6_non_config_question_is_byte_identical_to_the_baseline() -
     result = await run_agent(_runtime([PLAN, EVAL_OK, GENERATE_PART], retrievals), _input())
 
     assert result["final_mode"] == "partial"
-    assert (result["final_answer"] or "") == "仅库存部分有证据 [E1]。" + _t261_note(
+    assert (result["final_answer"] or "") == "仅库存部分有证据 [E1]。" + _t281_note() + _t261_note(
         ["docs/order.md"], 1
     )
     assert T263_PREFIX not in (result["final_answer"] or "")
@@ -2016,9 +2036,15 @@ async def test_t263_u6e_both_tables_hit_keeps_all_three_sections_ordered() -> No
     answer = result["final_answer"] or ""
 
     assert result["final_mode"] == "partial"
-    for prefix in (T262_PREFIX, T263_PREFIX, T261_PREFIX):
+    for prefix in (T262_PREFIX, T263_PREFIX, T281_PREFIX, T261_PREFIX):
         assert answer.count(prefix) == 1, (prefix, answer)
-    assert answer.index(T262_PREFIX) < answer.index(T263_PREFIX) < answer.index(T261_PREFIX)
+    # T28.1 后为四段：分层段 → 五维段 → 摄取覆盖披露 → 范围句（范围句仍收尾）
+    assert (
+        answer.index(T262_PREFIX)
+        < answer.index(T263_PREFIX)
+        < answer.index(T281_PREFIX)
+        < answer.index(T261_PREFIX)
+    )
     assert answer.endswith(
         _t261_note(
             [c["rel_path"] for c in build_answer(result)["citations"]],
@@ -2339,7 +2365,268 @@ async def test_t271_i9_policy_terminal_bypasses_every_finalize_appendix() -> Non
     text = result["final_answer"] or ""
 
     assert "finalize" not in result["node_history"]
-    for prefix in ("（本次已验证范围：", "（本次隔离层级分层：", "（本次配置分层校验："):
+    for prefix in (
+        "（本次已验证范围：",
+        "（本次隔离层级分层：",
+        "（本次配置分层校验：",
+        "（本项目摄取范围：",  # T28.1 的披露段同样结构性不可达
+    ):
         assert prefix not in text
     assert not any(warning.startswith("finalize") for warning in result["warnings"])
     assert "[E" not in text
+
+
+# ---- T28.1 静态摄取覆盖披露（规格 §10：refusal/partial 附带） -----------------
+#
+# 预期从任务合同「冻结文案」小节复制，**不从 devkb.agent.not_found 反取**
+# （T26.3-CR-01 同型防线：测试镜像实现就测不出实现漂移）。四方由此被钉死——
+# packet 文件 ↔ 实现（test_agent_not_found.py 的 U1/U7）↔ 图执行渲染 ↔ 本字面量。
+T281_PREFIX = "（本项目摄取范围："
+T281_FROZEN_TEXT = (
+    "（本项目摄取范围：自动摄取管线只处理 .java、.md、.properties、.txt、.yaml、.yml；"
+    ".css、.html、.js、.py、.sql、.ts、.tsx、.vue 等其他类型不在自动摄取范围内。"
+    "此类文件若未出现在证据中，可能只是未被摄取，不足以据此确认仓库是否包含此类文件。）"
+)
+# 披露段**独有**的禁用词：静态文案零项目查询，说不出本项目索引/证据的实例状态。
+# 只扫披露段——T23 的 static_suffix_rule 子句查过语料快照，有资格说这些话。
+T281_FORBIDDEN_INSTANCE_CLAIMS = (
+    "未纳入本项目索引",
+    "不会出现",
+    "本项目没有",
+    "本项目索引",
+)
+
+
+def _t281_note() -> str:
+    return T281_FROZEN_TEXT
+
+
+def _t281_slice(answer: str, *, mode: str) -> str:
+    """按合同的「G7 定位规则」从正文里切出披露段（切法由终态唯一确定）。"""
+    assert answer.count(T281_PREFIX) == 1, answer
+    start = answer.index(T281_PREFIX)
+    if mode == "refusal":
+        return answer[start:]
+    assert mode == "partial"
+    return answer[start : answer.index(T261_PREFIX)]
+
+
+async def test_t281_g1_refusal_body_ends_with_the_coverage_disclosure() -> None:
+    """G1：拒答正文以披露收尾，且缺口清单原句仍在其前（不被顶替）。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_NO, REFINE, EVAL_NO], retrievals), _input())
+    answer = result["final_answer"] or ""
+
+    assert result["final_mode"] == "refusal"
+    assert answer == "现有资料不足以回答该问题。缺少：补偿。" + _t281_note()
+    assert answer.endswith(_t281_note())
+
+
+async def test_t281_g1b_refusal_without_gaps_still_carries_the_disclosure() -> None:
+    """G1b（边界）：缺口清单为空的拒答同样附披露——披露与缺口条数无关。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, EVAL_OK, BAD_GEN_L1, BAD_GEN_L0], retrievals), _input()
+    )
+
+    assert result["final_mode"] == "refusal" and result["final_not_found"] == []
+    assert (result["final_answer"] or "") == "现有资料不足以回答该问题。" + _t281_note()
+
+
+async def test_t281_g2_partial_puts_the_disclosure_right_before_the_scope_note() -> None:
+    """G2：partial 的披露紧邻 T26.1 范围句之前；范围句仍是最后一段（T26.1 合同不变）。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_OK, GENERATE_PART], retrievals), _input())
+    answer = result["final_answer"] or ""
+
+    assert result["final_mode"] == "partial"
+    assert answer == "仅库存部分有证据 [E1]。" + _t281_note() + _t261_note(["docs/order.md"], 1)
+    assert answer.endswith(_t261_note(["docs/order.md"], 1)), "范围句必须仍是最后一段"
+    assert answer.index(T281_PREFIX) < answer.index(T261_PREFIX)
+
+
+async def test_t281_g2b_disclosure_is_not_a_classification_conclusion() -> None:
+    """G2b（边界 #4 fail-closed）：与格式无关的普通缺口同样附披露，且披露不进 not_found。
+
+    披露是静态能力声明，推不出"本次缺口是格式原因"。因此它既要出现在这种与格式毫无
+    关系的 partial 上（无条件），又绝不能混进 `not_found` / `not_found_details`——
+    否则用户会把一句能力声明读成对某条缺口的分类结论。
+    """
+    corpus = CorpusProfile.from_paths(["backend/src/main/java/svc/DocumentService.java"])
+    evidences = [_evidence(1)]
+
+    async def retriever(_project_id: uuid.UUID, _queries: tuple[str, ...]) -> list[Evidence]:
+        return list(evidences)
+
+    draft = json.dumps(
+        {
+            "answer_text": "库存扣减由事务保护 [E1]。",
+            "claims": [
+                {
+                    "text": "库存扣减由事务保护",
+                    "evidence_ids": ["E1"],
+                    "quotes": ["库存扣减由事务保护。"],
+                }
+            ],
+            "not_found": ["未找到 DocumentService 的删除实现"],
+        },
+        ensure_ascii=False,
+    )
+    runtime = AgentRuntime(llm=FakeLLM([PLAN, EVAL_OK, draft]), retriever=retriever, corpus=corpus)
+    result = await run_agent(runtime, _input())
+    answer = build_answer(result)
+
+    assert result["final_mode"] == "partial"
+    assert [d["basis"] for d in answer["not_found_details"]] == ["corpus_index"]
+    assert _t281_note() in answer["answer_text"]
+    for text in answer["not_found"]:
+        assert T281_PREFIX not in text
+    for detail in answer["not_found_details"]:
+        assert T281_PREFIX not in detail["text"]
+        assert T281_PREFIX not in (detail["original_text"] or "")
+
+
+async def test_t281_g2c_indexed_vue_keeps_disclosure_and_classification_consistent() -> None:
+    """G2c（边界 #6 fail-closed，前审 PG-T281-01）：索引里已有 .vue 时仍不自相矛盾。
+
+    语料快照里存在 `.vue` 文档 → T23 判 `missing_from_current_evidence`（而非未摄取）。
+    披露此时**逐字节不变**（它零项目查询），且不含任何"本项目索引里没有 .vue"式的
+    实例断言——两句话论域不同，同时成立。
+    """
+    corpus = CorpusProfile.from_paths(["frontend/src/AnswerView.vue"])
+    evidences = [_evidence(1)]
+
+    async def retriever(_project_id: uuid.UUID, _queries: tuple[str, ...]) -> list[Evidence]:
+        return list(evidences)
+
+    draft = json.dumps(
+        {
+            "answer_text": "库存扣减由事务保护 [E1]。",
+            "claims": [
+                {
+                    "text": "库存扣减由事务保护",
+                    "evidence_ids": ["E1"],
+                    "quotes": ["库存扣减由事务保护。"],
+                }
+            ],
+            "not_found": ["未找到 frontend/src/Other.vue 的渲染逻辑"],
+        },
+        ensure_ascii=False,
+    )
+    runtime = AgentRuntime(llm=FakeLLM([PLAN, EVAL_OK, draft]), retriever=retriever, corpus=corpus)
+    result = await run_agent(runtime, _input())
+    answer = build_answer(result)
+    disclosure = _t281_slice(answer["answer_text"], mode="partial")
+
+    assert [d["category"] for d in answer["not_found_details"]] == ["missing_from_current_evidence"]
+    assert disclosure == T281_FROZEN_TEXT  # 语料变化不影响静态文案
+    for word in T281_FORBIDDEN_INSTANCE_CLAIMS:
+        assert word not in disclosure, word
+
+
+async def test_t281_g3_full_answer_carries_no_disclosure() -> None:
+    """G3（边界）：full 不附披露——规格 §10 只要求 refusal/partial。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, EVAL_OK, GENERATE], retrievals), _input())
+
+    assert result["final_mode"] == "full"
+    assert (result["final_answer"] or "").count(T281_PREFIX) == 0
+
+
+async def test_t281_g4_policy_refusal_is_structurally_free_of_the_disclosure() -> None:
+    """G4（越权/非法状态）：policy 终态走独立节点，finalize 及披露结构性不可达。"""
+    retrievals: list[tuple[str, ...]] = []
+    runtime, _llm = _policy_runtime([PLAN, EVAL_OK, GENERATE], retrievals)
+
+    result = await run_agent(runtime, _policy_input(POLICY_C13))
+
+    assert result["final_mode"] == "policy_refusal"
+    assert result["final_answer"] == T271_FROZEN_TEXT  # 170 字冻结正文逐字不变
+    assert T281_PREFIX not in (result["final_answer"] or "")
+
+
+async def test_t281_g5_regeneration_appends_the_disclosure_exactly_once() -> None:
+    """G5（重复/重试）：重生成后 finalize 仍只跑一次，披露恰好 1 段。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, EVAL_OK, BAD_GEN_L1, GENERATE_PART], retrievals), _input()
+    )
+
+    assert result["generate_calls"] == 2, "第一稿必须真的没过 L1"
+    assert result["final_mode"] == "partial"
+    assert (result["final_answer"] or "").count(T281_PREFIX) == 1
+
+
+async def test_t281_g5b_same_mode_different_questions_render_identical_disclosure() -> None:
+    """G5b（变形不变量，边界 #5 fail-closed）：披露与问题无关，零逐题语言/意图推断。
+
+    同一 mode、同一证据、同一 draft，只把问题从"Vue 前端渲染"换成纯 Java 问法：
+    切出的披露段必须逐字节相同。若哪天有人按问题里的技术词裁剪披露，这条立刻转红。
+    """
+    rendered: list[str] = []
+    for question in (
+        "请根据 Vue 和 TypeScript 源码解释前端如何渲染 NO_ANSWER？",
+        "库存扣减在哪个 Java 类里实现？",
+    ):
+        retrievals: list[tuple[str, ...]] = []
+        result = await run_agent(
+            _runtime([PLAN, EVAL_OK, GENERATE_PART], retrievals),
+            AgentInput(run_id=uuid.uuid4(), project_id=uuid.uuid4(), question=question),
+        )
+        assert result["final_mode"] == "partial"
+        rendered.append(_t281_slice(result["final_answer"] or "", mode="partial"))
+
+    assert rendered[0] == rendered[1] == T281_FROZEN_TEXT
+
+
+async def test_t281_g6a_generate_failure_degradations_still_disclose() -> None:
+    """G6a（失败路径）：生成调用失败的确定性降级文案同样附披露。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime(
+            [PLAN, EVAL_OK, LLMTimeoutError("timeout"), LLMTimeoutError("timeout")], retrievals
+        ),
+        _input(),
+    )
+    answer = result["final_answer"] or ""
+
+    assert result["generate_failed"] and result["final_mode"] == "partial"
+    assert answer.count(T281_PREFIX) == 1
+    assert answer.index(T281_PREFIX) < answer.index(T261_PREFIX)
+
+
+@pytest.mark.parametrize("mode", ["refusal", "partial"])
+async def test_t281_g6b_disclosure_makes_no_forbidden_claim_anywhere(mode: str) -> None:
+    """G6b（诚实边界，两级扫描面）：全正文/warnings/limitations 一级 + 披露段二级。"""
+    retrievals: list[tuple[str, ...]] = []
+    script: list[str | Exception] = (
+        [PLAN, EVAL_NO, REFINE, EVAL_NO] if mode == "refusal" else [PLAN, EVAL_OK, GENERATE_PART]
+    )
+    result = await run_agent(_runtime(script, retrievals), _input())
+    answer = build_answer(result)
+
+    assert answer["mode"] == mode
+    for blob in (answer["answer_text"], *answer["warnings"], *answer["limitations"]):
+        for word in (*FORBIDDEN_CLAIMS, "仓库无", "仓库中没有", "没有源码", "确实没有"):
+            assert word not in blob, (word, blob)
+    disclosure = _t281_slice(answer["answer_text"], mode=mode)
+    for word in (*T281_FORBIDDEN_INSTANCE_CLAIMS, *T261_TERMS):
+        assert word not in disclosure, word
+
+
+@pytest.mark.parametrize("mode", ["refusal", "partial"])
+async def test_t281_g7_rendered_disclosure_matches_the_frozen_contract_text(mode: str) -> None:
+    """G7：图执行实际渲染出的披露段 == 合同冻结文案（三方比对的第三方）。"""
+    retrievals: list[tuple[str, ...]] = []
+    script: list[str | Exception] = (
+        [PLAN, EVAL_NO, REFINE, EVAL_NO] if mode == "refusal" else [PLAN, EVAL_OK, GENERATE_PART]
+    )
+    result = await run_agent(_runtime(script, retrievals), _input())
+    answer = result["final_answer"] or ""
+
+    assert result["final_mode"] == mode
+    assert _t281_slice(answer, mode=mode) == T281_FROZEN_TEXT
+    if mode == "refusal":
+        assert answer.endswith(T281_FROZEN_TEXT)
+    else:
+        assert answer.endswith(_t261_note(["docs/order.md"], 1))

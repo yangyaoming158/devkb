@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -22,6 +23,7 @@ from devkb.agent.nodes import AgentRuntime, citation_scope, is_identity_only_gap
 from devkb.agent.not_found import (
     RECOGNIZED_FILE_EXTS,
     TERM_SUFFIX_HINTS,
+    UNINGESTED_EXAMPLES,
     CorpusProfile,
     NotFoundInput,
     _split_segments,
@@ -164,9 +166,12 @@ def test_indexed_suffix_overrides_static_rule() -> None:
 
 
 def test_coverage_disclosure_matches_supported_suffixes() -> None:
+    """U2：文案与 SUPPORTED_SUFFIXES 同源——扩摄取范围时文案必须随之变化。"""
     disclosure = coverage_disclosure()
     for suffix in SUPPORTED_SUFFIXES:
         assert suffix in disclosure
+    # 同源不只是"包含"：列出的顺序与集合本身也必须对得上，否则改常量而文案不动也能过
+    assert "、".join(sorted(SUPPORTED_SUFFIXES)) in disclosure
 
 
 def test_confirmed_undocumented_is_never_produced() -> None:
@@ -969,3 +974,152 @@ def test_u13_limitations_matrix_is_exhaustive_and_field_consistent(
         assert "未找到足以回答问题的证据，未生成实质回答" in limitations
     if generate_failed:
         assert "生成调用失败，返回确定性降级文案" in limitations
+
+
+# ---- T28.1 静态摄取覆盖披露（判据："披露文案有单测"） -----------------------
+#
+# 本节只测**文案本身**（图级追加点在 test_agent_graph.py 的 G1–G7）。
+# 全节的共同前提：`coverage_disclosure()` 是零参数、零 I/O、零项目查询的纯函数——
+# 它证不出任何项目实例事实，因此四句话的论域被限定在「摄取管线常量 + 条件式 + 免责」
+# 内（前审 PG-T281-01）。U6d 是那条边界的 fail-closed 负例。
+
+# 披露段落**独有**的禁用词：断言了本项目索引/证据的实例状态，而静态文案无从证明。
+# 这张表**只扫披露段**——T23 的 static_suffix_rule 子句查过语料快照后有资格说
+# "未纳入本项目索引"，扫全正文会把它一并判红（packet「冻结文案」小节的取舍）。
+T281_FORBIDDEN_INSTANCE_CLAIMS = (
+    "未纳入本项目索引",
+    "不会出现",
+    "本项目没有",
+    "本项目索引",
+)
+# 与 T23 同口径的诚实边界禁用词（不得断言仓库有无该文件）
+T281_FORBIDDEN_REPO_CLAIMS = (
+    "不存在",
+    "仓库无",
+    "仓库中没有",
+    "没有源码",
+    "确实没有",
+    "可以确认",
+    "已被证明",
+)
+# 全称量化词（与 nodes._UNIVERSAL_TERMS 同表）：文案自身命中就会让 T26.1 的扫描
+# 顺序一旦变化即自触发，故恒零命中
+T281_UNIVERSAL_TERMS = (
+    "任何",
+    "所有",
+    "全部",
+    "一切",
+    "每个",
+    "各个",
+    "均",
+    "都",
+    "一律",
+    "无一",
+    "毫无",
+    "从不",
+)
+PACKET = Path(__file__).parents[2] / "docs" / "tasks" / "T28.1-coverage-disclosure.md"
+
+
+def frozen_disclosure_from_packet() -> str:
+    """从 Task Packet「冻结文案」小节的 text 围栏读出冻结文案（T263-P3-04 条件①）。
+
+    这是三方逐字节比对的第一方。围栏在全文**唯一**，故定位无歧义；一旦 packet 与实现
+    任何一侧改动而另一侧没跟上，U7 立即转红——这正是本项目第五次同族漂移要防的事
+    （T26.1-CR-01 / T26.2 PG-06-R / T26.2-CR-02 / T26.3-CR-01）。
+    """
+    text = PACKET.read_text(encoding="utf-8")
+    _, marker, rest = text.partition("## 冻结文案")
+    assert marker, f"{PACKET} 缺少「## 冻结文案」小节"
+    _, fence, after = rest.partition("```text")
+    assert fence, "「冻结文案」小节缺少 text 代码围栏"
+    block, closing, _ = after.partition("```")
+    assert closing, "text 代码围栏未闭合"
+    return block.strip()
+
+
+def test_t281_u1_disclosure_is_byte_identical_to_the_frozen_packet_text() -> None:
+    """U1 + U7：packet 冻结块 ↔ `coverage_disclosure()` 逐字节相等（三方比对的两方）。"""
+    frozen = frozen_disclosure_from_packet()
+
+    assert frozen.splitlines() == [frozen], "冻结文案必须是单行，否则切片比对有歧义"
+    assert coverage_disclosure() == frozen
+    # 围栏在 packet 中唯一，且正文不得复述整句——否则比对退化为自指（T27.2-CR-01 同型）
+    packet_text = PACKET.read_text(encoding="utf-8")
+    assert packet_text.count("```text") == 1
+    assert packet_text.count(frozen) == 1
+
+
+def test_t281_u3_examples_never_overlap_the_ingested_suffixes() -> None:
+    """U3（防漂移）：示例后缀与摄取集合不相交——扩摄取范围时转红，而不是静默变假。"""
+    assert not (set(UNINGESTED_EXAMPLES) & set(SUPPORTED_SUFFIXES))
+
+
+def test_t281_u4_examples_stay_inside_the_classifier_vocabulary() -> None:
+    """U4（防漂移）：示例 ⊆ T23 的 RECOGNIZED_FILE_EXTS，使披露与分类同口径。
+
+    若示例里出现分类器不认识的后缀，用户会被告知"这个格式不摄取"，但同一个后缀出现在
+    缺口里时 T23 又判不出 unsupported_or_not_ingested——两套口径就分叉了。
+    """
+    assert set(UNINGESTED_EXAMPLES) <= set(RECOGNIZED_FILE_EXTS)
+    assert len(set(UNINGESTED_EXAMPLES)) == len(UNINGESTED_EXAMPLES), "示例表不得有重复项"
+
+
+def test_t281_u5_disclosure_makes_no_forbidden_or_universal_claim() -> None:
+    """U5（诚实边界）：仓库级断言词、实例断言词、全称量化词三表全零命中。"""
+    disclosure = coverage_disclosure()
+    for word in (
+        *T281_FORBIDDEN_REPO_CLAIMS,
+        *T281_FORBIDDEN_INSTANCE_CLAIMS,
+        *T281_UNIVERSAL_TERMS,
+    ):
+        assert word not in disclosure, word
+
+
+def test_t281_u6a_disclosure_states_the_repository_level_disclaimer() -> None:
+    """U6a（边界 #1 fail-closed）：推不出仓库里有没有该类文件 → 必须逐字免责。"""
+    assert "不足以据此确认仓库是否包含此类文件" in coverage_disclosure()
+
+
+def test_t281_u6b_disclosure_claims_capability_not_project_inventory() -> None:
+    """U6b（边界 #2 fail-closed）：列出的摄取后缀是**管线能力**，不是本项目已有文档。
+
+    因此文案里不得出现任何"本项目已摄取/包含 N 个"式的存在性或计数措辞；且不论语料
+    快照是空、未知还是有内容，渲染结果都必须逐字节相同（静态性本身即证据）。
+    """
+    disclosure = coverage_disclosure()
+    for word in ("已摄取", "本项目包含", "共有", "已索引", "文档数"):
+        assert word not in disclosure, word
+    assert coverage_disclosure() == disclosure  # 纯函数：重复调用不漂移
+
+
+def test_t281_u6c_disclosure_marks_the_example_list_as_non_exhaustive() -> None:
+    """U6c（边界 #3 fail-closed）：推不出穷举了所有不摄取的类型 → 必须带非穷举标记。"""
+    disclosure = coverage_disclosure()
+    assert "等其他类型" in disclosure
+    for suffix in UNINGESTED_EXAMPLES:
+        assert suffix in disclosure
+
+
+def test_t281_u6d_indexed_vue_neither_changes_nor_contradicts_the_disclosure() -> None:
+    """U6d（边界 #6 fail-closed，前审 PG-T281-01）：索引里已有 .vue 时也不自相矛盾。
+
+    两件事同时成立才算通过：
+    1. 披露**逐字节不变**——它零项目查询，语料快照变化不影响它（静态性）；
+    2. 同一份回答里，那个 .vue 缺口仍被 T23 判 `missing_from_current_evidence`
+       （`CorpusProfile.ingests_suffix` 把已在索引中的后缀视为已摄取）。
+
+    初版计划的文案写"未纳入本项目索引、因此当前证据中不会出现"，在这个场景下会与第 2
+    条直接打架；改成管线论域后，两句话各说各的层面，不再冲突。
+    """
+    baseline = coverage_disclosure()
+    corpus = CorpusProfile.from_paths(["frontend/src/AnswerView.vue"])
+
+    assert coverage_disclosure() == baseline
+    for word in T281_FORBIDDEN_INSTANCE_CLAIMS:
+        assert word not in baseline, word
+
+    result = _calibrate("未找到 frontend/src/Other.vue", corpus=corpus)
+    assert result.details[0].category == "missing_from_current_evidence"
+    # 分类说"可能只是没召回"，披露说"管线不自动收 .vue"——两句都成立，不构成矛盾
+    assert ".vue" in baseline

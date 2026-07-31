@@ -51,6 +51,7 @@ from devkb.agent.not_found import (
     NotFoundSource,
     _render_refs,
     calibrate_not_found,
+    coverage_disclosure,
     strip_absence_markers,
 )
 from devkb.agent.policy import POLICY_REFUSAL_TEXT, POLICY_WARNING_TEMPLATE
@@ -1310,8 +1311,11 @@ class AgentNodes:
                     "已按交付引用输出五维配置分层；错误消息与注释未计入强制条件"
                 )
 
+        # T28.1（规格 §10）：refusal/partial 附静态摄取覆盖披露。**无条件**按 mode 追加，
+        # 不看本题有没有 unsupported_or_not_ingested 明细——条件触发会退化成逐题判定，
+        # 与"静态能力披露、不做逐题语言/意图推断"（属 P1.6）直接冲突。full 不附。
         if mode == "refusal":
-            answer = _refusal_text(not_found)
+            answer = _refusal_text(not_found) + coverage_disclosure()
             kept = []
         elif mode == "partial":
             # T26.1（规格 §8 第 1 句）：partial 正文必须限定在已验证范围。
@@ -1325,9 +1329,11 @@ class AgentNodes:
                     f"finalize: partial 正文含 {len(hits)} 类全称表述（{'、'.join(hits)}），"
                     f"本次仍有 {len(not_found)} 条未覆盖方面；两者论域关系未作判定"
                 )
-            # 确定性三段在前、范围句在后：范围句必须是 partial 正文的最后一段（T26.1 合同）
+            # 确定性四段在前、范围句在后：范围句必须是 partial 正文的最后一段（T26.1 合同）。
+            # 披露排在三段证据相关文案之后——它是项目级能力声明，与本次证据无关。
             answer += layer_note
             answer += config_note
+            answer += coverage_disclosure()
             answer += verified_scope_note(cited_paths, len(not_found))
         else:  # full：无范围句，两段确定性文案直接收尾
             answer += layer_note

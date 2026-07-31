@@ -125,6 +125,23 @@ RECOGNIZED_FILE_EXTS: frozenset[str] = SUPPORTED_SUFFIXES | frozenset(
     }
 )
 
+# T28.1 静态覆盖披露里举例的"不摄取后缀"（封闭表，仅用于文案）。两条纪律由单测常驻
+# 守着：与 SUPPORTED_SUFFIXES 不相交（扩摄取范围时**转红**，而不是让文案静默变假）、
+# 且 ⊆ RECOGNIZED_FILE_EXTS（披露说不摄取的后缀，T23 必须也能判成未摄取，两处同口径）。
+# 选词只收 dev 语料真实出现且已被冻结预期点名的格式（.vue/.ts/.tsx/.sql，见 c03/c10/e05）
+# 加四个常见前后端格式作泛化示例；文案逐字带"等"，不把这张表当成穷举清单。
+UNINGESTED_EXAMPLES: tuple[str, ...] = (
+    ".vue",
+    ".ts",
+    ".tsx",
+    ".sql",
+    ".js",
+    ".py",
+    ".html",
+    ".css",
+)
+COVERAGE_DISCLOSURE_PREFIX = "（本项目摄取范围："
+
 # 隐藏文件/目录（路径任一段以 . 开头）恒不在摄取范围——`ingest.scan_files` 直接跳过。
 # 前置 (?<![\w.]) 保证只匹配真正的点开头 token（`.env.example`），不吃 `com.example`。
 _DOTFILE_TOKEN = re.compile(r"(?<![\w.])\.[A-Za-z][A-Za-z0-9_.\-/]*")
@@ -255,8 +272,30 @@ class NotFoundCalibration:
 
 
 def coverage_disclosure() -> str:
-    """静态摄取覆盖披露（后缀级，与 SUPPORTED_SUFFIXES 同源）。"""
-    return "本项目当前摄取的文件类型：" + "、".join(sorted(SUPPORTED_SUFFIXES))
+    """静态摄取覆盖披露（T28.1，规格 §10）——refusal/partial 正文附带的固定文案。
+
+    目的：让"这个格式没被摄取"与"仓库确实没有这类源码"在用户端可分。T23 的
+    ``static_suffix_rule`` 子句只在**某条缺口自身**命中后缀/隐藏文件/技术词时才出现；
+    模型换个说法就没有了。本文案与本题命中与否无关，是静态兜底。
+
+    **四句话的论域**（前审 PG-T281-01 划定，越界即为不可证断言）：
+
+    1. 管线支持集——``scan_files`` 逐字按 ``SUPPORTED_SUFFIXES`` 过滤，是代码事实；
+    2. 管线不支持示例——同一常量取补集，``UNINGESTED_EXAMPLES`` 是其中的封闭举例；
+    3. 条件式（"若未出现在证据中，可能只是…"）——不断言本次证据里有没有；
+    4. 免责——P1.5 无 inventory，说不出仓库有没有。
+
+    因此本函数**零参数、零 I/O、零项目查询**：它说不出"本项目索引里有没有 X"这类实例
+    事实（那是 ``CorpusProfile`` 的活，且 ``ingests_suffix`` 会把已在索引中的后缀视为
+    已摄取），也说不出用户问的是什么语言（逐题推断属 P1.6）。
+    """
+    ingested = "、".join(sorted(SUPPORTED_SUFFIXES))
+    examples = "、".join(sorted(UNINGESTED_EXAMPLES))
+    return (
+        f"{COVERAGE_DISCLOSURE_PREFIX}自动摄取管线只处理 {ingested}；"
+        f"{examples} 等其他类型不在自动摄取范围内。"
+        "此类文件若未出现在证据中，可能只是未被摄取，不足以据此确认仓库是否包含此类文件。）"
+    )
 
 
 def strip_absence_markers(text: str) -> str:
