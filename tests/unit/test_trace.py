@@ -12,6 +12,7 @@ import pytest
 from devkb.agent.answer import build_answer
 from devkb.agent.graph import run_agent
 from devkb.agent.nodes import AgentRuntime, build_candidate_records, classify_refine_term
+from devkb.agent.not_found import CorpusProfile
 from devkb.agent.state import AgentInput, Evidence
 from devkb.agent.trace import (
     MAX_CANDIDATE_RECORDS,
@@ -304,6 +305,7 @@ def _recording_runtime(
     recorder: TraceRecorder | None = None,
     top_k: int = 2,
     max_evidences: int = MAX_FINAL_TOP_K,
+    corpus: CorpusProfile | None = None,
 ) -> AgentRuntime:
     """假检索器：复用生产融合与候选构造，按 make_pg_retriever 的口径记录候选。"""
     counter = {"round": 0}
@@ -321,7 +323,12 @@ def _recording_runtime(
             for index, item in enumerate(fused_all[:top_k], start=1)
         ]
 
-    return AgentRuntime(llm=FakeLLM(script), retriever=retriever, max_evidences=max_evidences)
+    return AgentRuntime(
+        llm=FakeLLM(script),
+        retriever=retriever,
+        max_evidences=max_evidences,
+        corpus=corpus if corpus is not None else CorpusProfile.unknown(),
+    )
 
 
 def _summary_of(recorder: TraceRecorder, node: str, *, index: int = 0) -> dict[str, Any]:
@@ -689,6 +696,80 @@ async def test_u15_evidence_usage_stays_silent_when_generate_never_ran() -> None
     assert result["evidences"] and result["generate_calls"] == 0
     usage = _summary_of(recorder, "finalize")["evidence_usage"]
     assert usage == {"generate_executed": False, "given": [], "cited": [], "unused": []}
+
+
+async def test_u3_not_found_details_carry_each_gap_source_and_fact_check_basis() -> None:
+    """U3（m15 断言 3）：两条不同来源的缺口逐条落盘，取值与终态明细逐字相同、按位对齐。
+
+    构造沿用 T23 的混合原因拆分：一句里同时含"数据库迁移"（`.sql` 不在摄取范围 →
+    static_suffix_rule）与一个**语料索引里确实有**的路径（→ corpus_index），确定性
+    拆成两条——这正是"能把格式未摄取与已索引但未召回分开"的那对明细。
+    """
+    recorder = TraceRecorder()
+    indexed = "backend/src/main/java/svc/DocumentService.java"
+    generate = json.dumps(
+        {
+            "answer_text": "部分结论 [E1]。",
+            "claims": [{"text": "部分结论", "evidence_ids": ["E1"], "quotes": []}],
+            "not_found": [f"当前证据未覆盖数据库迁移与 {indexed} 的删除实现"],
+        },
+        ensure_ascii=False,
+    )
+    runtime = _recording_runtime(
+        [PLAN, EVAL_OK, generate],
+        [[_hit(1), _hit(2)]],
+        recorder=recorder,
+        top_k=2,
+        corpus=CorpusProfile.from_paths([indexed]),
+    )
+
+    result = await run_agent(runtime, _input(), recorder)
+
+    summary = _summary_of(recorder, "finalize")
+    details = summary["not_found_details"]
+    state_details = result["final_not_found_details"]
+    assert len(details) == 2 and len(state_details) == 2
+    # 值逐条相同（不是只对字段名）
+    for persisted, terminal in zip(details, state_details, strict=True):
+        assert set(persisted) == {"category", "source", "basis", "refs"}
+        assert persisted["category"] == terminal.category
+        assert persisted["source"] == terminal.source
+        assert persisted["basis"] == terminal.basis
+        assert persisted["refs"] == list(terminal.refs)
+    # 两条确实是不同来源的缺口，且与同一摘要的 not_found 按位对齐
+    by_basis = {item["basis"]: item for item in details}
+    assert set(by_basis) == {"static_suffix_rule", "corpus_index"}
+    assert by_basis["static_suffix_rule"]["category"] == "unsupported_or_not_ingested"
+    assert by_basis["static_suffix_rule"]["refs"] == [".sql"]
+    assert by_basis["corpus_index"]["category"] == "missing_from_current_evidence"
+    assert by_basis["corpus_index"]["refs"] == [indexed]
+    assert summary["not_found"] == result["final_not_found"]
+    assert [detail.text for detail in state_details] == list(summary["not_found"])
+
+
+async def test_u14b_generate_failure_also_reports_every_evidence_as_unused() -> None:
+    """U14 的另一半分支：generate 走冻结默认值（正文为确定性降级文案、无任何 [E#]）。
+
+    模型**确实收到了**证据（请求发出过、只是产出不可解析），所以 generate_executed
+    仍为 true；但交付引用为空，故全部证据进 unused。
+    """
+    recorder = TraceRecorder()
+    runtime = _recording_runtime(
+        [PLAN, EVAL_OK, "不是JSON", "还不是JSON"],
+        [[_hit(1), _hit(2)]],
+        recorder=recorder,
+        top_k=2,
+    )
+
+    result = await run_agent(runtime, _input(), recorder)
+
+    assert result["generate_failed"] is True and result["generate_calls"] == 1
+    assert result["final_mode"] == "partial"
+    usage = _summary_of(recorder, "finalize")["evidence_usage"]
+    assert usage["generate_executed"] is True
+    assert usage["given"] == ["E1", "E2"]
+    assert usage["cited"] == [] and usage["unused"] == ["E1", "E2"]
+    assert build_answer(result)["citations"] == []
 
 
 async def test_u12_not_found_details_summary_is_bounded_and_not_authoritative() -> None:

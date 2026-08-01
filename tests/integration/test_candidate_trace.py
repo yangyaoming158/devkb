@@ -43,9 +43,14 @@ PLAN = '{"intent":"knowledge_qa","queries":["库存扣减","订单事务"]}'
 EVAL_ROUND1 = '{"sufficiency":"insufficient","supported_aspects":[],"missing_aspects":["补偿"]}'
 REFINE = '{"queries":["补偿事务回滚","重试次数"]}'
 EVAL_ROUND2 = '{"sufficiency":"sufficient","supported_aspects":[],"missing_aspects":[]}'
+# not_found 里同时含"数据库迁移"（`.sql` 不在摄取范围 → static_suffix_rule）与一个
+# **语料里确实有**的文件（→ corpus_index）：T23 会确定性拆成两条，m15 断言 3 才有
+# 非空对象可验（否则 `all(...)` 面对空列表恒真）
+INDEXED_NOTE = "note-01.md"
 GENERATE = (
     '{"answer_text":"库存扣减与补偿事务的配合见证据 [E1]。","claims":[{"text":"配合方式见证据",'
-    '"evidence_ids":["E1"],"quotes":[]}],"not_found":[]}'
+    '"evidence_ids":["E1"],"quotes":[]}],'
+    f'"not_found":["当前证据未覆盖数据库迁移与 {INDEXED_NOTE} 的回滚说明"]}}'
 )
 
 
@@ -193,6 +198,61 @@ async def test_m15_persisted_trace_separates_all_four_candidate_fates(
         assert {item["chunk_id"] for item in summary["evidences"]} <= merge_input
     assert not candidate_paths & never_retrieved
     assert not set(eliminated) & {item["chunk_id"] for item in second["evidences"]}
+
+    # f（续）四态可区分（m15 断言 1 的原文是"足以事后区分"，不是"互斥划分"）：
+    #   前三态属**同一阶段**（终轮检索），必须两两不交；第四态"已给模型但未采用"是
+    #   **下游**性质，与前三者可以合法共存——实测 note-03 型：上一轮被选中、以 carried
+    #   身份留在证据集，本轮没被重新选中而落进 truncated_after_fusion。这种共存必须
+    #   **可解释**，所以下面对交集逐条断言"它上一轮确实是 selected"，而不是假装不存在。
+    #   （本 packet 冻结行原写"四态两两不交"，是比 m15 更紧的说法，实测不成立，见修复记录。）
+    fate_not_retrieved = never_retrieved
+    fate_fusion_dropped = {
+        item["rel_path"]
+        for item in second["candidates"]
+        if item["outcome"] == "truncated_after_fusion"
+    }
+    path_by_chunk = {
+        item["chunk_id"]: item["rel_path"]
+        for step in rounds
+        for source in ("candidates", "evidences", "eliminated")
+        # 首轮不会有 eliminated（fresh ≤ max_evidences），该键此时根本不存在
+        for item in step["output_summary"].get(source, [])
+    }
+    fate_low_rank = {path_by_chunk[chunk_id] for chunk_id in eliminated}
+    fate_given_unused = {
+        item["rel_path"] for item in second["evidences"] if item["evidence_id"] in usage["unused"]
+    }
+    fates = {
+        "未召回": fate_not_retrieved,
+        "被融合淘汰": fate_fusion_dropped,
+        "低排名被截断": fate_low_rank,
+        "已给模型但未采用": fate_given_unused,
+    }
+    assert all(fates.values()), {name: len(paths) for name, paths in fates.items()}
+    stage_names = ["未召回", "被融合淘汰", "低排名被截断"]
+    for left in range(len(stage_names)):
+        for right in range(left + 1, len(stage_names)):
+            assert not fates[stage_names[left]] & fates[stage_names[right]], (
+                stage_names[left],
+                stage_names[right],
+            )
+    # 第四态与前三者的每一处交集都必须能解释：该 path 上一轮确实被选中过（carried 身份）
+    first_selected = {
+        item["rel_path"]
+        for item in rounds[0]["output_summary"]["candidates"]
+        if item["outcome"] == "selected"
+    }
+    for name in stage_names:
+        for path in fates["已给模型但未采用"] & fates[name]:
+            assert path in first_selected, (name, path)
+    # selected ⊇ 终态证据：终态里既有本轮新证据也有上一轮保下来的，故取两轮并集
+    selected_any_round = {
+        item["chunk_id"]
+        for step in rounds
+        for item in step["output_summary"]["candidates"]
+        if item["outcome"] == "selected"
+    }
+    assert {item["chunk_id"] for item in second["evidences"]} <= selected_any_round
     # 防漂移：retention_input 恰为"保留 ∪ 淘汰"
     assert set(second["retention_input"]) == {
         item["chunk_id"] for item in second["evidences"]
@@ -202,16 +262,39 @@ async def test_m15_persisted_trace_separates_all_four_candidate_fates(
     refine_summary = _step(trace, "refine")["output_summary"]
     assert len(refine_summary["refine_term_sources"]) == len(refine_summary["queries"])
 
-    # finalize 每条 missing 带来源与事实校验依据（m15 断言 3）
+    # finalize 每条 missing 带来源与事实校验依据（m15 断言 3）。**先断非空**——
+    # 空列表上的 all(...) 恒真，证不出任何东西
     finalize_summary = _step(trace, "finalize")["output_summary"]
-    assert all(
-        set(item) == {"category", "source", "basis", "refs"}
-        for item in finalize_summary["not_found_details"]
-    )
+    details = finalize_summary["not_found_details"]
+    assert len(details) == 2
+    assert all(set(item) == {"category", "source", "basis", "refs"} for item in details)
+    by_basis = {item["basis"]: item for item in details}
+    # T23 的事实来源按优先级取一个：本 run 召回过该文件就是 evidence_history，
+    # 否则退到索引事实 corpus_index。两者都是"该文件已知"，与格式未摄取是两类原因
+    selected_paths = {
+        item["rel_path"]
+        for step in rounds
+        for item in step["output_summary"]["candidates"]
+        if item["outcome"] == "selected"
+    }
+    fact_basis = "evidence_history" if INDEXED_NOTE in selected_paths else "corpus_index"
+    assert set(by_basis) == {"static_suffix_rule", fact_basis}
+    assert by_basis["static_suffix_rule"]["category"] == "unsupported_or_not_ingested"
+    assert by_basis["static_suffix_rule"]["refs"] == [".sql"]
+    assert by_basis[fact_basis]["refs"] == [INDEXED_NOTE]
+    assert by_basis[fact_basis]["category"] == "missing_from_current_evidence"
+    assert all(item["source"] == "generate_draft" for item in details)
+    assert len(finalize_summary["not_found"]) == 2
 
-    # h 轨迹中无文档正文/secret（m15 断言 4 后半句）
-    serialized = json.dumps(trace["steps"], ensure_ascii=False, default=str)
-    assert SENTINEL not in serialized
-    assert answer["answer_text"] not in serialized
+    # h 轨迹中无文档正文/secret（m15 断言 4 后半句）。sentinel 扫**完整** trace JSON：
+    # 它只存在于 chunk 正文里，出现在载荷任何位置都是泄漏
+    full_payload = json.dumps(trace, ensure_ascii=False, default=str)
+    assert SENTINEL not in full_payload
+    # 正文与禁用词只扫 steps：`trace["run"]["answer"]` 就是交付给用户的 Answer 本身，
+    # 正文当然在里面；T23/T28.1 的确定性文案（"未纳入本项目索引…"）也合法地落在那里。
+    # 两级扫描面的先例见 T28.1 的 G6b。
+    steps_payload = json.dumps(trace["steps"], ensure_ascii=False, default=str)
+    assert answer["answer_text"] not in steps_payload
+    assert SENTINEL not in steps_payload
     for word in ("未召回", "不存在", "无匹配", "不相关", "已穷举", "全部候选"):
-        assert word not in serialized
+        assert word not in steps_payload
