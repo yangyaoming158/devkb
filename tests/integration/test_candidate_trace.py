@@ -178,9 +178,7 @@ async def test_m15_persisted_trace_separates_all_four_candidate_fates(
     assert set(usage["cited"]) | set(usage["unused"]) == set(given)
     assert not set(usage["cited"]) & set(usage["unused"])
 
-    # f 四态互不重叠，且终态证据必来自被选中的候选。**逐轮判定**：同一 chunk 在两轮
-    #   可以有不同结局（第一轮 selected、第二轮换了子查询后被融合淘汰），跨轮取并集
-    #   再判不交会把这件正常的事读成矛盾
+    # f 四态两两不交，且终态证据必来自被选中的候选
     for step in rounds:
         summary = step["output_summary"]
         selected_now = {
@@ -199,18 +197,12 @@ async def test_m15_persisted_trace_separates_all_four_candidate_fates(
     assert not candidate_paths & never_retrieved
     assert not set(eliminated) & {item["chunk_id"] for item in second["evidences"]}
 
-    # f（续）四态可区分（m15 断言 1 的原文是"足以事后区分"，不是"互斥划分"）：
-    #   前三态属**同一阶段**（终轮检索），必须两两不交；第四态"已给模型但未采用"是
-    #   **下游**性质，与前三者可以合法共存——实测 note-03 型：上一轮被选中、以 carried
-    #   身份留在证据集，本轮没被重新选中而落进 truncated_after_fusion。这种共存必须
-    #   **可解释**，所以下面对交集逐条断言"它上一轮确实是 selected"，而不是假装不存在。
-    #   （本 packet 冻结行原写"四态两两不交"，是比 m15 更紧的说法，实测不成立，见修复记录。）
-    fate_not_retrieved = never_retrieved
-    fate_fusion_dropped = {
-        item["rel_path"]
-        for item in second["candidates"]
-        if item["outcome"] == "truncated_after_fusion"
-    }
+    # f（续）四态按"到达的**最后一个阶段**"归属——带显式退出的阶段优先链（packet J1）。
+    #   命中即归属、不再参与后续判定；E0（已被交付引用的终态证据）与第五态（被锚点
+    #   挤出）**退出**四态。四态因此两两不交，但**不是**对语料的划分：成功交付与第五态
+    #   都不在其中，故只断言"非空且两两不交"，不断言并集覆盖语料。
+    #   若把四条判据当互相独立的谓词求值，carried 证据会同时落进"被融合淘汰"与
+    #   "已给模型但未采用"——那不是四态重叠，而是求值方式错了。
     path_by_chunk = {
         item["chunk_id"]: item["rel_path"]
         for step in rounds
@@ -218,34 +210,71 @@ async def test_m15_persisted_trace_separates_all_four_candidate_fates(
         # 首轮不会有 eliminated（fresh ≤ max_evidences），该键此时根本不存在
         for item in step["output_summary"].get(source, [])
     }
-    fate_low_rank = {path_by_chunk[chunk_id] for chunk_id in eliminated}
-    fate_given_unused = {
-        item["rel_path"] for item in second["evidences"] if item["evidence_id"] in usage["unused"]
+    # 本语料每个文件恰好 1 个 chunk；断言观测到的 chunk↔path 是单射，路径级归属才成立
+    assert len(set(path_by_chunk.values())) == len(path_by_chunk)
+
+    terminal_by_path = {item["rel_path"]: item["evidence_id"] for item in second["evidences"]}
+    retention_paths = {
+        path_by_chunk[chunk_id]
+        for step in rounds
+        for chunk_id in step["output_summary"]["retention_input"]
     }
-    fates = {
-        "未召回": fate_not_retrieved,
-        "被融合淘汰": fate_fusion_dropped,
-        "低排名被截断": fate_low_rank,
-        "已给模型但未采用": fate_given_unused,
-    }
-    assert all(fates.values()), {name: len(paths) for name, paths in fates.items()}
-    stage_names = ["未召回", "被融合淘汰", "低排名被截断"]
-    for left in range(len(stage_names)):
-        for right in range(left + 1, len(stage_names)):
-            assert not fates[stage_names[left]] & fates[stage_names[right]], (
-                stage_names[left],
-                stage_names[right],
-            )
-    # 第四态与前三者的每一处交集都必须能解释：该 path 上一轮确实被选中过（carried 身份）
-    first_selected = {
+    fusion_dropped_paths = {
         item["rel_path"]
-        for item in rounds[0]["output_summary"]["candidates"]
-        if item["outcome"] == "selected"
+        for step in rounds
+        for item in step["output_summary"]["candidates"]
+        if item["outcome"] == "truncated_after_fusion"
     }
-    for name in stage_names:
-        for path in fates["已给模型但未采用"] & fates[name]:
-            assert path in first_selected, (name, path)
-    # selected ⊇ 终态证据：终态里既有本轮新证据也有上一轮保下来的，故取两轮并集
+    ledgers_complete = all(
+        step["output_summary"]["candidates_truncated"] is False for step in rounds
+    )
+
+    def _retention_fate(path: str) -> str | None:
+        """进入过保留裁剪却不在终态：位次劣于全部保留项才是"低排名被截断"，
+        否则是第五态（被锚点保留策略挤出）——后者退出四态。"""
+        for step in rounds:
+            summary = step["output_summary"]
+            dropped = {item["rel_path"] for item in summary.get("eliminated", [])}
+            if path not in dropped:
+                continue
+            position = {chunk: index for index, chunk in enumerate(summary["retention_input"])}
+            kept_last = max(position[item["chunk_id"]] for item in summary["evidences"])
+            reverse = {value: key for key, value in path_by_chunk.items()}
+            return "低排名被截断" if position[reverse[path]] > kept_last else None
+        return None
+
+    def _fate(path: str) -> str | None:
+        evidence_id = terminal_by_path.get(path)
+        if evidence_id is not None:
+            if evidence_id in usage["cited"]:
+                return None  # E0 成功交付 → 退出四态
+            return "已给模型但未采用"  # ①
+        if path in retention_paths:  # E1 进入过保留裁剪但不在终态证据集
+            return _retention_fate(path)  # ② 或 第五态（退出）
+        if path in fusion_dropped_paths:  # ③ 从未进入保留裁剪
+            return "被融合淘汰"
+        if path not in candidate_paths and ledgers_complete:  # ④ 两轮并集均未出现且未截断
+            return "未召回"
+        return None
+
+    fates: dict[str, set[str]] = {
+        "已给模型但未采用": set(),
+        "低排名被截断": set(),
+        "被融合淘汰": set(),
+        "未召回": set(),
+    }
+    for path in corpus_paths:
+        name = _fate(path)
+        if name is not None:
+            fates[name].add(path)
+
+    assert all(fates.values()), {name: len(paths) for name, paths in fates.items()}
+    names = list(fates)
+    for left in range(len(names)):
+        for right in range(left + 1, len(names)):
+            assert not fates[names[left]] & fates[names[right]], (names[left], names[right])
+    assert fates["未召回"] == never_retrieved
+    # selected ⊇ 终态证据（独立断言）：终态里既有本轮新证据也有上一轮保下来的，故取两轮并集
     selected_any_round = {
         item["chunk_id"]
         for step in rounds
