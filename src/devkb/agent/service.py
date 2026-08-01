@@ -157,9 +157,12 @@ async def agentic_answer_question(
         await DocumentRepo(session, project_id).list_active_rel_paths(MAX_CORPUS_PATHS),
         limit=MAX_CORPUS_PATHS,
     )
+    # recorder 先于 runtime 构造：逐候选元数据（T30.1）只在检索器闭包内可见，
+    # per-query 名次与完整融合序出了 make_pg_retriever 就被 [:top_k] 丢掉了
+    recorder = TraceRecorder()
     runtime = AgentRuntime(
         llm=llm,
-        retriever=make_pg_retriever(session, embedder, top_k=top_k),
+        retriever=make_pg_retriever(session, embedder, top_k=top_k, recorder=recorder),
         corpus=corpus,
     )
     run_repo = RunRepo(session, project_id)
@@ -169,7 +172,6 @@ async def agentic_answer_question(
     # 过期后访问 run.id 触发同步惰性刷新（MissingGreenlet，T18.4 实测）
     run_id = run.id
     agent_input = AgentInput(run_id=run_id, project_id=project_id, question=question)
-    recorder = TraceRecorder()
 
     started = time.perf_counter()
     try:

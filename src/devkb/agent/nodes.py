@@ -77,7 +77,15 @@ from devkb.agent.state import (
     StrictModel,
     VerificationOutput,
 )
-from devkb.agent.trace import TraceRecorder, clip_list
+from devkb.agent.trace import (
+    MAX_CANDIDATE_RECORDS,
+    MAX_CANDIDATES_PER_QUERY,
+    SCORE_DIGITS,
+    CandidateRecord,
+    RefineTermSource,
+    TraceRecorder,
+    clip_list,
+)
 from devkb.agent.verification import normalize_for_l1, verify_draft
 from devkb.answer import apply_l0
 from devkb.embedding import Embedder
@@ -86,6 +94,7 @@ from devkb.retrieval import (
     HNSW_EF_SEARCH,
     MAX_FINAL_TOP_K,
     ChannelRanking,
+    FusedChunk,
     RetrievedChunk,
     retrieve,
     rrf_fuse,
@@ -743,11 +752,116 @@ async def _structured_call[StructuredT: StrictModel](
     )
 
 
+def _evidence_usage(
+    state: AgentState, kept: list[ClaimOutput], answer: str
+) -> tuple[bool, list[str], list[str], list[str]]:
+    """交给模型的证据 vs 最终交付引用（T30.1），返回 (是否执行过 generate, given, cited, unused)。
+
+    `generate_calls == 0` 时四项全空：`route_after_evaluate` / `route_after_refine` 都存在
+    "证据非空却直接进 finalize"的分支（预算耗尽/无可交付方面），此时模型根本没拿到证据，
+    **"没交给模型"不得被写成"已给模型但未采用"**。
+
+    cited 与 `build_answer` 的 citations **同源**：保留 claim 的 evidence_ids ∪ 终态正文里
+    通过 L0 的 [E#]；对终态正文求值，故拒答分支（正文被模板重建）自然得到空引用。
+    """
+    given = [evidence.evidence_id for evidence in state["evidences"]]
+    if state["generate_calls"] == 0:
+        return False, [], [], []
+    known = set(given)
+    _text, marks, _l0_warnings = apply_l0(answer, len(given))
+    cited = {
+        evidence_id for claim in kept for evidence_id in claim.evidence_ids if evidence_id in known
+    } | {f"E{num}" for num in marks}
+    return (
+        True,
+        given,
+        [evidence_id for evidence_id in given if evidence_id in cited],
+        [evidence_id for evidence_id in given if evidence_id not in cited],
+    )
+
+
+def build_candidate_records(
+    per_query: Sequence[tuple[int, Sequence[RetrievedChunk]]],
+    fused_all: Sequence[FusedChunk],
+    *,
+    top_k: int,
+) -> tuple[list[CandidateRecord], bool]:
+    """逐 (子查询, chunk) 候选元数据（T30.1/RT-07），纯函数、有界。
+
+    `per_query` 的第一项是该子查询在**节点传入的 queries 元组**中的首次出现下标，
+    使记录能指回已落盘的查询文本而不必再存一份。`fused_all` 必须是**完整**融合序
+    （未截断），否则被淘汰候选的名次就无从记录。
+
+    有界性是两层的：单条子查询取前 MAX_CANDIDATES_PER_QUERY 条，总数再取前
+    MAX_CANDIDATE_RECORDS 条；任一层触顶都返回 truncated=True——截断之后不得
+    再据本账本作"全部候选"的穷举结论。
+    """
+    fused_rank = {item.chunk_id: index for index, item in enumerate(fused_all, start=1)}
+    fused_score = {item.chunk_id: item.fused_score for item in fused_all}
+    records: list[CandidateRecord] = []
+    truncated = False
+    for query_index, hits in per_query:
+        truncated = truncated or len(hits) > MAX_CANDIDATES_PER_QUERY
+        for vector_rank, hit in enumerate(hits[:MAX_CANDIDATES_PER_QUERY], start=1):
+            rank = fused_rank[hit.chunk_id]
+            records.append(
+                CandidateRecord(
+                    query_index=query_index,
+                    chunk_id=str(hit.chunk_id),
+                    rel_path=hit.rel_path,
+                    start_line=hit.start_line,
+                    end_line=hit.end_line,
+                    vector_rank=vector_rank,
+                    vector_score=round(hit.score, SCORE_DIGITS),
+                    fused_score=round(fused_score[hit.chunk_id], SCORE_DIGITS),
+                    fused_rank=rank,
+                    outcome="selected" if rank <= top_k else "truncated_after_fusion",
+                )
+            )
+    if len(records) > MAX_CANDIDATE_RECORDS:
+        records = records[:MAX_CANDIDATE_RECORDS]
+        truncated = True
+    return records, truncated
+
+
+def _normalize_for_source(text: str) -> str:
+    return "".join(text.split()).casefold()
+
+
+def classify_refine_term(
+    query: str,
+    *,
+    used_default: bool,
+    question: str,
+    evidences: Sequence[Evidence],
+) -> RefineTermSource:
+    """refine term 的**字面**来源（T30.1/m15 断言 2），纯函数、非因果。
+
+    只判"规范化后是否为子串"：`user_question` 不证明模型据问题生成，
+    `unattributed` 也不证明该查询更差——它只表示无法逐字追溯（模型重写的
+    正常结果）。据此**不设** hint 归因类目：查询与 uncovered hint 字面重合
+    同样证不出因果。
+    """
+    if used_default:
+        return "default"
+    needle = _normalize_for_source(query)
+    if needle in _normalize_for_source(question):
+        return "user_question"
+    for evidence in evidences:
+        haystack = _normalize_for_source(
+            f"{evidence.rel_path}\n{evidence.title_path}\n{evidence.content}"
+        )
+        if needle in haystack:
+            return "retrieved_evidence"
+    return "unattributed"
+
+
 def make_pg_retriever(
     session: AsyncSession,
     embedder: Embedder,
     *,
     top_k: int = 8,
+    recorder: TraceRecorder | None = None,
 ) -> Retriever:
     """创建在线默认 vector-HNSW 多查询检索器；不启用 Hybrid lexical channel。"""
     if not 1 <= top_k <= MAX_FINAL_TOP_K:
@@ -756,6 +870,10 @@ def make_pg_retriever(
     async def _retrieve(project_id: uuid.UUID, queries: tuple[str, ...]) -> list[Evidence]:
         rankings: list[ChannelRanking] = []
         catalog: dict[uuid.UUID, RetrievedChunk] = {}
+        per_query: list[tuple[int, Sequence[RetrievedChunk]]] = []
+        first_seen: dict[str, int] = {}
+        for index, query in enumerate(queries):
+            first_seen.setdefault(query, index)
         for query in dict.fromkeys(queries):
             try:
                 hits = await retrieve(
@@ -773,9 +891,17 @@ def make_pg_retriever(
                 await session.rollback()
                 raise
             rankings.append(ChannelRanking(query, "vector", tuple(hit.chunk_id for hit in hits)))
+            per_query.append((first_seen[query], hits))
             for hit in hits:
                 catalog.setdefault(hit.chunk_id, hit)
-        fused = rrf_fuse(rankings)[:top_k]
+        # T30.1：完整融合序只用于记录，返回值仍是既有的 [:top_k]——**逐字节不变**。
+        # 通道 N 不得为了多看见候选而调大：更长的 ranking 会给 RRF 引入新的跨查询
+        # 累加项，能改变 final top-k 成员（属规格 §2 禁止的检索机制变更）。
+        fused_all = rrf_fuse(rankings)
+        fused = fused_all[:top_k]
+        if recorder is not None:
+            records, truncated = build_candidate_records(per_query, fused_all, top_k=top_k)
+            recorder.record_retrieval_candidates(records, truncated=truncated)
         return [
             Evidence(
                 evidence_id=f"E{index}",
@@ -909,6 +1035,12 @@ class AgentNodes:
             [(item.chunk_id, item.rel_path) for item in state["evidences"]],
             limit=self._runtime.max_evidences,
         )
+        if self._recorder is not None:
+            # T30.1：`merged` 的插入序（新证据优先、setdefault 去重）恒等于
+            # plan_retention 内部定名次用的 [*fresh_ids, *carried_ids]，因此它就是
+            # 保留裁剪的**排名输入序**。没有它，"低排名被截断"只能靠 eliminated 的
+            # reason 猜——而低排名锚点挤掉高排名非锚点时 reason 完全一样。
+            self._recorder.record_retention_input(list(merged), limit=self._runtime.max_evidences)
         evidences = [
             merged[chunk_id].model_copy(update={"evidence_id": f"E{index}"})
             for index, chunk_id in enumerate(plan.kept, start=1)
@@ -1010,6 +1142,19 @@ class AgentNodes:
             default=default,
             recorder=self._recorder,
         )
+        if self._recorder is not None:
+            # 逐条 term 的字面来源；标签按位与落盘的 queries 对齐，不再存一份查询文本
+            self._recorder.record_refine_term_sources(
+                [
+                    classify_refine_term(
+                        query,
+                        used_default=call.used_default,
+                        question=state["question"],
+                        evidences=state["evidences"],
+                    )
+                    for query in call.value.queries
+                ]
+            )
         return {
             **call.updates,
             "queries": call.value.queries,
@@ -1338,6 +1483,12 @@ class AgentNodes:
         else:  # full：无范围句，两段确定性文案直接收尾
             answer += layer_note
             answer += config_note
+
+        if self._recorder is not None:
+            executed, given, cited, unused = _evidence_usage(state, kept, answer)
+            self._recorder.record_evidence_usage(
+                generate_executed=executed, given=given, cited=cited, unused=unused
+            )
         return {
             "final_answer": answer,
             "final_mode": mode,
