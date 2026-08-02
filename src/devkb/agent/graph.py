@@ -25,6 +25,7 @@ from devkb.agent.trace import (
     summarize_input,
     summarize_output,
 )
+from devkb.agent.warnings import NodeName, attribute
 
 NodeFn = Callable[[AgentState], Awaitable[dict[str, Any]]]
 
@@ -137,6 +138,29 @@ def route_after_verify(state: AgentState) -> RouteAfterVerify:
     return "generate"
 
 
+def _attributed(node: NodeName, fn: NodeFn) -> Any:
+    """T30.2 归属包装：把 (node, attempt) 附到本次节点执行返回的每条 warning 上。
+
+    **恒生效**（与 recorder 无关）——归属是 Answer 契约的一部分，不是可选诊断。
+    `attempt` 取 `node_history` 在**执行前**的计数：8 个节点的全部 12 条 return 分支
+    都写 `node_history`（nodes.py），故它是该次执行序号的权威来源，不需要外部计数器，
+    也不依赖 `TraceRecorder._node_runs`（recorder 为 None 时后者根本不存在）。
+    LLM 重问发生在同一次节点执行内，故不推进 attempt——这正是 R2 按组否决的依据。
+
+    返回 Any：与 `_traced` 同因——langgraph 的 StateNode 形参要求具名 state 参数。
+    """
+
+    async def wrapped(state: AgentState) -> dict[str, Any]:
+        attempt = state["node_history"].count(node) + 1
+        updates = await fn(state)
+        codes = updates.get("warnings") or []
+        if not codes:
+            return updates
+        return {**updates, "warning_records": attribute(node, attempt, codes)}
+
+    return wrapped
+
+
 def _traced(node: str, fn: NodeFn, recorder: TraceRecorder | None) -> Any:
     """T18.1 节点轨迹包装：成功/降级/异常路径各写一个 step，异常原样上抛。
 
@@ -178,14 +202,20 @@ def _traced(node: str, fn: NodeFn, recorder: TraceRecorder | None) -> Any:
 def build_agent_graph(runtime: AgentRuntime, recorder: TraceRecorder | None = None) -> Any:
     nodes = AgentNodes(runtime, recorder)
     graph = StateGraph(AgentState)
-    graph.add_node("plan", _traced("plan", nodes.plan, recorder))
-    graph.add_node("retrieve", _traced("retrieve", nodes.retrieve, recorder))
-    graph.add_node("evaluate", _traced("evaluate", nodes.evaluate, recorder))
-    graph.add_node("refine", _traced("refine", nodes.refine, recorder))
-    graph.add_node("generate", _traced("generate", nodes.generate, recorder))
-    graph.add_node("verify", _traced("verify", nodes.verify, recorder))
-    graph.add_node("finalize", _traced("finalize", nodes.finalize, recorder))
-    graph.add_node("policy_refuse", _traced("policy_refuse", nodes.policy_refuse, recorder))
+
+    def _node(name: NodeName, fn: NodeFn) -> Any:
+        # 归属在外、轨迹在内：_traced 只看节点自身返回的 updates，warning_records
+        # 因此不进 step 摘要（轨迹侧仍是全量 warnings，划分只发生在 Answer 层）
+        return _attributed(name, _traced(name, fn, recorder))
+
+    graph.add_node("plan", _node("plan", nodes.plan))
+    graph.add_node("retrieve", _node("retrieve", nodes.retrieve))
+    graph.add_node("evaluate", _node("evaluate", nodes.evaluate))
+    graph.add_node("refine", _node("refine", nodes.refine))
+    graph.add_node("generate", _node("generate", nodes.generate))
+    graph.add_node("verify", _node("verify", nodes.verify))
+    graph.add_node("finalize", _node("finalize", nodes.finalize))
+    graph.add_node("policy_refuse", _node("policy_refuse", nodes.policy_refuse))
 
     graph.add_conditional_edges(
         START,

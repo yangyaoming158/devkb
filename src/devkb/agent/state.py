@@ -25,6 +25,7 @@ from devkb.agent.evidence_types import (
 )
 from devkb.agent.not_found import NotFoundDetail
 from devkb.agent.policy import policy_rule_triggered
+from devkb.agent.warnings import WarningRecord
 
 MAX_QUESTION_CHARS = 4000
 MAX_QUERY_CHARS = 4000
@@ -241,6 +242,10 @@ class AgentState(TypedDict):
     generate_failed: bool
     node_history: Annotated[list[str], operator.add]
     warnings: Annotated[list[str], operator.add]
+    # T30.2 归属账本：与 warnings **逐位等长同序**的 (node, attempt) 索引。
+    # 唯一写入者是 graph 的节点边界包装器——记录是从同一次 updates["warnings"] 机械
+    # 派生的，不是二次书写，故结构上不可能与 warnings 漂移（同一事实不存两份可写副本）。
+    warning_records: Annotated[list[WarningRecord], operator.add]
     errors: Annotated[list[str], operator.add]
 
 
@@ -287,5 +292,6 @@ def initial_agent_state(agent_input: AgentInput) -> AgentState:
         generate_failed=False,
         node_history=[],
         warnings=[],
+        warning_records=[],
         errors=[],
     )

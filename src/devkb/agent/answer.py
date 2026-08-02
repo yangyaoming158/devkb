@@ -3,6 +3,9 @@
 在 P0 字段（answer_text/citations/warnings/stats）之上新增
 run_id/mode/claims/not_found/limitations/trace_summary；全部由终态
 AgentState 确定性序列化，不发起任何 LLM 调用。
+
+P1.5 增补的平行字段：not_found_details（T23 四分类）、
+resolved_warnings 与 warning_details（T30.2 warning 时态划分与 node/attempt 归属）。
 """
 
 from __future__ import annotations
@@ -11,6 +14,7 @@ import re
 from typing import Any
 
 from devkb.agent.state import AgentState, Evidence
+from devkb.agent.warnings import classify_warnings
 
 _EVIDENCE_MARK = re.compile(r"\[E(\d+)\]")
 
@@ -82,12 +86,20 @@ def _trace_summary(state: AgentState) -> str:
 def build_answer(state: AgentState) -> dict[str, Any]:
     """终态 AgentState → Answer v1 JSON dict（可直接落库/渲染/API 返回）。"""
     evidence_by_id = {evidence.evidence_id: evidence for evidence in state["evidences"]}
+    # T30.2（RT-10）：warning 按时态划分。`warnings` 收窄为**终态仍成立**的条目，历史
+    # 条目进 `resolved_warnings`；`warning_details` 是全量权威账本，另两者是它的保序投影，
+    # 故一条 warning 都不会因划分而消失（案例二/八不再把首稿失败展示成最终未通过）。
+    ledger = classify_warnings(
+        state["warnings"],
+        state["warning_records"],
+        verify_runs=state["node_history"].count("verify"),
+    )
     return {
         "answer_text": state["final_answer"] or "",
         "citations": [
             _citation(evidence_by_id[evidence_id]) for evidence_id in _cited_evidence_ids(state)
         ],
-        "warnings": list(state["warnings"]),
+        "warnings": list(ledger.active),
         "stats": {
             "tokens_in": state["tokens_in"],
             "tokens_out": state["tokens_out"],
@@ -119,6 +131,19 @@ def build_answer(state: AgentState) -> dict[str, Any]:
                 "original_text": detail.original_text,
             }
             for detail in state["final_not_found_details"]
+        ],
+        # T30.2：已被后续尝试取代/已重问成功的历史条目（对既有消费者纯加法）
+        "resolved_warnings": list(ledger.resolved),
+        # 全量权威账本；node/attempt 只说明该条由谁**返回**，不说明成因源自谁
+        "warning_details": [
+            {
+                "code": detail.code,
+                "node": detail.node,
+                "attempt": detail.attempt,
+                "status": detail.status,
+                "resolution": detail.resolution,
+            }
+            for detail in ledger.details
         ],
         "limitations": _limitations(state),
         "trace_summary": _trace_summary(state),

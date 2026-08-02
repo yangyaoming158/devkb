@@ -100,11 +100,28 @@ async def test_regeneration_run_persists_verify_warning_and_extra_calls(
     )
 
     assert answer["mode"] == "full"
-    assert "verify:l0_l1_failed" in answer["warnings"]
+    # T30.2（RT-10 案例二/八）：第二稿已过 L0/L1，首稿那次失败**不得再当作最终未通过展示**。
+    # 本断言在 826a4df 之前是 `in answer["warnings"]`——它锁定的正是判据要求消除的行为；
+    # 改写后断言更强：条目仍在（零丢失），但落在 resolved 桶且带 node/attempt/resolution。
+    assert "verify:l0_l1_failed" not in answer["warnings"]
+    assert answer["resolved_warnings"] == ["verify:l0_l1_failed"]
+    assert answer["warning_details"] == [
+        {
+            "code": "verify:l0_l1_failed",
+            "node": "verify",
+            "attempt": 1,
+            "status": "resolved",
+            "resolution": "superseded_by_regeneration",
+        }
+    ]
     run = await RunRepo(session, project_id).get(uuid.UUID(answer["run_id"]))
     assert run is not None and run.usage is not None
     assert run.usage["llm_calls"] == 4  # 含 1 次 L1 触发的重生成
-    assert run.answer is not None and "verify:l0_l1_failed" in run.answer["warnings"]
+    # 落库与返回值三字段逐字节一致
+    assert run.answer is not None
+    assert "verify:l0_l1_failed" not in run.answer["warnings"]
+    assert run.answer["resolved_warnings"] == answer["resolved_warnings"]
+    assert run.answer["warning_details"] == answer["warning_details"]
 
 
 async def test_invalid_question_rejected_before_run_creation(session: AsyncSession) -> None:
@@ -543,3 +560,60 @@ async def test_i1_regeneration_over_real_corpus_binds_m14_assertions(
     run = await RunRepo(session, project_id).get(run_id)
     assert run is not None and run.answer is not None
     assert run.answer["not_found_details"] == answer["not_found_details"]
+
+
+# ---- T30.2 I1：m14 断言 4 的绑定用例（真实 PG + 与上面同一脚本） ---------------
+#
+# 合同：docs/tasks/T30.2-warning-attribution.md（冻结测试 I1，2026-08-01 PLAN_APPROVED）。
+# 与 T25.2 的 I1 **同脚本、另立函数**：上面那条用例逐字不动，避免改动已验收的冻结断言。
+# m14 断言 4 原文（evalsets/v1.5/mechanism_checks.md:24）：
+#   warning 区分 resolved（首稿 L1 失败已解决）与 final active，并带 attempt（RT-10）。
+
+
+@pytest.mark.parametrize(
+    "first_draft",
+    [
+        pytest.param(M14_TAMPERED_WORD_DRAFT, id="tampered_word"),
+        pytest.param(M14_CROSS_CHUNK_DRAFT, id="cross_chunk_splice"),
+    ],
+)
+async def test_i1_m14_assertion4_warning_resolved_active_split_with_attempt(
+    session: AsyncSession, first_draft: str
+) -> None:
+    """I1（m14 断言 4）：首稿 L1 失败→重生成→第二稿通过后的 warning 时态与 attempt 归属。"""
+    project_id = await _seeded_project(session)
+    llm = FakeLLM([PLAN, EVAL_OK, first_draft, M14_SECOND_DRAFT], model="deepseek-v4-flash")
+
+    answer = await agentic_answer_question(
+        session, project_id, "库存怎么保证并发安全？", embedder=FakeEmbedder(), llm=llm, top_k=2
+    )
+
+    # ① resolved：首稿失败带 attempt=1，且**不再**出现在 final active warnings
+    assert answer["resolved_warnings"] == ["verify:l0_l1_failed"]
+    assert "verify:l0_l1_failed" not in answer["warnings"]
+    resolved = [detail for detail in answer["warning_details"] if detail["status"] == "resolved"]
+    assert resolved == [
+        {
+            "code": "verify:l0_l1_failed",
+            "node": "verify",
+            "attempt": 1,
+            "status": "resolved",
+            "resolution": "superseded_by_regeneration",
+        }
+    ]
+
+    # ② final active：T25.2 的跨稿计数披露仍在 active 侧（划分不影响它）
+    assert any("两稿逐条对应关系未作判定" in code for code in answer["warnings"])
+
+    # ③ 三字段是同一账本的保序投影，一条不丢
+    details = answer["warning_details"]
+    assert answer["warnings"] == [d["code"] for d in details if d["status"] == "active"]
+    assert answer["resolved_warnings"] == [d["code"] for d in details if d["status"] == "resolved"]
+    assert len(answer["warnings"]) + len(answer["resolved_warnings"]) == len(details)
+
+    # ④ 落库与返回值逐字节一致（m14 断言在**持久化**载荷上同样成立）
+    run = await RunRepo(session, project_id).get(uuid.UUID(answer["run_id"]))
+    assert run is not None and run.answer is not None
+    assert run.answer["warnings"] == answer["warnings"]
+    assert run.answer["resolved_warnings"] == answer["resolved_warnings"]
+    assert run.answer["warning_details"] == details

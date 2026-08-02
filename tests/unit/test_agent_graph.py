@@ -60,7 +60,7 @@ from devkb.agent.state import (
 from devkb.agent.trace import TraceRecorder
 from devkb.agent.verification import l0_errors, verify_draft
 from devkb.embedding import FakeEmbedder
-from devkb.errors import LLMTimeoutError
+from devkb.errors import LLMError, LLMTimeoutError
 from devkb.llm import FakeLLM
 from devkb.retrieval import HNSW_EF_SEARCH, RetrievedChunk
 
@@ -2724,3 +2724,285 @@ async def test_t281_g7_rendered_disclosure_matches_the_frozen_contract_text(mode
         assert answer.endswith(T281_FROZEN_TEXT)
     else:
         assert answer.endswith(_t261_note(["docs/order.md"], 1))
+
+
+# ---- T30.2 G1–G11 + H1：warning 归属与时态划分（RT-10 / Evaluation-v1.5 §5.2 第 9 条） ----
+#
+# 合同：docs/tasks/T30.2-warning-attribution.md（冻结测试 G1–G11、H1，2026-08-01 PLAN_APPROVED）。
+# 每条脚本的 state["warnings"] 形状均在 826a4df 上实测冻结，见 packet「基线复现」。
+# 本节只断言 Answer 层的划分与归属；state 侧账本逐字节不变由 G1/G5 显式复核。
+
+T302_CLAIM_REMOVED = "finalize: 已移除 1 个未通过验证的 claim，正文按保留 claim 重建"
+T302_SENTINEL = "SENTINEL_LEAK_9f3a2c"
+T302_MALFORMED_WITH_SENTINEL = '{"answer_text":"' + T302_SENTINEL + '", "claims": [oops'
+# G8：evaluate 自报 supported_aspects 与 generate 自报 not_found 同为这一串时，
+# not_found.py:691 把**原文**塞进 finalize 的 warning 模板（:768-772）——该 warning
+# 因此含 ":request_failed:" 却与 _structured_call 毫无关系。
+T302_COLLIDE = "库存:request_failed:LLMTimeoutError"
+T302_EVAL_COLLIDE = json.dumps(
+    {"sufficiency": "sufficient", "supported_aspects": [T302_COLLIDE], "missing_aspects": []},
+    ensure_ascii=False,
+)
+T302_GEN_COLLIDE = json.dumps(
+    {
+        "answer_text": "库存扣减由事务保护 [E1]。",
+        "claims": [
+            {
+                "text": "库存扣减由事务保护",
+                "evidence_ids": ["E1"],
+                "quotes": ["库存扣减由事务保护。"],
+            }
+        ],
+        "not_found": [T302_COLLIDE],
+    },
+    ensure_ascii=False,
+)
+# H1 字段级白名单：新增字段的取值只能落在这些集合里（本任务零新增自由文本）
+T302_NODES = {
+    "plan",
+    "retrieve",
+    "evaluate",
+    "refine",
+    "generate",
+    "verify",
+    "finalize",
+    "policy_refuse",
+}
+T302_RESOLUTIONS = {"superseded_by_regeneration", "reask_succeeded"}
+
+
+def _t302_details(answer: dict[str, Any]) -> list[dict[str, Any]]:
+    return answer["warning_details"]
+
+
+def _t302_check_projections(result: dict[str, Any], answer: dict[str, Any]) -> None:
+    """U6 的图级版本：三字段是同一账本的保序投影，且账本与 state 逐位等长同序。"""
+    details = _t302_details(answer)
+    assert [detail["code"] for detail in details] == result["warnings"]
+    assert answer["warnings"] == [d["code"] for d in details if d["status"] == "active"]
+    assert answer["resolved_warnings"] == [d["code"] for d in details if d["status"] == "resolved"]
+    assert len(answer["warnings"]) + len(answer["resolved_warnings"]) == len(details)
+
+
+def _t302_check_field_whitelist(result: dict[str, Any], answer: dict[str, Any]) -> None:
+    """H1：逐字段白名单——比禁用词表更强，因为新增字段根本不含自由文本。"""
+    known_codes = set(result["warnings"])
+    for detail in _t302_details(answer):
+        assert set(detail) == {"code", "node", "attempt", "status", "resolution"}
+        assert detail["code"] in known_codes  # 原样转载，未新造措辞
+        assert detail["node"] is None or detail["node"] in T302_NODES
+        assert detail["attempt"] is None or (
+            isinstance(detail["attempt"], int) and detail["attempt"] >= 1
+        )
+        assert detail["status"] in {"active", "resolved"}
+        assert detail["resolution"] is None or detail["resolution"] in T302_RESOLUTIONS
+        # 不得出现任何对**答案质量**的断言性措辞
+        for word in ("已修复", "已通过", "无问题", "已解决问题", "正确"):
+            assert word not in str(detail["status"]) + str(detail["resolution"] or "")
+    # 纯 JSON，无 UUID/Decimal/对象泄漏
+    assert (
+        json.loads(json.dumps(answer, ensure_ascii=False))["warning_details"]
+        == answer["warning_details"]
+    )
+
+
+async def _t302_run(script: list[str | Exception]) -> tuple[dict[str, Any], dict[str, Any]]:
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime(script, retrievals), _input())
+    answer = build_answer(cast(Any, result))
+    _t302_check_projections(cast(Any, result), answer)
+    _t302_check_field_whitelist(cast(Any, result), answer)
+    return cast(Any, result), answer
+
+
+async def test_t302_g1_second_draft_passing_moves_the_first_failure_out_of_active() -> None:
+    """G1（案例二/八主判据）：第二稿已过 L0/L1 → 首稿失败不得再当作最终未通过展示。"""
+    result, answer = await _t302_run([PLAN, EVAL_OK, BAD_GEN_L1, GENERATE])
+
+    assert result["final_mode"] == "full"
+    # state 全量账本逐字节不变（划分只发生在 Answer 层）
+    assert result["warnings"] == ["verify:l0_l1_failed"]
+    assert answer["warnings"] == []
+    assert answer["resolved_warnings"] == ["verify:l0_l1_failed"]
+    assert answer["warning_details"] == [
+        {
+            "code": "verify:l0_l1_failed",
+            "node": "verify",
+            "attempt": 1,
+            "status": "resolved",
+            "resolution": "superseded_by_regeneration",
+        }
+    ]
+
+
+async def test_t302_g2_both_drafts_failing_keeps_the_last_attempt_active() -> None:
+    """G2（案例五/十三 + 边界 B1/B2/B5）：两稿都失败时第 2 稿那条必须留在 active。"""
+    result, answer = await _t302_run([PLAN, EVAL_OK, BAD_GEN_L1, GEN_MIXED])
+
+    assert result["final_mode"] == "partial"
+    details = _t302_details(answer)
+    assert [detail["status"] for detail in details] == ["resolved", "active", "active"]
+    assert [detail["attempt"] for detail in details] == [1, 2, 1]
+    # 两条 verify 记录 code 逐字节相同，只有 attempt 能区分（RT-10 案例十三原始缺陷）
+    assert details[0]["code"] == details[1]["code"] == "verify:l0_l1_failed"
+    assert answer["warnings"] == ["verify:l0_l1_failed", T302_CLAIM_REMOVED]
+    assert answer["resolved_warnings"] == ["verify:l0_l1_failed"]
+
+    # B1：superseded **推不出**后一稿通过——同一 run 内终态验证仍是失败
+    verification = result["verification"]
+    assert verification is not None and verification.passed is False
+    # B2：resolved **推不出**没有成本
+    assert result["llm_calls"] == 4
+    # B5：claim 移除说明由 finalize **返回**，但其成因在 generate/verify——
+    # 归属字段只说明"谁返回"，两者的 (node, attempt) 因此必须不同
+    assert (details[2]["node"], details[2]["attempt"]) == ("finalize", 1)
+    assert (details[2]["node"], details[2]["attempt"]) not in {
+        (details[0]["node"], details[0]["attempt"]),
+        (details[1]["node"], details[1]["attempt"]),
+    }
+
+
+async def test_t302_g3_successful_reasks_resolve_without_vouching_for_content() -> None:
+    """G3（重问成功 + 边界 B7）：schema 合法 ≠ 业务内容通过 L1。"""
+    result, answer = await _t302_run(["{}", PLAN, "{}", EVAL_OK, "{}", BAD_GEN_L1])
+
+    assert result["llm_calls"] == 6 and result["final_mode"] == "refusal"
+    assert answer["resolved_warnings"] == [
+        "plan:invalid_structured_output",
+        "evaluate:1:invalid_structured_output",
+        "generate:1:invalid_structured_output",
+    ]
+    # 重问不推进 attempt：三条都落在各自节点的第 1 次执行上
+    resolved = [d for d in _t302_details(answer) if d["status"] == "resolved"]
+    assert all(detail["attempt"] == 1 for detail in resolved)
+    assert all(detail["resolution"] == "reask_succeeded" for detail in resolved)
+    assert [detail["node"] for detail in resolved] == ["plan", "evaluate", "generate"]
+    # B7：generate 的重问被判 resolved，而重问**所得**的那一稿随即被 L1 判否——
+    # 同一 run 内既有 resolved 记录又有下游 active 记录
+    assert answer["warnings"] == ["verify:l0_l1_failed", T302_CLAIM_REMOVED]
+
+
+async def test_t302_g4_frozen_default_keeps_the_whole_group_active() -> None:
+    """G4（fail-closed）：重问也失败走冻结默认值 → 同组三条全部 active。"""
+    result, answer = await _t302_run(["{}", "{}", EVAL_OK, GENERATE])
+
+    assert result["final_mode"] == "full"
+    assert answer["resolved_warnings"] == []
+    assert answer["warnings"] == [
+        "plan:invalid_structured_output",
+        "plan:invalid_structured_output",
+        "plan:default_applied",
+    ]
+    details = _t302_details(answer)
+    assert all(detail["node"] == "plan" and detail["attempt"] == 1 for detail in details)
+    assert all(detail["resolution"] is None for detail in details)
+
+
+async def test_t302_g5_two_rounds_attribute_the_same_node_to_distinct_attempts() -> None:
+    """G5：跨轮同一节点的两次执行 → attempt 递增（冻结逐字期望，非"≤ count"弱断言）。"""
+    result, answer = await _t302_run([PLAN, "{}", EVAL_NO, REFINE, "{}", EVAL_PART])
+
+    assert result["retrieval_round"] == 2 and result["llm_calls"] == 6
+    assert result["node_history"] == [
+        "plan",
+        "retrieve",
+        "evaluate",
+        "refine",
+        "retrieve",
+        "evaluate",
+        "finalize",
+    ]
+    assert answer["warning_details"] == [
+        {
+            "code": "evaluate:1:invalid_structured_output",
+            "node": "evaluate",
+            "attempt": 1,
+            "status": "resolved",
+            "resolution": "reask_succeeded",
+        },
+        {
+            "code": "evaluate:2:invalid_structured_output",
+            "node": "evaluate",
+            "attempt": 2,
+            "status": "resolved",
+            "resolution": "reask_succeeded",
+        },
+    ]
+    assert answer["warnings"] == []
+
+
+async def test_t302_g6_policy_refusal_warning_is_active_with_attribution() -> None:
+    """G6：策略终态的唯一 warning 属 active，并带 policy_refuse/1 归属。"""
+    retrievals: list[tuple[str, ...]] = []
+    runtime, _llm = _policy_runtime([PLAN, EVAL_OK, GENERATE], retrievals)
+    result = cast(Any, await run_agent(runtime, _policy_input(POLICY_C13)))
+    answer = build_answer(result)
+    _t302_check_projections(result, answer)
+    _t302_check_field_whitelist(result, answer)
+
+    assert result["final_mode"] == "policy_refusal"
+    assert len(answer["warnings"]) == 1
+    assert answer["resolved_warnings"] == []
+    (detail,) = _t302_details(answer)
+    assert (detail["node"], detail["attempt"], detail["status"]) == ("policy_refuse", 1, "active")
+
+
+async def test_t302_g7_run_without_warnings_yields_three_empty_fields() -> None:
+    result, answer = await _t302_run([PLAN, EVAL_OK, GENERATE])
+
+    assert result["warnings"] == []
+    assert answer["warnings"] == []
+    assert answer["resolved_warnings"] == []
+    assert answer["warning_details"] == []
+
+
+async def test_t302_g8_finalize_text_colliding_with_the_marker_stays_active() -> None:
+    """G8（PG-T302-01 绑定负例）：finalize 逐字插值 LLM 文本产生的 ":request_failed:"
+    碰撞**不得**被判 resolved——旧词表（endswith/in）会把这条真实终态 warning 藏起来。"""
+    result, answer = await _t302_run([PLAN, T302_EVAL_COLLIDE, T302_GEN_COLLIDE])
+
+    (code,) = result["warnings"]
+    assert ":request_failed:" in code  # 碰撞确实发生
+    assert code.startswith("finalize: 前轮已支持方面被后轮报为缺失，已剔除（")
+    assert answer["resolved_warnings"] == []
+    assert answer["warnings"] == [code]
+    (detail,) = _t302_details(answer)
+    assert (detail["node"], detail["status"], detail["resolution"]) == ("finalize", "active", None)
+
+
+async def test_t302_g9_transport_failure_reask_resolves_but_still_costs() -> None:
+    """G9（request_failed 正例 + 边界 B2）：resolved 与"零成本"必须分开。"""
+    result, answer = await _t302_run([LLMTimeoutError("超时"), PLAN, EVAL_OK, GENERATE])
+
+    assert result["final_mode"] == "full"
+    assert answer["warnings"] == []
+    assert answer["resolved_warnings"] == ["plan:request_failed:LLMTimeoutError"]
+    (detail,) = _t302_details(answer)
+    assert (detail["node"], detail["attempt"], detail["resolution"]) == (
+        "plan",
+        1,
+        "reask_succeeded",
+    )
+    # B2：重问确实消耗了一次供应商请求与一次重试
+    assert result["llm_calls"] == 4 and result["llm_retries"] == 1
+
+
+async def test_t302_g10_resolved_reask_never_leaks_the_first_malformed_output() -> None:
+    """G10（边界 B3）：reask_succeeded **推不出**首次输出无害——它一个字都不得外泄。"""
+    result, answer = await _t302_run([PLAN, EVAL_OK, T302_MALFORMED_WITH_SENTINEL, GENERATE])
+
+    assert result["final_mode"] == "full"
+    assert answer["resolved_warnings"] == ["generate:1:invalid_structured_output"]
+    # 整份 Answer JSON 全文扫描（覆盖 answer_text/claims/not_found/warnings/details/...）
+    assert T302_SENTINEL not in json.dumps(answer, ensure_ascii=False)
+
+
+async def test_t302_g11_duplicate_codes_in_one_group_are_never_merged() -> None:
+    """G11：同一 (generate,1) 组内两条逐字节相同的 code 各自成一条 detail，不去重不合并。"""
+    result, answer = await _t302_run([PLAN, EVAL_OK, LLMError("a"), LLMError("b")])
+
+    duplicate = "generate:1:request_failed:LLMError"
+    assert result["warnings"] == [duplicate, duplicate, "generate:1:default_applied"]
+    assert len(_t302_details(answer)) == 3
+    assert answer["resolved_warnings"] == []  # 同组有 default_applied → 全 active
+    assert answer["warnings"].count(duplicate) == 2
