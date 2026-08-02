@@ -49,9 +49,11 @@ _LLM_CALL_NODES = frozenset({"plan", "evaluate", "refine", "generate"})
 # `_structured_call` 的机器格式（nodes.py:676/699）。**完整锚定** ^…$：不用 in/endswith——
 # finalize 的多条 warning 逐字插值 LLM 自由文本（not_found.py:691 → :768-772），
 # 子串匹配会把真实的终态 warning 误判成已解决（G8 实测可达）。
+# 末尾锚点用 \Z 而非 $，且调用侧用 fullmatch：Python 的 `$` 会在**末尾单个换行前**
+# 匹配，`"plan:invalid_structured_output\n"` 因此会被判成规范 code（T302-CR-01）。
 _REASK_FAILURE = re.compile(
     r"^(?P<call_key>plan|refine|evaluate:[1-9][0-9]*|generate:[1-9][0-9]*)"
-    r":(?:invalid_structured_output|request_failed:[A-Za-z_][A-Za-z0-9_]*)$"
+    r":(?:invalid_structured_output|request_failed:[A-Za-z_][A-Za-z0-9_]*)\Z"
 )
 
 
@@ -137,7 +139,7 @@ def _resolution(
     if record.node not in _LLM_CALL_NODES:
         return None
     # R2 ②：完整锚定的规范语法
-    match = _REASK_FAILURE.match(record.code)
+    match = _REASK_FAILURE.fullmatch(record.code)
     if match is None:
         return None
     call_key = match.group("call_key")

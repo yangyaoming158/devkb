@@ -154,6 +154,9 @@ def test_u2c_default_applied_of_a_different_call_key_does_not_shield() -> None:
         "plan:request_failed:",  # 异常类名为空
         "plan:request_failed:Foo Bar",  # 异常类名含空格
         "plan:request_failed:类型",  # 异常类名非 ASCII 标识符
+        # T302-CR-01 回归：Python 的 `$` 会在末尾单个换行前匹配，故末尾锚点必须是
+        # `\Z` + fullmatch，否则带尾换行的非规范 code 会被误判 resolved 并藏起来
+        "plan:invalid_structured_output\n",
     ],
 )
 def test_u9_non_canonical_code_syntax_stays_active(code: str) -> None:
