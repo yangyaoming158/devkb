@@ -14,6 +14,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from devkb.eval_contract import CONTRACT_REPORT_SCHEMA_VERSION
+from devkb.eval_contract import GATE_KEYS as CONTRACT_GATE_KEYS
 from devkb.evaluation import (
     P0_HOLDOUT_BASELINE,
     REPORT_SCHEMA_VERSION,
@@ -106,12 +108,61 @@ def test_committed_reports_have_schema_commit_config_and_markdown_pair() -> None
         assert path.with_suffix(".md").is_file(), f"{path.name} 缺同名 Markdown 摘要"
 
 
+# holdout 报告的文件名前缀。**必须是元组**：《Evaluation-v1.5》§8 冻结的 P1.5 文件名是
+# `p1.5-holdout-<ts>.json`，它不以 `p1-holdout` 开头——只判 `p1-holdout` 会把它当成 dev
+# 报告，其 `holdout_accessed=True` 当场断言失败（T31.1 拆除，原本会炸在 T32.3）
+HOLDOUT_PREFIXES = ("p1-holdout", "p1.5-holdout")
+
+# mode_counts 形状按 schema 冻结（T31.1 bump 到 v1.2 的唯一原因）
+LEGACY_MODE_COUNT_KEYS = frozenset({"full", "partial", "refusal"})
+V1_2_MODE_COUNT_KEYS = LEGACY_MODE_COUNT_KEYS | {"policy_refusal"}
+
+# --- p1.5-contract-v1（T31.1 契约 harness）：五分节 + 12 具名硬键 ---
+P15_SECTION_KEYS = frozenset(
+    {
+        "retrieval",
+        "evidence_selection",
+        "claim_support",
+        "final_consistency",
+        "safety_reliability",
+    }
+)
+P15_FORBIDDEN_AGGREGATE_KEYS = frozenset(
+    {"score", "total_score", "overall", "average", "mean_score"}
+)
+
+
+def _assert_p15_contract_shape(path: Path, report: dict[str, Any]) -> None:
+    """五节齐备、12 键齐备、零跨节总分——报告落盘后依旧成立。"""
+    aggregates = report["aggregates"]
+    assert set(aggregates["sections"]) == P15_SECTION_KEYS, path.name
+    assert set(aggregates["gate_summary"]) == set(CONTRACT_GATE_KEYS), path.name
+    assert isinstance(aggregates["all_hard_gates_passed"], bool), path.name
+    assert P15_FORBIDDEN_AGGREGATE_KEYS.isdisjoint(set(aggregates)), path.name
+    assert report["config"].get("prompt_version"), path.name
+    assert report["corpus"].get("sha256"), path.name
+    for section in aggregates["sections"].values():
+        assert "gate" in section, path.name
+
+
+def _is_holdout_report(name: str) -> bool:
+    return name.startswith(HOLDOUT_PREFIXES)
+
+
 def test_dev_reports_never_touch_holdout() -> None:
     for path, report in _load_reports():
-        if not path.name.startswith("p1-holdout"):
+        if not _is_holdout_report(path.name):
             assert not report["run"].get("holdout_accessed"), (
                 f"{path.name} 是 dev 报告却标记访问了 holdout"
             )
+
+
+def test_holdout_prefix_recognises_both_phases_and_still_rejects_dev_reports() -> None:
+    """合成文件名双向锁：仓库里还没有 p1.5 报告，只靠上面那条测试改分支可以完全不执行。"""
+    assert _is_holdout_report("p1-holdout-20260721T223756+0800.json")
+    assert _is_holdout_report("p1.5-holdout-20260803T101010+0800.json")
+    assert not _is_holdout_report("p1.5-dev-contract-20260803T101010+0800.json")
+    assert not _is_holdout_report("p1-dev-agentic-20260719T224424+0800.json")
 
 
 def test_gate_reports_carry_complete_locked_gate_fields() -> None:
@@ -119,7 +170,10 @@ def test_gate_reports_carry_complete_locked_gate_fields() -> None:
         schema = report["schema_version"]
         if schema == "p1-dev-hybrid-gate-v1":
             assert isinstance(report["gates"].get("gate_passed"), bool), path.name
-        if schema not in ("p1-eval-v1", "p1-eval-v1.1"):
+        if schema.startswith("p1.5-contract-v"):
+            _assert_p15_contract_shape(path, report)
+            continue
+        if schema not in ("p1-eval-v1", "p1-eval-v1.1", "p1-eval-v1.2"):
             continue
         assert report["corpus"].get("sha256") and report["corpus"].get("manifest"), path.name
         assert report["config"].get("prompt_version"), path.name
@@ -128,14 +182,19 @@ def test_gate_reports_carry_complete_locked_gate_fields() -> None:
         assert retrieval is not None or agentic is not None, f"{path.name} 无任何 Gate 字段"
         if schema == "p1-eval-v1":
             assert path.name in LEGACY_V1_REPORTS, (
-                f"{path.name} 使用已冻结的历史 schema p1-eval-v1：新报告必须为 v1.1"
+                f"{path.name} 使用已冻结的历史 schema p1-eval-v1：新报告必须为 v1.2"
             )
             if retrieval is not None:
                 assert set(retrieval) == V1_RETRIEVAL_GATE_KEYS, path.name
             if agentic is not None:
                 assert set(agentic) in [set(s) for s in V1_AGENTIC_GATE_SHAPES], path.name
             continue
-        holdout = path.name.startswith("p1-holdout")
+        holdout = _is_holdout_report(path.name)
+        # mode_counts 形状随 schema 冻结：v1/v1.1 是三键，v1.2 起补 policy_refusal
+        counts = (report.get("agentic") or {}).get("aggregates", {}).get("mode_counts")
+        if counts is not None:
+            want = V1_2_MODE_COUNT_KEYS if schema == "p1-eval-v1.2" else LEGACY_MODE_COUNT_KEYS
+            assert set(counts) == want, path.name
         if retrieval is not None:
             expected = V1_1_RETRIEVAL_HOLDOUT_KEYS if holdout else V1_1_RETRIEVAL_DEV_KEYS
             assert set(retrieval) == expected, path.name
@@ -160,9 +219,9 @@ def test_gate_reports_carry_complete_locked_gate_fields() -> None:
             assert report["run"].get("holdout_attempt"), f"{path.name} 缺一次性访问序号"
 
 
-def test_current_harness_emits_exactly_the_locked_v1_1_shapes() -> None:
+def test_current_harness_emits_exactly_the_locked_v1_2_shapes() -> None:
     """常量与 harness 双向互锁：任何 Gate 键集合改动必须显式改本文件并 bump schema。"""
-    assert REPORT_SCHEMA_VERSION == "p1-eval-v1.1"
+    assert REPORT_SCHEMA_VERSION == "p1-eval-v1.2"
     row: dict[str, Any] = {
         "id": "q",
         "answerable": True,
@@ -179,3 +238,6 @@ def test_current_harness_emits_exactly_the_locked_v1_1_shapes() -> None:
     assert set(retrieval_gates(empty_retrieval, split="holdout")) == V1_1_RETRIEVAL_HOLDOUT_KEYS
     corpus = {"document_count": 445, "chunk_count": 5000}
     assert set(p0_baseline_comparison(empty_retrieval, corpus)) == V1_1_P0_BASELINE_KEYS
+    assert set(aggregate_agentic([row], split="dev")["mode_counts"]) == V1_2_MODE_COUNT_KEYS
+    assert CONTRACT_REPORT_SCHEMA_VERSION == "p1.5-contract-v1"
+    assert len(CONTRACT_GATE_KEYS) == 12

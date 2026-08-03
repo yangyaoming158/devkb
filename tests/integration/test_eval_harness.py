@@ -156,7 +156,7 @@ async def test_run_eval_all_modes_writes_schema_complete_reports(
         assert json_path.exists() and markdown_path.exists()
         report = json.loads(json_path.read_text(encoding="utf-8"))
         # 判据字段：commit / 语料 manifest+hash / 模型 / Prompt / 配置
-        assert report["schema_version"] == "p1-eval-v1.1"
+        assert report["schema_version"] == "p1-eval-v1.2"
         assert report["run"]["devkb_commit"] and report["run"]["holdout_accessed"] is False
         assert report["corpus"]["sha256"]
         assert len(report["corpus"]["manifest"]) == report["corpus"]["document_count"] == 5
@@ -250,7 +250,7 @@ async def test_run_eval_holdout_full_run_uses_split_aware_gates(
     assert json_path.name.startswith("p1-holdout-")
     report = json.loads(json_path.read_text(encoding="utf-8"))
     markdown = markdown_path.read_text(encoding="utf-8")
-    assert report["schema_version"] == "p1-eval-v1.1"
+    assert report["schema_version"] == "p1-eval-v1.2"
     assert report["run"]["holdout_accessed"] is True
     assert report["run"]["holdout_attempt"] == 1
     assert report["run"]["holdout_rerun_acknowledged"] is None
@@ -455,7 +455,7 @@ async def test_run_eval_lexical_only_never_loads_real_embedder(
 
 
 def test_write_report_refuses_overwrite(tmp_path: Path) -> None:
-    report: dict[str, Any] = {"schema_version": "p1-eval-v1.1"}
+    report: dict[str, Any] = {"schema_version": "p1-eval-v1.2"}
     write_report(report, "# md", tmp_path, "p1-dev-retrieval-x")
     with pytest.raises(InvalidInputError, match="拒绝覆盖"):
         write_report(report, "# md", tmp_path, "p1-dev-retrieval-x")

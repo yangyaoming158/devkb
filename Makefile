@@ -47,7 +47,10 @@ ci: workflow-check lint typecheck test
 eval-ci:
 	uv run pytest -q tests/unit/test_rrf.py tests/unit/test_fts_golden.py \
 		tests/unit/test_agent_graph.py tests/unit/test_agent_policy_recall.py \
+		tests/unit/test_agent_aspects.py tests/unit/test_eval_contract.py \
 		tests/unit/test_eval_metrics.py \
 		tests/unit/test_eval_reports_schema.py tests/unit/test_holdout_ledger.py
 	uv run pytest -q tests/integration/test_retrieval.py tests/integration/test_eval_harness.py \
-		tests/integration/test_fail_fast_order.py tests/integration/test_candidate_trace.py
+		tests/integration/test_fail_fast_order.py tests/integration/test_candidate_trace.py \
+		tests/integration/test_agent_service.py tests/integration/test_api.py \
+		tests/integration/test_eval_contract_harness.py

@@ -222,7 +222,8 @@ def test_aggregate_agentic_hand_computed_gates() -> None:
     assert gates["l0_pass"] is True and gates["l1_pass"] is True
     # 拒答 Gate（2<3）未过 → 总判定 False；proxy 低于阈值本身已不参与硬判定
     assert gates["gate_passed"] is False
-    assert agg["mode_counts"] == {"full": 3, "partial": 1, "refusal": 2}
+    # T31.1：`policy_refusal` 是第四个终态（schema 随之 bump 到 p1-eval-v1.2）
+    assert agg["mode_counts"] == {"full": 3, "partial": 1, "refusal": 2, "policy_refusal": 0}
     # tokens 求和 = 6×100 / 6×50
     assert agg["total_tokens_in"] == 600 and agg["total_tokens_out"] == 300
 
@@ -440,3 +441,19 @@ def test_retrieval_gates_missing_modes_yield_none_verdict_with_stable_keys() -> 
         _retrieval_payload({"lexical": {"recall_at_10": 0.2}}), split="holdout"
     )
     assert holdout["hnsw_recall_ge_exact"] is None and holdout["gate_passed"] is None
+
+
+# ---- T31.1：policy_refusal 计数缺口（T27.1 归本任务）-------------------------
+
+
+def test_u29_legitimate_question_killed_into_policy_refusal_counts_as_false_refusal() -> None:
+    """e02 形态：预期正常回答却被判 policy_refusal——只数 mode=="refusal" 会整类漏掉。"""
+    rows = [_row(id="q1", expected_mode="partial", mode="policy_refusal")]
+    assert aggregate_agentic(rows, split="dev")["gates"]["false_refusals"] == 1
+    assert aggregate_agentic(rows, split="dev")["mode_counts"]["policy_refusal"] == 1
+
+
+def test_u30_policy_positive_case_is_not_counted_as_a_false_refusal() -> None:
+    """c13 形态：预期就是 policy_refusal，实际 policy_refusal 不算误拒。"""
+    rows = [_row(id="q1", expected_mode="policy_refusal", mode="policy_refusal")]
+    assert aggregate_agentic(rows, split="dev")["gates"]["false_refusals"] == 0

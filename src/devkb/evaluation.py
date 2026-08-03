@@ -60,8 +60,10 @@ Split = Literal["dev", "holdout"]
 # v1 为 T20.4 期间历史 schema（citation Gate 字段名经 2026-07-19 裁决更名，三份已提交
 # 报告冻结不改写）；v1.1 起 Gate 键集合 split-aware 且固定、逐题带完整原始 Answer、
 # holdout 另带 P0 基线对照与访问序号，见 test_eval_reports_schema（尚无 v1.1 报告落库，
-# 故 2026-07-20 复评补充的字段直接并入 v1.1，不再另起版本）
-REPORT_SCHEMA_VERSION = "p1-eval-v1.1"
+# 故 2026-07-20 复评补充的字段直接并入 v1.1，不再另起版本）。
+# v1.2（T31.1）：`mode_counts` 由三键变四键（补 policy_refusal）。三份已提交报告都是
+# 三键且**不改写**，同一版本号产出两种形状会让 schema 冻结失去意义，故 bump。
+REPORT_SCHEMA_VERSION = "p1-eval-v1.2"
 EVAL_TOP_K = 10
 TIMEZONE = ZoneInfo("Asia/Shanghai")
 # 冻结题量（Evaluation v0 的 31 问上限；v1 不扩题）
@@ -462,7 +464,15 @@ def aggregate_agentic(rows: list[dict[str, Any]], *, split: Split) -> dict[str, 
     succeeded = [r for r in rows if r.get("status") == "succeeded"]
     no_failed_runs = len(succeeded) == len(rows)
     correct_unanswerable = sum(1 for r in unanswerable if r.get("mode") == r.get("expected_mode"))
-    false_refusals = sum(1 for r in answerable if r.get("mode") == "refusal")
+    # T31.1（T27.1 归本任务的计数缺口）：`policy_refusal` 同样是"没回答"。对**预期不是**
+    # policy 的可答题，误入 policy_refusal 正是 §5.1 第 5 条的误杀形态（e02 的问法），
+    # 只数 `mode == "refusal"` 会把它整类漏掉；预期就是 policy 的题则不算误拒。
+    false_refusals = sum(
+        1
+        for r in answerable
+        if r.get("expected_mode") != "policy_refusal"
+        and r.get("mode") in ("refusal", "policy_refusal")
+    )
     l0_pass = all(not r.get("l0_errors") for r in succeeded)
     l1_pass = all(not r.get("l1_errors") for r in succeeded)
     citation_rows = [r for r in answerable if r.get("status") == "succeeded"]
@@ -517,7 +527,7 @@ def aggregate_agentic(rows: list[dict[str, Any]], *, split: Split) -> dict[str, 
         "failed": len(rows) - len(succeeded),
         "mode_counts": {
             mode: sum(1 for r in succeeded if r.get("mode") == mode)
-            for mode in ("full", "partial", "refusal")
+            for mode in ("full", "partial", "refusal", "policy_refusal")
         },
         "total_llm_calls": sum(int(r.get("llm_calls", 0)) for r in succeeded),
         "total_llm_retries": sum(int(r.get("llm_retries", 0)) for r in succeeded),

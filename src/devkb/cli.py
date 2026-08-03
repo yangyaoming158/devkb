@@ -333,6 +333,65 @@ def eval_run(
         console.print(str(markdown_path))
 
 
+@eval_app.command("contract")
+def eval_contract(
+    split: str = typer.Option("dev", "--split", help="dev | holdout"),
+    project: str = typer.Option(..., "--project", help="项目 slug（v1.5 语料）"),
+    output_dir: Path = typer.Option(DEFAULT_REPORT_DIR, "--output-dir"),
+    retrieval_report: Path | None = typer.Option(
+        None,
+        "--retrieval-report",
+        help="§4.1 检索对照：本次 commit 在 mini-mall 上跑出的 p1-eval-v1.x 报告 JSON",
+    ),
+) -> None:
+    """运行 Evaluation-v1.5 契约评测，产出按五个环节分开的时间戳报告。"""
+    if split not in ("dev", "holdout"):
+        raise typer.BadParameter("split 只支持 dev | holdout", param_hint="--split")
+    try:
+        json_path, markdown_path = asyncio.run(
+            _run_contract_eval(split, project, output_dir, retrieval_report)
+        )
+    except DevKbError as exc:
+        console.print(f"[red]{exc.code}[/red] {exc}")
+        raise typer.Exit(1) from exc
+    console.print(str(json_path))
+    console.print(str(markdown_path))
+
+
+async def _run_contract_eval(
+    split: str, project: str, output_dir: Path, retrieval_report: Path | None
+) -> tuple[Path, Path]:
+    from devkb.config import get_settings
+    from devkb.embedding import SentenceTransformerEmbedder
+    from devkb.eval_contract import run_contract_eval
+    from devkb.llm import OpenAICompatLLM
+
+    settings = get_settings()
+    argv = ["devkb", "eval", "contract", "--split", split, "--project", project]
+    if output_dir != DEFAULT_REPORT_DIR:
+        argv += ["--output-dir", str(output_dir)]
+    if retrieval_report is not None:
+        argv += ["--retrieval-report", str(retrieval_report)]
+    return await run_contract_eval(
+        settings,
+        split=split,
+        project_slug=project,
+        output_dir=output_dir,
+        retrieval_report=retrieval_report,
+        embedder=SentenceTransformerEmbedder(
+            settings.embedding_model_id,
+            device=settings.embedding_device,
+            batch_size=settings.embedding_batch_size,
+        ),
+        llm=OpenAICompatLLM(
+            api_key=settings.llm_api_key.get_secret_value(),
+            base_url=settings.llm_base_url,
+            model=settings.llm_model,
+        ),
+        command=shlex.join(argv),
+    )
+
+
 def _eval_command(
     split: str,
     mode: str,
