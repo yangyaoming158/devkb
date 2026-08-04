@@ -1700,6 +1700,30 @@ def test_u_b4h_rule_five_is_bidirectional() -> None:
         in (result["violations"][0]["problems"])
     )
 
+    # 配对正例：标为未摄取 ∧ refs 后缀确不在摄取范围 → 可判定且合格。
+    # 只锁反向会让「把前一向的条件写反」这种误实现存活（限定审查 T311-RR-02）。
+    ok = score_not_found(
+        {"id": "c03"},
+        _answer(
+            not_found=["前端源码未摄取"],
+            not_found_details=[
+                _detail(
+                    "前端源码未摄取",
+                    category="unsupported_or_not_ingested",
+                    basis="static_suffix_rule",
+                    refs=["frontend/App.vue"],
+                )
+            ],
+        ),
+        evidence_paths=(),
+        indexed_paths=("README.md",),
+        corpus_known=True,
+        corpus_truncated=False,
+    )
+    assert ok["decidable_ok"] == 1
+    assert ok["decidable_bad"] == 0
+    assert ok["violations"] == []
+
 
 def test_u_b9c_newly_missing_aspects_are_computed_not_just_transcribed() -> None:
     """相邻轮 missing_aspects 增量：首版只转载原始轮次、没有算增量（T311-CR-05）。"""
@@ -1721,8 +1745,26 @@ def test_u_b9c_newly_missing_aspects_are_computed_not_just_transcribed() -> None
     )
     result = score_coverage_monotonicity(trace)
     assert result["newly_missing_aspects"] == [{"round": 2, "aspects": ["a2"]}]
+    # 增量是**现算**的诊断项，须逐条标源（§4.4）
+    assert result["source"] == "evaluator_report"
     # 仍不构成单调性证明（B9 边界③）
     assert result["authoritative_matrix_available"] is False
+
+    # 无新增方面时必须为空——否则"有增量"这个信号本身零信息量
+    steady = _trace(
+        [
+            {
+                "node": "evaluate",
+                "attempt": attempt,
+                "output_summary": {"supported_count": 2, "missing_aspects": ["a1"]},
+                "tools": [],
+            }
+            for attempt in (1, 2)
+        ]
+    )
+    unchanged = score_coverage_monotonicity(steady)
+    assert unchanged["newly_missing_aspects"] == []
+    assert unchanged["source"] == "evaluator_report"
 
 
 def test_u_b8e_non_dev_split_is_not_comparable(tmp_path: Path) -> None:
@@ -1735,15 +1777,44 @@ def test_u_b8e_non_dev_split_is_not_comparable(tmp_path: Path) -> None:
     assert result["no_regression"] is None
 
 
-def test_u_b8f_same_counts_different_evalsets_dir_is_not_comparable(tmp_path: Path) -> None:
-    """同题量不同目录：run_eval 接受任意 evalsets_dir，只锁题量会让另一个
-    含 17/4 题的目录全部通过。"""
-    path = _v1_report(tmp_path, dataset={"answerable": 17, "unanswerable": 4, "evalsets_dir": "x"})
-    result = score_retrieval_reference(path, devkb_commit=COMMIT)
-    assert result["same_dataset"] is False
-    assert result["comparable"] is False
-    # 边界：本组只排除了目录与题量不符的报告，**推不出**数据集内容身份
+@pytest.mark.parametrize(
+    ("overrides", "why"),
+    [
+        ({"dataset": {"answerable": 17, "unanswerable": 4, "evalsets_dir": "x"}}, "目录不符"),
+        (
+            {"dataset": {"answerable": 21, "unanswerable": 0, "evalsets_dir": "evalsets"}},
+            "题量不符",
+        ),
+        ({"corpus": {"project": "rag-kb"}}, "project 不符"),
+        ({"config": {"top_k": 20}}, "top_k 不符"),
+    ],
+)
+def test_u_b8f_dataset_identity_rejects_each_mismatching_field(
+    tmp_path: Path, overrides: dict[str, Any], why: str
+) -> None:
+    """F18 五项逐项反例：`run_eval` 接受任意 evalsets_dir，只锁题量会让另一个
+    含 17/4 题的目录全部通过；只锁目录又放过换语料/换 top_k 的报告。"""
+    result = score_retrieval_reference(_v1_report(tmp_path, **overrides), devkb_commit=COMMIT)
+    assert result["same_dataset"] is False, why
+    assert result["comparable"] is False, why
+    assert result["no_regression"] is None, why
+    # 边界：本组只排除了自述字段不符的报告，**推不出**数据集内容身份
     assert "推不出数据集内容身份" in result["dataset_identity_note"]
+
+
+def test_u_b8f2_boolean_recall_is_not_a_number(tmp_path: Path) -> None:
+    """`bool` 是 `int` 的子类：`"recall_at_10": true` 若被当成 1.0，
+    会以 1.0 >= 基线 判 no_regression=True，一份垃圾报告通过硬 Gate（T311-RR-01）。"""
+    path = _v1_report(
+        tmp_path,
+        retrieval={
+            "metrics": {"vector-hnsw": {"recall_at_10": True, "recall_at_5": 1, "mrr_at_10": 1}}
+        },
+    )
+    result = score_retrieval_reference(path, devkb_commit=COMMIT)
+    assert result["current_recall_at_10"] is None
+    assert result["comparable"] is False
+    assert result["no_regression"] is None
 
 
 def test_u_b8g_baseline_sha_matches_the_real_golden_report_byte_for_byte() -> None:
@@ -1795,3 +1866,16 @@ def test_u_b6d_full_mode_without_disclosure_still_fails_global_negation() -> Non
     assert report["gate_summary"]["global_negation_honest"] is False
     assert report["sections"]["final_consistency"]["gate"] is False
     assert report["all_hard_gates_passed"] is False
+
+
+def test_u13b_markdown_gate_heading_labels_the_three_different_sources() -> None:
+    """报告不得让读者以为 §5.1 有十条。
+
+    第 13 键来自 §5.2 第 8 条、L0/L1 来自 §7+§14，两者都**不属** §5.1 九条；
+    packet 要求逐字标注这一区别（限定审查 T311-RR-04）。
+    """
+    markdown = render_contract_markdown({"aggregates": _agg_rows(_green_rows())})
+    assert "§5.2 第 8 条" in markdown
+    assert "§7 硬 Gate + §14" in markdown or "§7 硬 Gate" in markdown
+    assert "§5.1 **没有**十条" in markdown
+    assert "## Gate 汇总（§5.1 九条 + L0/L1）" not in markdown

@@ -801,7 +801,14 @@ def score_retrieval_reference(report_path: Path | None, *, devkb_commit: str) ->
     corpus_sha = (payload.get("corpus") or {}).get("sha256")
     metrics = ((payload.get("retrieval") or {}).get("metrics") or {}).get("vector-hnsw") or {}
     raw_current = metrics.get("recall_at_10")
-    current = float(raw_current) if isinstance(raw_current, int | float) else None
+    # `bool` 是 `int` 的子类：不排除它的话，报告里写 `"recall_at_10": true` 会被
+    # 当成 1.0 通过"可解析为数"这一项，并以 1.0 >= 基线 判 no_regression=True——
+    # 一份垃圾报告可以通过硬 Gate（限定审查 T311-RR-01）
+    current = (
+        float(raw_current)
+        if isinstance(raw_current, int | float) and not isinstance(raw_current, bool)
+        else None
+    )
     same_corpus = corpus_sha == P1_DEV_RETRIEVAL_BASELINE["corpus_sha256"]
     # 第 5/6 项数据集身份（F18）：首版只校验前四项，于是 run.split=holdout + 错误
     # evalsets 目录但其余字段匹配的报告实测得 comparable=True（T311-CR-02）。
@@ -1136,7 +1143,11 @@ def render_contract_markdown(report: dict[str, Any]) -> str:
         f"- split：{aggregates['split']}；题数 {aggregates['question_count']}"
         f"（成功 {aggregates['succeeded']}）",
         "",
-        "## Gate 汇总（§5.1 九条 + L0/L1）",
+        "## Gate 汇总（13 键）",
+        "",
+        "> 来源不同，逐条标注：§5.1 九条 →（第 1 条拆 contract/extended、第 4 条拆 4a/4b）"
+        "共 11 键；`l0_l1_all_pass` 来自 **§7 硬 Gate + §14**；"
+        "`fail_fast_isolation_ok` 来自 **§5.2 第 8 条**。§5.1 **没有**十条。",
         "",
         "| 键 | 结果 |",
         "|---|---|",
