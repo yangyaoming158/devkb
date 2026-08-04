@@ -1875,7 +1875,11 @@ def test_u13b_markdown_gate_heading_labels_the_three_different_sources() -> None
     packet 要求逐字标注这一区别（限定审查 T311-RR-04）。
     """
     markdown = render_contract_markdown({"aggregates": _agg_rows(_green_rows())})
-    assert "§5.2 第 8 条" in markdown
-    assert "§7 硬 Gate + §14" in markdown or "§7 硬 Gate" in markdown
+    # **正向**断言完整标题：只写旧标题的反向断言时，把整个标题删掉照样绿
+    # （限定复审 T311-RR-04 实测）
+    assert "## Gate 汇总（13 键）" in markdown
+    # 三处来源逐字断言，**不得用 or 放宽**——`or "§7 硬 Gate"` 会让 §14 变成可选
+    assert "`l0_l1_all_pass` 来自 **§7 硬 Gate + §14**" in markdown
+    assert "`fail_fast_isolation_ok` 来自 **§5.2 第 8 条**" in markdown
     assert "§5.1 **没有**十条" in markdown
     assert "## Gate 汇总（§5.1 九条 + L0/L1）" not in markdown
