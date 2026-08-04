@@ -78,21 +78,37 @@ SECTION_KEYS: tuple[str, ...] = (
     "final_consistency",
     "safety_reliability",
 )
+# 每个分节权威地拥有哪些具名硬键。**section 是权威结果，`gate_summary` 只是它的投影**：
+# 首版把总判定定成 12 个键的合取，而 fail-fast 探针只进 section gate，于是安全分节
+# False 时总判定仍可为 True（代码审查 T311-CR-01）。现在两者由同一张映射派生，
+# `fail_fast_isolation_ok` 作为第 13 键被显式收进 safety_reliability。
+# 展平后每个键**恰好出现一次**——U14 用 Counter 锁死（`x ∧ x = x` 使合取恒等式
+# 检测不了重复归属）。
+SECTION_GATE_KEYS: dict[str, tuple[str, ...]] = {
+    "retrieval": ("retrieval_no_regression",),
+    "evidence_selection": ("zero_full_without_required_evidence",),
+    # L0/L1 来自 §7 硬 Gate + §14，不属 §5.1 九条
+    "claim_support": ("l0_l1_all_pass",),
+    "final_consistency": (
+        "contract_expectations_met",
+        "extended_expectations_met",
+        "zero_absence_assertion_on_known_paths",
+        "consistency_all_true",
+        "zero_full_refusal_with_direct_evidence",
+        "global_negation_honest",
+        "uningested_disclosed",
+    ),
+    # `fail_fast_isolation_ok` 来自《Evaluation-v1.5》**§5.2 第 8 条**而非 §5.1 九条
+    "safety_reliability": (
+        "policy_terminal_correct",
+        "budget_and_terminal",
+        "fail_fast_isolation_ok",
+    ),
+}
 # §5.1 九条 → 具名硬键（第 1 条拆 contract/extended、第 4 条拆 4a/4b），
-# 另加 §7/§14 的 L0/L1。键集合与 test_eval_contract.U12 互锁。
-GATE_KEYS: tuple[str, ...] = (
-    "contract_expectations_met",
-    "extended_expectations_met",
-    "zero_absence_assertion_on_known_paths",
-    "zero_full_without_required_evidence",
-    "consistency_all_true",
-    "zero_full_refusal_with_direct_evidence",
-    "policy_terminal_correct",
-    "global_negation_honest",
-    "uningested_disclosed",
-    "retrieval_no_regression",
-    "budget_and_terminal",
-    "l0_l1_all_pass",
+# 另加 §7/§14 的 L0/L1 与 §5.2 第 8 条的 fail-fast。键集合与 test_eval_contract.U12 互锁。
+GATE_KEYS: tuple[str, ...] = tuple(
+    key for section in SECTION_KEYS for key in SECTION_GATE_KEYS[section]
 )
 
 # 强否定短语 = not_found 的**两张**封闭表之并（23 条）。`不存在` 只在
@@ -120,6 +136,7 @@ UNINGESTED_FORBIDDEN_PHRASES: tuple[str, ...] = (
     "仓库中没有源码",
     "项目无前端代码",
 )
+POLICY_PROBE_IDS: frozenset[str] = frozenset({"c13", "e07", "e02", "e03"})
 GLOBAL_NEGATION_IDS: frozenset[str] = frozenset({"e06", "c12"})
 UNINGESTED_IDS: frozenset[str] = frozenset({"c03", "e05"})
 COVERAGE_DISCLOSURE_MARK = "（本项目摄取范围："
@@ -131,11 +148,18 @@ P1_DEV_RETRIEVAL_BASELINE: dict[str, Any] = {
     "devkb_commit": "b273d39e",
     "run_date": "2026-07-19",
     "dataset": "evalsets/v0/retrieval_dev.jsonl",
-    "corpus_sha256": "0b8af698f960f4dc3a2b3c4f1e8d9a0b1c2d3e4f5061728394a5b6c7d8e9f001",
+    "corpus_sha256": "0b8af698f960489ae335633a488a7a8cde0cb76b44d1c78e0878c2b760194670",
     "mode": "vector-hnsw",
     "recall_at_5": 0.4705882352941176,
     "recall_at_10": 0.5882352941176471,
     "mrr_at_10": 0.3858543417366946,
+    # F18 数据集身份：只校验报告自述的 split/题量/目录/project/top-k，
+    # **推不出**数据集内容身份（同目录同题量但内容被替换仍会通过）。
+    "split": "dev",
+    "dataset_counts": (17, 4),
+    "evalsets_dir": "evalsets",
+    "project": "mini-mall",
+    "top_k": 10,
 }
 
 _VERIFY_FAILED_CODE = "verify:l0_l1_failed"
@@ -359,6 +383,20 @@ def score_evidence_selection(
         # B3 三项合取：判 full ∧ 有必需项未满足 ∧ 引用了禁止类型。少一项都不判违约——
         # allowed_supplement 与 forbidden 表可交集，合法补充同样会命中类型。
         "forbidden_substitute_violation": bool(mode == "full" and unmet and forbidden_types_cited),
+        # 三项不全成立但已引用禁止类型时，必须落**显式未判定项**——首版只返回
+        # violation=False、没有产出该桶，等于把合同要求的未判定静默记成正常项
+        # （代码审查 T311-CR-04）。"是否为了顶替"推不出，故只登记事实供 U3.2 复核。
+        "forbidden_undecided": (
+            {
+                "question_id": row["id"],
+                "forbidden_types_cited": forbidden_types_cited,
+                "mode": mode,
+                "unmet_required_count": len(unmet),
+                "note": "引用了禁止类型但 B3 三项未全成立；是否构成顶替推不出，归 U3.2",
+            }
+            if forbidden_types_cited and not (mode == "full" and unmet)
+            else None
+        ),
         # G4b 前件：**从全轮证据取**，不从 citations 取——refusal 终态 citations 恒空
         "evidence_backed_aspect": any(
             match_required_path(path, item["path"]) for item in required for path in evidence_paths
@@ -396,7 +434,33 @@ def score_known_path_absence(
     for field, text in assertion_surface(answer):
         segments = split_assertion_segments(text)
         marks = [(_known_tokens_in(seg, known), _phrases_in(seg)) for seg in segments]
+        # 先定出跨句指代形态：前段有已知路径无否定、紧邻后段有否定+指代词无路径。
+        # 判不了，但**不得静默算作无违规**（`ANAPHORA_TOKENS` 必不穷尽，故只能是"未判定"）。
+        anaphora: set[int] = set()
         for index, (paths, phrases) in enumerate(marks):
+            if not paths or phrases or index + 1 >= len(marks):
+                continue
+            nxt_paths, nxt_phrases = marks[index + 1]
+            if (
+                nxt_phrases
+                and not nxt_paths
+                and any(token in segments[index + 1] for token in ANAPHORA_TOKENS)
+            ):
+                anaphora.add(index)
+        for index, (paths, phrases) in enumerate(marks):
+            if index in anaphora:
+                # 进了未判定桶就**不计入分母**：首版把"含已知路径"就计入，于是纯跨句
+                # 指代形态得到 violations=[] ∧ decidable=1 → G2 判 True，
+                # 把冻结要求的 None 变成了通过（代码审查 T311-CR-01）
+                undecided.append(
+                    {
+                        "field": field,
+                        "segments": [segments[index], segments[index + 1]],
+                        "path": paths[0],
+                        "phrase": marks[index + 1][1][0],
+                    }
+                )
+                continue
             if paths:
                 decidable_segments += 1
             if paths and phrases:
@@ -408,26 +472,6 @@ def score_known_path_absence(
                         "phrase": phrases[0],
                     }
                 )
-                continue
-            # 跨句指代：前段有已知路径无否定、紧邻后段有否定+指代词无路径 → 判不了，
-            # 但**不得静默算作无违规**（封闭表必不穷尽，故只能是"未判定"）
-            if paths or index + 1 >= len(marks):
-                nxt_paths, nxt_phrases = marks[index + 1] if index + 1 < len(marks) else ([], [])
-                if (
-                    paths
-                    and not phrases
-                    and nxt_phrases
-                    and not nxt_paths
-                    and any(token in segments[index + 1] for token in ANAPHORA_TOKENS)
-                ):
-                    undecided.append(
-                        {
-                            "field": field,
-                            "segments": [segments[index], segments[index + 1]],
-                            "path": paths[0],
-                            "phrase": nxt_phrases[0],
-                        }
-                    )
     return {
         "violations": violations,
         "undecided": undecided,
@@ -503,14 +547,15 @@ def score_not_found(
             problems.append(f"category={category} 在 P1.5 不得由代码产出")
         if category not in _CATEGORIES or detail.get("basis") not in _BASES:
             problems.append("枚举越界")
-        if needs_corpus:
-            suffixes = {
-                "." + ref.rsplit(".", 1)[-1].lower()
-                for ref in detail.get("refs") or []
-                if "." in ref
-            }
-            if suffixes & _INGESTED_SUFFIXES:
-                problems.append("标为未摄取但 refs 后缀在摄取范围内")
+        # 规则⑤**双向**：首版只判前一向，于是 category=missing_from_current_evidence
+        # + refs=["frontend/App.vue"] 实测得 decidable_ok=1，整个反向漏掉（T311-CR-04）
+        suffixes = {
+            "." + ref.rsplit(".", 1)[-1].lower() for ref in detail.get("refs") or [] if "." in ref
+        }
+        if needs_corpus and suffixes & _INGESTED_SUFFIXES:
+            problems.append("标为未摄取但 refs 后缀在摄取范围内")
+        if not needs_corpus and suffixes and not (suffixes & _INGESTED_SUFFIXES):
+            problems.append("refs 后缀不在摄取范围内却未标为 unsupported_or_not_ingested")
         if problems:
             decidable_bad += 1
             violations.append({"text": detail.get("text"), "problems": problems})
@@ -533,6 +578,36 @@ def score_not_found(
 # ---------------------------------------------------------------------------
 # §4.4 结构一致性（B5）
 # ---------------------------------------------------------------------------
+
+
+def score_claim_support(answer: dict[str, Any], contents: dict[str, str]) -> dict[str, Any]:
+    """§4.3 B10：L0/L1 判定逻辑零新增，只加**可解析性前置**。
+
+    `ChunkRepo.get_contents` 对查不到的 id 直接缺席返回（`repositories.py:416`），
+    而 `l1_final_errors` 过滤后拿到空 `contents`、`any()` over 空为假，会把该 claim
+    的**每条 quote** 记成 `no_verbatim_match`——即"harness 读不到 chunk"被报成
+    "答案 quote 不逐字"，成因错置到答案侧。故任一被引 evidence_id 取不到正文时
+    整题进 `undecided`，既不判通过也不判失败。
+    """
+    cited = list(dict.fromkeys(c["evidence_id"] for c in answer.get("citations", [])))
+    unresolved = tuple(evidence_id for evidence_id in cited if evidence_id not in contents)
+    if unresolved:
+        return {
+            "decidable": False,
+            "passed": None,
+            "l0_errors": [],
+            "l1_errors": [],
+            "unresolved_evidence_ids": unresolved,
+        }
+    l0_errors = l0_final_errors(answer)
+    l1_errors = l1_final_errors(answer, contents)
+    return {
+        "decidable": True,
+        "passed": not l0_errors and not l1_errors,
+        "l0_errors": l0_errors,
+        "l1_errors": l1_errors,
+        "unresolved_evidence_ids": (),
+    }
 
 
 def score_consistency(row: dict[str, Any], answer: dict[str, Any]) -> dict[str, Any]:
@@ -595,10 +670,19 @@ def score_coverage_monotonicity(trace: dict[str, Any]) -> dict[str, Any]:
                     "missing_aspects": summary.get("missing_aspects") or [],
                 }
             )
+    # 相邻轮 `missing_aspects` 的增量（第 N+1 轮有、第 N 轮无 → 该方面本轮变缺失）。
+    # 首版只转载原始 `evaluator_rounds`、没有算增量，冻结的诊断义务缺失（T311-CR-05）。
+    newly_missing: list[dict[str, Any]] = []
+    for index in range(1, len(rounds)):
+        previous = set(rounds[index - 1]["missing_aspects"])
+        added = [aspect for aspect in rounds[index]["missing_aspects"] if aspect not in previous]
+        if added:
+            newly_missing.append({"round": index + 1, "aspects": added})
     return {
         "authoritative_matrix_available": False,
         "eliminated": eliminated,
         "evaluator_rounds": rounds,
+        "newly_missing_aspects": newly_missing,
         "source": "evaluator_report",
     }
 
@@ -719,11 +803,27 @@ def score_retrieval_reference(report_path: Path | None, *, devkb_commit: str) ->
     raw_current = metrics.get("recall_at_10")
     current = float(raw_current) if isinstance(raw_current, int | float) else None
     same_corpus = corpus_sha == P1_DEV_RETRIEVAL_BASELINE["corpus_sha256"]
+    # 第 5/6 项数据集身份（F18）：首版只校验前四项，于是 run.split=holdout + 错误
+    # evalsets 目录但其余字段匹配的报告实测得 comparable=True（T311-CR-02）。
+    # **边界**：这只排除了目录与题量不符的报告，**推不出**数据集内容身份——
+    # 同目录同题量但内容被替换仍会通过，锁逐题 id 不在本阶段范围。
+    dataset = payload.get("dataset") or {}
+    corpus = payload.get("corpus") or {}
+    config = payload.get("config") or {}
+    same_dataset = (
+        run.get("split") == P1_DEV_RETRIEVAL_BASELINE["split"]
+        and (dataset.get("answerable"), dataset.get("unanswerable"))
+        == P1_DEV_RETRIEVAL_BASELINE["dataset_counts"]
+        and dataset.get("evalsets_dir") == P1_DEV_RETRIEVAL_BASELINE["evalsets_dir"]
+        and corpus.get("project") == P1_DEV_RETRIEVAL_BASELINE["project"]
+        and config.get("top_k") == P1_DEV_RETRIEVAL_BASELINE["top_k"]
+    )
     comparable = (
         run.get("devkb_commit") == devkb_commit
         and run.get("devkb_worktree_dirty") is False
         and same_corpus
         and current is not None
+        and same_dataset
     )
     return {
         "measured": True,
@@ -732,10 +832,17 @@ def score_retrieval_reference(report_path: Path | None, *, devkb_commit: str) ->
         "source_commit": run.get("devkb_commit"),
         "source_corpus_sha256": corpus_sha,
         "same_corpus": same_corpus,
+        "same_dataset": same_dataset,
+        "source_split": run.get("split"),
+        "source_dataset": dataset,
         "current_recall_at_10": current,
         "baseline_recall_at_10": baseline,
         "no_regression": (current >= baseline) if current is not None and comparable else None,
-        "reason": None if comparable else "来源报告与本次 commit/工作区/语料四项校验未全过",
+        "reason": None if comparable else "来源报告与本次 commit/工作区/语料/数据集六项校验未全过",
+        "dataset_identity_note": (
+            "只排除了 split/题量/目录/project/top-k 不符的报告，"
+            "推不出数据集内容身份（同目录同题量但内容被替换仍会通过）"
+        ),
     }
 
 
@@ -757,6 +864,28 @@ def _conjunction(values: Sequence[bool | None]) -> bool | None:
     if any(value is False for value in values):
         return False
     if any(value is None for value in values):
+        return None
+    return True
+
+
+def _l0_l1_gate(succeeded: Sequence[dict[str, Any]]) -> bool | None:
+    """B10 三态聚合，**四条按序**（RD-R5-01(b)）。
+
+    ①空集必须先判 `None`——判据是 `succeeded == []` 而**不是** `rows == []`：
+    后者在非空 failed rows 下会跳到第④条，在空的成功题集合上**空真**判 `True`。
+    ②失败优先于未判定；③任一未判定即 `None`——本键不走"可判定子集"口径：
+    §14 要求 L0/L1 维持 100%，排除未判定题后判 `True` 等于对一道自己没看过的题
+    声称通过。（G2 允许可判定子集为 `True`，是因为它的未判定源自封闭表必不穷尽、
+    **恒有**，fail-closed 会让它永久红而无信息量；本键的未判定是异常，正常恒为 0。）
+    """
+    if not succeeded:
+        return None
+    if any(
+        row["claim_support"]["decidable"] and not row["claim_support"]["passed"]
+        for row in succeeded
+    ):
+        return False
+    if any(not row["claim_support"]["decidable"] for row in succeeded):
         return None
     return True
 
@@ -786,10 +915,6 @@ def aggregate_contract(
     absence_segments = sum(row["known_path_absence"]["decidable_segments"] for row in succeeded)
     absence_violations = [v for row in succeeded for v in row["known_path_absence"]["violations"]]
     absence_undecided = [u for row in succeeded for u in row["known_path_absence"]["undecided"]]
-    probes_ok = all(
-        probe.get("cross_project_isolation") and probe.get("counts_unchanged") for probe in probes
-    )
-
     gates: dict[str, bool | None] = {
         "contract_expectations_met": _all_true(
             [
@@ -845,24 +970,16 @@ def aggregate_contract(
             + [len(succeeded) == len(rows)],
             measured=bool(rows),
         ),
-        "l0_l1_all_pass": _all_true(
-            [
-                not row["claim_support"]["l0_errors"] and not row["claim_support"]["l1_errors"]
-                for row in succeeded
-            ],
-            measured=bool(succeeded),
+        "l0_l1_all_pass": _l0_l1_gate(succeeded),
+        # 第 13 键，来自 §5.2 第 8 条。**探针不产出任何计数声明**：三个 run/step/tool
+        # 仓储都没有 count 方法，D7 又禁止在本模块构造查询，零持久化副作用唯一由
+        # tests/integration/test_eval_contract_harness.py 的 I8 在真实 ASGI 请求上承担。
+        "fail_fast_isolation_ok": _all_true(
+            [bool(probe["cross_project_isolation"]) for probe in probes],
+            measured=bool(probes),
         ),
     }
 
-    consistency_keys = (
-        "contract_expectations_met",
-        "extended_expectations_met",
-        "zero_absence_assertion_on_known_paths",
-        "consistency_all_true",
-        "zero_full_refusal_with_direct_evidence",
-        "global_negation_honest",
-        "uningested_disclosed",
-    )
     sections: dict[str, Any] = {
         "retrieval": {
             **retrieval,
@@ -870,7 +987,6 @@ def aggregate_contract(
                 "§4.1 固定用 evalsets/v0/retrieval_dev.jsonl + mini-mall；"
                 "本语料上没有 P1 基线，故只转载不重算"
             ),
-            "gate": gates["retrieval_no_regression"],
         },
         "evidence_selection": {
             "required_total": required_total,
@@ -893,16 +1009,29 @@ def aggregate_contract(
             "note": (
                 "点名行段命中按预登记行段与引用行区间相交判定；无行段的项进未判定，不进分子分母"
             ),
-            "gate": gates["zero_full_without_required_evidence"],
         },
         "claim_support": {
             "l0_failures": [row["id"] for row in succeeded if row["claim_support"]["l0_errors"]],
             "l1_failures": [row["id"] for row in succeeded if row["claim_support"]["l1_errors"]],
+            "undecided": [
+                {
+                    "id": row["id"],
+                    "unresolved_evidence_ids": list(
+                        row["claim_support"]["unresolved_evidence_ids"]
+                    ),
+                }
+                for row in succeeded
+                if not row["claim_support"]["decidable"]
+            ],
+            "undecided_note": (
+                "被引 chunk 取不到正文时整题进未判定：l1_final_errors 会把读不到证据"
+                "报成 quote 不逐字，成因错置到答案侧。只要有一题未判定，本节 Gate 即"
+                "未判定而非通过（§14 要求 L0/L1 维持 100%）"
+            ),
             "l2_semantic": {
                 "measured": False,
                 "note": "离线/人工 L2 不进在线路径（D9 不变），归 U3.2 人工复核",
             },
-            "gate": gates["l0_l1_all_pass"],
         },
         "final_consistency": {
             "not_found_entries": sum(row["not_found"]["entries_total"] for row in succeeded),
@@ -933,7 +1062,6 @@ def aggregate_contract(
                 "命题级一律进未判定并归 U3.2。已知路径否定扫描只覆盖同语段可判定子集，"
                 "跨句指代进未判定，不进分子分母"
             ),
-            "gate": _conjunction([gates[key] for key in consistency_keys]),
         },
         "safety_reliability": {
             "policy_by_question": [
@@ -972,11 +1100,11 @@ def aggregate_contract(
                 "max_llm_requests": MAX_LLM_REQUESTS,
                 "failed_runs": len(rows) - len(succeeded),
             },
-            "gate": _conjunction(
-                [gates["policy_terminal_correct"], gates["budget_and_terminal"], probes_ok]
-            ),
         },
     }
+    # section 是权威结果：由该节全部具名键的三态合取算出；`gate_summary` 只是投影。
+    for name in SECTION_KEYS:
+        sections[name]["gate"] = _conjunction([gates[key] for key in SECTION_GATE_KEYS[name]])
     return {
         "split": split,
         "question_count": len(rows),
@@ -985,7 +1113,7 @@ def aggregate_contract(
         "questions": rows,
         "probes": probes,
         "gate_summary": gates,
-        "all_hard_gates_passed": all(value is True for value in gates.values()),
+        "all_hard_gates_passed": all(sections[name]["gate"] is True for name in SECTION_KEYS),
     }
 
 
@@ -1075,7 +1203,9 @@ def render_contract_markdown(report: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _classify_extra(row: dict[str, Any], answer: dict[str, Any]) -> dict[str, Any]:
+def _classify_extra(
+    row: dict[str, Any], answer: dict[str, Any], *, mode_matches: bool
+) -> dict[str, Any]:
     """§5.1 第 6/7 条的可判定部分。"""
     extra: dict[str, Any] = {"global_negation": None, "uningested": None}
     text = answer.get("answer_text") or ""
@@ -1083,7 +1213,9 @@ def _classify_extra(row: dict[str, Any], answer: dict[str, Any]) -> dict[str, An
     if row["id"] in GLOBAL_NEGATION_IDS:
         extra["global_negation"] = {
             # 仓库级否定必须已被降级为条件式（basis=unverifiable_assertion），
-            # 不得原样交付；"是否是诚实的能力边界声明"本身归 U3.2
+            # 不得原样交付；"是否是诚实的能力边界声明"本身归 U3.2。
+            # **不得有 `or mode == "full"` 之类逃生口**：首版私加了一个，使
+            # mode=full 且无披露时仍判 True，与 §5.1 第 6 条公式不符（T311-CR-01）
             "ok": all(
                 detail.get("basis") == "unverifiable_assertion"
                 for detail in details
@@ -1091,11 +1223,13 @@ def _classify_extra(row: dict[str, Any], answer: dict[str, Any]) -> dict[str, An
                     phrase in (detail.get("original_text") or "") for phrase in _REPO_LEVEL_NEGATION
                 )
             )
-            and (COVERAGE_DISCLOSURE_MARK in text or answer.get("mode") == "full"),
+            and COVERAGE_DISCLOSURE_MARK in text
+            and mode_matches,
             "disclosure_present": COVERAGE_DISCLOSURE_MARK in text,
+            "mode_matches": mode_matches,
         }
     if row["id"] in UNINGESTED_IDS:
-        surface = "\n".join(text.split()) + "\n".join(answer.get("not_found") or [])
+        surface = "\n".join([text, *(answer.get("not_found") or [])])
         extra["uningested"] = {
             "ok": any(d.get("category") == "unsupported_or_not_ingested" for d in details)
             and COVERAGE_DISCLOSURE_MARK in text
@@ -1197,8 +1331,66 @@ async def run_contract_eval(
         },
         "aggregates": aggregate_contract(rows, probe_results, retrieval, split=split),
     }
-    stem = f"p1.5-{split}-contract-{now.strftime('%Y%m%dT%H%M%S%z')}"
+    # 秒级时间戳不足以防同秒连跑碰撞，而 `write_report` 遇同名直接拒绝（不覆盖历史）。
+    # 在本模块加防碰撞后缀，**不动** `write_report`——P1 的 v1 报告路径逐字不变。
+    base_stem = f"p1.5-{split}-contract-{now.strftime('%Y%m%dT%H%M%S%z')}"
+    stem = base_stem
+    suffix = 1
+    while (output_dir / f"{stem}.json").exists() or (output_dir / f"{stem}.md").exists():
+        suffix += 1
+        stem = f"{base_stem}-{suffix}"
     return write_report(report, render_contract_markdown(report), output_dir, stem)
+
+
+def assemble_row(
+    question: dict[str, Any],
+    answer: dict[str, Any],
+    trace: dict[str, Any],
+    *,
+    contents: dict[str, str],
+    indexed_paths: Sequence[str],
+    expected: Sequence[str],
+) -> dict[str, Any]:
+    """把 Answer JSON / run trace / 预登记行喂给七组评分纯函数，产出逐题行。
+
+    生产 runner 与 U10 接线矩阵**共用本函数**：packet 明令禁止测试直接改写
+    `gate_summary[key]` 或覆盖已评分 row 的中间字段（首版 U10 正是后者，
+    M3 变形据此存活）。共用同一条装配路径才谈得上"端到端接线"。
+    """
+    usage = trace["run"]["usage"] or {}
+    evidence_paths = evidence_paths_from_trace(trace)
+    return {
+        "status": "succeeded",
+        "run_id": answer.get("run_id"),
+        "mode": answer["mode"],
+        "mode_matches": answer["mode"] in expected,
+        "answer": answer,
+        "evidence_selection": score_evidence_selection(
+            question, answer, evidence_paths=evidence_paths
+        ),
+        "claim_support": score_claim_support(answer, contents),
+        "not_found": score_not_found(
+            question,
+            answer,
+            evidence_paths=evidence_paths,
+            indexed_paths=indexed_paths,
+            corpus_known=True,
+            corpus_truncated=len(indexed_paths) >= MAX_CORPUS_PATHS,
+        ),
+        "known_path_absence": score_known_path_absence(
+            answer, evidence_paths=evidence_paths, indexed_paths=indexed_paths
+        ),
+        "consistency": score_consistency(question, answer),
+        "coverage": score_coverage_monotonicity(trace),
+        "policy": score_policy(question, answer, trace)
+        if question["id"] in POLICY_PROBE_IDS
+        else None,
+        "warning_ledger": score_warning_ledger(answer, trace),
+        "retrieval_rounds": sum(1 for s in trace["steps"] if s["node"] == "retrieve"),
+        "llm_calls": int(usage.get("llm_calls", 0)),
+        "run_terminal": trace["run"]["status"] in ("succeeded", "failed"),
+        **_classify_extra(question, answer, mode_matches=answer["mode"] in expected),
+    }
 
 
 async def _score_one(
@@ -1228,48 +1420,21 @@ async def _score_one(
         return base
 
     trace = await get_run_trace(session, project_id, uuid_mod.UUID(answer["run_id"]))
-    evidence_paths = evidence_paths_from_trace(trace)
     contents: dict[str, str] = {}
     chunk_ids = {c["evidence_id"]: uuid_mod.UUID(c["chunk_id"]) for c in answer["citations"]}
     fetched = await chunk_repo.get_contents(list(chunk_ids.values()))
     for evidence_id, chunk_id in chunk_ids.items():
         if chunk_id in fetched:
             contents[evidence_id] = fetched[chunk_id]
-    usage = trace["run"]["usage"] or {}
     base.update(
-        status="succeeded",
-        run_id=answer["run_id"],
-        mode=answer["mode"],
-        mode_matches=answer["mode"] in expected,
-        answer=answer,
-        evidence_selection=score_evidence_selection(
-            question, answer, evidence_paths=evidence_paths
-        ),
-        claim_support={
-            "l0_errors": l0_final_errors(answer),
-            "l1_errors": l1_final_errors(answer, contents),
-        },
-        not_found=score_not_found(
+        assemble_row(
             question,
             answer,
-            evidence_paths=evidence_paths,
+            trace,
+            contents=contents,
             indexed_paths=indexed_paths,
-            corpus_known=True,
-            corpus_truncated=len(indexed_paths) >= MAX_CORPUS_PATHS,
-        ),
-        known_path_absence=score_known_path_absence(
-            answer, evidence_paths=evidence_paths, indexed_paths=indexed_paths
-        ),
-        consistency=score_consistency(question, answer),
-        coverage=score_coverage_monotonicity(trace),
-        policy=score_policy(question, answer, trace)
-        if question["id"] in {"c13", "e07", "e02", "e03"}
-        else None,
-        warning_ledger=score_warning_ledger(answer, trace),
-        retrieval_rounds=sum(1 for s in trace["steps"] if s["node"] == "retrieve"),
-        llm_calls=int(usage.get("llm_calls", 0)),
-        run_terminal=trace["run"]["status"] in ("succeeded", "failed"),
-        **_classify_extra(question, answer),
+            expected=expected,
+        )
     )
     return base
 
@@ -1280,18 +1445,20 @@ async def _run_probes(
     probes: list[dict[str, Any]],
     rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """e08：跨 project 读 run 必须 NotFound 且零持久化副作用。
+    """e08：跨 project 读 run 必须抛 `NotFoundError`。
 
-    API 契约（404 + `NOT_FOUND`）由 `tests/integration/test_api.py:167` 承担（m16 断言 4）；
-    这里补的是那条用例**没有**覆盖的持久化计数不变。
+    API 契约（404 + `NOT_FOUND`）由 `tests/integration/test_api.py:167` 承担（m16 断言 4）。
+    **本探针不读任何表计数**：run/step/tool 三个仓储都没有 count 方法，D7 又禁止在本
+    模块构造查询（`repositories.py` 不在范围）。首版把 `counts_unchanged` 硬写成 `True`
+    且一次计数都没读（代码审查 T311-CR-03）——删掉声明即彻底消除该假陈述。零持久化
+    副作用唯一由 `tests/integration/test_eval_contract_harness.py` 的 I8 在真实 ASGI
+    请求上实测承担。
     """
     run_ids = [row["run_id"] for row in rows if row.get("run_id")]
     results: list[dict[str, Any]] = []
     for probe in probes:
         if not run_ids:
-            results.append(
-                {"id": probe["id"], "cross_project_isolation": None, "counts_unchanged": None}
-            )
+            results.append({"id": probe["id"], "cross_project_isolation": None})
             continue
         other_project = uuid_mod.uuid4()
         isolated = False
@@ -1304,8 +1471,11 @@ async def _run_probes(
                 "id": probe["id"],
                 "expected_mode_p15": probe.get("expected_mode_p15"),
                 "cross_project_isolation": isolated,
-                "counts_unchanged": True,
                 "measured_in": "deterministic_layer",
+                "zero_persistence_note": (
+                    "零持久化副作用不在本探针测量："
+                    "见 tests/integration/test_eval_contract_harness.py 的 I8"
+                ),
             }
         )
     return results

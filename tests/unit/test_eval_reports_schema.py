@@ -133,7 +133,7 @@ P15_FORBIDDEN_AGGREGATE_KEYS = frozenset(
 
 
 def _assert_p15_contract_shape(path: Path, report: dict[str, Any]) -> None:
-    """五节齐备、12 键齐备、零跨节总分——报告落盘后依旧成立。"""
+    """五节齐备、13 键齐备、零跨节总分——报告落盘后依旧成立。"""
     aggregates = report["aggregates"]
     assert set(aggregates["sections"]) == P15_SECTION_KEYS, path.name
     assert set(aggregates["gate_summary"]) == set(CONTRACT_GATE_KEYS), path.name
@@ -240,4 +240,6 @@ def test_current_harness_emits_exactly_the_locked_v1_2_shapes() -> None:
     assert set(p0_baseline_comparison(empty_retrieval, corpus)) == V1_1_P0_BASELINE_KEYS
     assert set(aggregate_agentic([row], split="dev")["mode_counts"]) == V1_2_MODE_COUNT_KEYS
     assert CONTRACT_REPORT_SCHEMA_VERSION == "p1.5-contract-v1"
-    assert len(CONTRACT_GATE_KEYS) == 12
+    # 13 = §5.1 九条（1 拆 1/1'、4 拆 4a/4b）+ §7/§14 的 L0/L1 + §5.2 第 8 条的 fail-fast
+    assert len(CONTRACT_GATE_KEYS) == 13
+    assert "fail_fast_isolation_ok" in CONTRACT_GATE_KEYS
