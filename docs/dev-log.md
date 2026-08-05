@@ -1298,3 +1298,11 @@ harness 本身不难：读 Answer JSON + run trace + 预登记行，过七组确
 四份报告落盘零覆盖，既有报告 `git diff` 为空；运行后复跑 `make ci` / `make eval-ci` 仍全绿（新报告同时过了 `p1-eval-v1.2` 与 `p1.5-contract-v1` 两套 schema 断言）。T31.2 **不勾选**，两条需要动冻结文本的冲突写进偏差记录待裁决，行为侧的 c05/c08 假拒答按 Gate 失败处理，不在 dev 上调参。
 
 **同日追记（T31.2 运行副产物）**：`make verify-full` 被一条 T31.1 历史缺陷挡住——`render_contract_markdown` 的 `lines` 末元素是 `""`，再 `+ "\n"`，于是每份契约 Markdown 都以 `\n\n` 结尾，`git diff --check` 报 `new blank line at EOF`。v1 的 `evaluation.py:915` 是纯 `"\n".join(lines)`，所以三份已提交 v1 报告一直干净——**这条只在契约报告第一次真正落盘进 git 时才可能暴露**，和 T31.1 自己拆掉的 `p1.5-holdout` 前缀地雷是同一族：为"将来某次一次性运行"埋的雷，靠单测照不出来，因为单测把报告写进 tmp 目录、从不 `git add`。按合同停止条件没有就地修，也没有手工删那个空行（改机器产物且下次必复发），登记为 `T312-P2-01`。它同时挡住 T32.4；好消息是 `.md` 是 `.json` 的纯函数渲染，修好后直接重渲染即可，不必重跑真实 dev。
+
+**同日再追记（根因追查，更正上面对 c05/c08 的定性）**：我把 c05/c08 写成「generate 拿到必需证据却不产 claim」的行为缺陷，**错了**。查 trace 才发现 `generate` **一次都没执行**：节点序列是 `plan→retrieve→evaluate(degraded)→refine→retrieve→evaluate(degraded)→finalize`，`llm_calls=6` 触顶。
+
+顺着 `evaluate:invalid_structured_output` 往上游查，用真实 prompt 复现了两次，结果是决定性的——`deepseek-v4-flash` **间歇性**把完整合法 JSON 写进 `message.reasoning_content`、让 `message.content` 变成**空串**（`finish_reason=stop`、`reasoning_tokens=268`）。而 `llm.py:93` 只读 `content`，且只在 `content is None` 时判空——空串一路走到 `model_validate_json("")`，报 `json_invalid`，被记成"模型输出不合规"。**模型其实答对了，是我们读错了字段。** 同一 prompt 第二次调用就正常：`content` 441 字合法 JSON、`reasoning_content` 是中文思维链。所以「content 空就回退读 reasoning_content」不是无条件安全的——正常情况下那里根本不是 JSON。
+
+再往下一环：`graph.py:65` 的 `can_refine` 预留 `remaining >= 3`（refine + evaluate + generate 各一次），**这个算术没算 D6 白纸黑字写的"重问消耗全局预算"**。正常 5 次调用、余 1；两轮 evaluate 各多重问一次就正好 6，generate 被饿死。预留式预算和"允许重问"这两条各自都对，撞在一起才炸——和今天 G2 那条（`prompts.py` 要求的措辞撞上 G2 的词表）是同一种形状的错误，一天之内撞见两次。
+
+影响面比单题大得多：全轮 `invalid_structured_output` **29 次**、`coverage_mismatch` **20/20**、`full` **0 个**、必需证据命中 6/35。对照 `p1-dev-agentic`（21 题 0 次）与 `p1-holdout`（10 题 1 次），同一个模型。为什么涨这么多，我**推不出**唯一成因——供应商侧行为变化、P1.5 Prompt 变长，两者都可能，所以只记事实不下断言。结论是**本轮数字不能读作 P1.5 的契约能力**，修好之后必须重跑一次 dev。
