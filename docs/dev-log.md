@@ -1296,3 +1296,5 @@ harness 本身不难：读 Answer JSON + run trace + 预登记行，过七组确
 - **必需证据命中 6/35、点名行段命中 2/24**，20 题零 `full`。所以 `zero_full_without_required_evidence` 这次是**空真**通过的——没有一道题给它施压。这条我在清单里显式标了「诚实标注」，否则一个 PASS 会被读成"必需证据硬门经受住了真实检验"。
 
 四份报告落盘零覆盖，既有报告 `git diff` 为空；运行后复跑 `make ci` / `make eval-ci` 仍全绿（新报告同时过了 `p1-eval-v1.2` 与 `p1.5-contract-v1` 两套 schema 断言）。T31.2 **不勾选**，两条需要动冻结文本的冲突写进偏差记录待裁决，行为侧的 c05/c08 假拒答按 Gate 失败处理，不在 dev 上调参。
+
+**同日追记（T31.2 运行副产物）**：`make verify-full` 被一条 T31.1 历史缺陷挡住——`render_contract_markdown` 的 `lines` 末元素是 `""`，再 `+ "\n"`，于是每份契约 Markdown 都以 `\n\n` 结尾，`git diff --check` 报 `new blank line at EOF`。v1 的 `evaluation.py:915` 是纯 `"\n".join(lines)`，所以三份已提交 v1 报告一直干净——**这条只在契约报告第一次真正落盘进 git 时才可能暴露**，和 T31.1 自己拆掉的 `p1.5-holdout` 前缀地雷是同一族：为"将来某次一次性运行"埋的雷，靠单测照不出来，因为单测把报告写进 tmp 目录、从不 `git add`。按合同停止条件没有就地修，也没有手工删那个空行（改机器产物且下次必复发），登记为 `T312-P2-01`。它同时挡住 T32.4；好消息是 `.md` 是 `.json` 的纯函数渲染，修好后直接重渲染即可，不必重跑真实 dev。
