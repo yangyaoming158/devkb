@@ -2899,10 +2899,21 @@ async def test_t302_g4_frozen_default_keeps_the_whole_group_active() -> None:
 
 
 async def test_t302_g5_two_rounds_attribute_the_same_node_to_distinct_attempts() -> None:
-    """G5：跨轮同一节点的两次执行 → attempt 递增（冻结逐字期望，非"≤ count"弱断言）。"""
+    """G5：跨轮同一节点的两次执行 → attempt 递增（冻结逐字期望，非"≤ count"弱断言）。
+
+    **T31.2R-a 更新期望（用户 2026-08-05 裁决）**：本用例原本断言 `llm_calls == 6`
+    且两轮重问都 `resolved`。那个终态其实**冻结的是缺陷本身**——实测改动前它是
+    `partial` 充分性 + 2 条证据 + 零 generate + 全量 `refusal`，正是 T31.2 dev Gate
+    上 c05/c08 的形态。加入"重问必须给 generate 留 1 次"的预算守卫后，第二轮重问
+    被裁掉，故本脚本恒为 5 次调用；「同一节点跨两轮各成功重问一次」需要恰好 6 次
+    且第 6 次是非 generate 重问，**结构上不再可达**。
+
+    本用例的**主题不变且更完整**：同一节点跨两轮仍按 attempt 1/2 分别归属，且现在
+    同时覆盖 `resolved`（首轮重问成功）与 `active`（次轮重问被守卫裁掉）两种时态。
+    """
     result, answer = await _t302_run([PLAN, "{}", EVAL_NO, REFINE, "{}", EVAL_PART])
 
-    assert result["retrieval_round"] == 2 and result["llm_calls"] == 6
+    assert result["retrieval_round"] == 2 and result["llm_calls"] == 5
     assert result["node_history"] == [
         "plan",
         "retrieve",
@@ -2924,11 +2935,30 @@ async def test_t302_g5_two_rounds_attribute_the_same_node_to_distinct_attempts()
             "code": "evaluate:2:invalid_structured_output",
             "node": "evaluate",
             "attempt": 2,
-            "status": "resolved",
-            "resolution": "reask_succeeded",
+            "status": "active",
+            "resolution": None,
+        },
+        {
+            "code": "evaluate:2:budget_exhausted",
+            "node": "evaluate",
+            "attempt": 2,
+            "status": "active",
+            "resolution": None,
+        },
+        {
+            "code": "evaluate:2:default_applied",
+            "node": "evaluate",
+            "attempt": 2,
+            "status": "active",
+            "resolution": None,
         },
     ]
-    assert answer["warnings"] == []
+    assert answer["warnings"] == [
+        "evaluate:2:invalid_structured_output",
+        "evaluate:2:budget_exhausted",
+        "evaluate:2:default_applied",
+    ]
+    assert answer["resolved_warnings"] == ["evaluate:1:invalid_structured_output"]
 
 
 async def test_t302_g6_policy_refusal_warning_is_active_with_attribution() -> None:
@@ -3006,3 +3036,134 @@ async def test_t302_g11_duplicate_codes_in_one_group_are_never_merged() -> None:
     assert len(_t302_details(answer)) == 3
     assert answer["resolved_warnings"] == []  # 同组有 default_applied → 全 active
     assert answer["warnings"].count(duplicate) == 2
+
+
+# ---------------------------------------------------------------------------
+# T31.2R-a：重问预算不得饿死 generate（复现 T31.2 dev Gate 的 c05/c08 形态）
+#
+# 根因链（每环在 packet 有实证）：deepseek-v4-flash 间歇性把合法 JSON 写进
+# reasoning_content 而 content 为空串 → 客户端只判 None → 空串当"输出不合规"
+# → 按 D6 重问 1 次 → 重问吃掉预算 → generate 一次都跑不了 → finalize 无 draft
+# → 全量 refusal，尽管必需证据**已经**在证据集里。
+#
+# 守卫来自《P1实现规格》§9.2 冻结要求「若重试消耗了原本留给 refine 或 regenerate
+# 的预算，预算守卫必须裁掉后续可选调用」——是补实，不是新机制。
+# ---------------------------------------------------------------------------
+
+# 点名 docs/order.md，与 `_evidence()` 的 rel_path 一致：必需证据**确实被召回**，
+# 正是 c05「required 已在证据集中却整体 refusal」的最小复现。
+Q_WITH_REQUIRED = "请引用 docs/order.md 说明库存如何扣减？"
+
+_STRUCTURED_CALL_WARNING = re.compile(
+    r"^(?P<call_key>plan|refine|evaluate:[1-9][0-9]*|generate:[1-9][0-9]*):(?P<suffix>.+)$"
+)
+# U12：`warnings.py` 没有可引用的「规范 code 表」（只有 VERIFY_FAILED_CODE、
+# :default_applied 后缀与 _REASK_FAILURE 正则，且后者不含 budget_exhausted），
+# 故在此**冻结字面集合**，本任务不得让 _structured_call 产出集合外的后缀。
+FROZEN_STRUCTURED_SUFFIXES = frozenset(
+    {
+        "budget_exhausted",
+        "invalid_structured_output",
+        "default_applied",
+        "request_failed:LLMError",
+        "request_failed:LLMTimeoutError",
+    }
+)
+
+
+def _required_input() -> AgentInput:
+    return AgentInput(run_id=uuid.uuid4(), project_id=uuid.uuid4(), question=Q_WITH_REQUIRED)
+
+
+async def test_g1_evaluate_reasks_must_not_starve_generate() -> None:
+    """G1（c05 形态）：两轮 evaluate 各首答非法时，generate 仍须执行。
+
+    实现前必红：今天 plan(1)+evaluate(2)+refine(1)+evaluate(2)=6 触顶，
+    `_can_generate` 为假 → finalize 无 draft → refusal（T31.2 实测 c05/c08）。
+    """
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, "{}", "{}", REFINE, "{}", GENERATE], retrievals), _required_input()
+    )
+
+    assert "generate" in result["node_history"], result["node_history"]
+    assert result["final_mode"] != "refusal"
+    # 第二轮 evaluate 的重问被预算守卫裁掉，且该请求**没有**发出去
+    assert "evaluate:2:budget_exhausted" in result["warnings"]
+    assert "evaluate:2" not in result["retry_counts"]
+    assert result["llm_calls"] <= 6
+
+
+async def test_g2_no_refine_budget_still_delivers_instead_of_refusing() -> None:
+    """G2：预算不足以补检时，直接生成范围准确的答复，不因预算变 refusal。
+
+    这是既有行为的保护锁（改动不得破坏它），非本任务新增能力。
+    """
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime(["{}", PLAN, "{}", EVAL_PART, GENERATE_PART], retrievals), _input()
+    )
+
+    assert "generate" in result["node_history"]
+    assert "refine" not in result["node_history"]
+    assert result["final_mode"] != "refusal"
+
+
+async def test_g3_guard_does_not_claim_generate_always_runs() -> None:
+    """G3（fail-closed 负例）：「generate 永不被饿死」**推不出**。
+
+    plan(1)+evaluate(2)+refine(2)+evaluate(1)=6 时预算真的用尽，此时 refusal 是
+    诚实终态。守卫只承诺"重问不得挤掉 generate 预留"，不承诺"generate 必执行"。
+    """
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, "{}", "{}", "{}", REFINE, "{}"], retrievals), _required_input()
+    )
+
+    assert result["llm_calls"] == 6
+    assert "generate" not in result["node_history"]
+    assert result["final_mode"] == "refusal"
+
+
+async def test_u7_reask_still_happens_when_budget_allows() -> None:
+    """U7：预算充足时重问照旧发生，`MAX_REASKS_PER_CALL` 不被突破。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(_runtime([PLAN, "{}", EVAL_OK, GENERATE], retrievals), _input())
+
+    assert result["retry_counts"] == {"evaluate:1": 1}
+    assert result["llm_calls"] == 4
+    assert result["final_mode"] == "full"
+
+
+async def test_u10_generate_itself_may_spend_the_last_request() -> None:
+    """U10：预留是**给** generate 的，故 generate 自己的重问不受该规则限制。"""
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime(["{}", PLAN, "{}", EVAL_OK, "{}", GENERATE], retrievals), _input()
+    )
+
+    assert result["retry_counts"].get("generate:1") == 1
+    assert result["llm_calls"] == 6
+    assert result["final_mode"] == "full"
+
+
+async def test_u12_structured_call_warning_suffixes_stay_in_the_frozen_set() -> None:
+    """U12（诚实边界）：本任务不新增用户可见文案，warning 后缀不得越出冻结集合。
+
+    用 `_input()`（无必需证据）而非 `_required_input()`：`plan:required_evidence_mismatch`
+    由 plan 节点自身产出、**不经 `_structured_call`**，但形状上与 call_key 前缀无法
+    区分。把它塞进冻结集合会让 `_structured_call` 真的产出该后缀时也不被发现，
+    故改为选一条不产生它的路径，保持本断言只覆盖 `_structured_call`。
+    """
+    retrievals: list[tuple[str, ...]] = []
+    result = await run_agent(
+        _runtime([PLAN, "{}", "{}", REFINE, "{}", GENERATE], retrievals), _input()
+    )
+
+    seen = set()
+    for warning in result["warnings"]:
+        match = _STRUCTURED_CALL_WARNING.match(warning)
+        if match is not None:
+            seen.add(match.group("suffix"))
+    assert seen, "本用例必须真的产出 _structured_call 的 warning，否则断言为空真"
+    assert seen <= FROZEN_STRUCTURED_SUFFIXES, seen - FROZEN_STRUCTURED_SUFFIXES

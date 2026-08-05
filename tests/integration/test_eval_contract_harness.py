@@ -51,7 +51,10 @@ class _RoutedLLM:
         self.calls = 0
         self._fail_after = fail_after
 
-    async def complete(self, *, system: str, user: str) -> LLMResult:
+    # T31.2R-a：`_structured_call` 一律传 `json_mode=True`，替身必须接住它，
+    # 否则 TypeError 会被当成 request_failed，测试绿着但 agent 已全降级。
+    async def complete(self, *, system: str, user: str, json_mode: bool = False) -> LLMResult:
+        del json_mode
         self.calls += 1
         if self._fail_after is not None and self.calls > self._fail_after:
             raise LLMError("供应商不可达（构造）")

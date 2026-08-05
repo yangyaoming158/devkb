@@ -52,7 +52,9 @@ class LLMResult:
 
 
 class LLMClient(Protocol):
-    async def complete(self, *, system: str, user: str) -> LLMResult: ...
+    # `json_mode` 按调用点可选，**不能**无条件开：P0 对照路径的 SYSTEM_PROMPT
+    # 要求中文散文（answer.py:32-37），开 JSON 模式会当场破坏已冻结的 P0 基线。
+    async def complete(self, *, system: str, user: str, json_mode: bool = False) -> LLMResult: ...
 
 
 class OpenAICompatLLM:
@@ -72,9 +74,14 @@ class OpenAICompatLLM:
         )
         self._model = model
 
-    async def complete(self, *, system: str, user: str) -> LLMResult:
+    async def complete(self, *, system: str, user: str, json_mode: bool = False) -> LLMResult:
         import openai
 
+        # `response_format` 只在调用点显式要求时才带：deepseek-v4-flash 会间歇性把
+        # 合法 JSON 写进 message.reasoning_content 而让 content 为空串，声明 JSON
+        # 模式可把输出稳定投递到 content（T31.2R-a 实测 31/32）。四个结构化 system
+        # prompt 均含字面 "JSON"（prompts.py:20 的 _JSON_RULE），满足该模式的前置条件。
+        extra: dict[str, Any] = {"response_format": {"type": "json_object"}} if json_mode else {}
         try:
             response = await self._client.chat.completions.create(
                 model=self._model,
@@ -83,6 +90,7 @@ class OpenAICompatLLM:
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
+                **extra,
             )
         except openai.APITimeoutError as exc:
             raise LLMTimeoutError(f"LLM 请求超时：{exc}") from exc
@@ -90,7 +98,10 @@ class OpenAICompatLLM:
             raise LLMError(f"LLM 请求失败：{type(exc).__name__}: {exc}") from exc
 
         choice = response.choices[0] if response.choices else None
-        if choice is None or choice.message.content is None:
+        # 空串与纯空白和 None 一样都是"没拿到响应"。只判 None 会让空串一路走到
+        # model_validate_json("") 被记成"模型输出不合规"——把供应商没投递内容
+        # 错算成模型答错（T31.2 首次 dev 运行的根因）。
+        if choice is None or choice.message.content is None or not choice.message.content.strip():
             raise LLMError("LLM 返回空响应")
         usage = response.usage.model_dump() if response.usage else {}
         return LLMResult(text=choice.message.content, model=response.model, usage=usage)
@@ -104,7 +115,10 @@ class FakeLLM:
         self._model = model
         self.prompts: list[dict[str, str]] = []
 
-    async def complete(self, *, system: str, user: str) -> LLMResult:
+    async def complete(self, *, system: str, user: str, json_mode: bool = False) -> LLMResult:
+        # 接住 `json_mode` 以满足 Protocol；Fake 不模拟供应商的投递字段差异，
+        # 脚本行为逐字不变（既有 13 个使用 FakeLLM 的测试文件因此零改动）。
+        del json_mode
         self.prompts.append({"system": system, "user": user})
         if not self._script:
             raise LLMError("FakeLLM 脚本已耗尽")

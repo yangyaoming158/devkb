@@ -1306,3 +1306,18 @@ harness 本身不难：读 Answer JSON + run trace + 预登记行，过七组确
 再往下一环：`graph.py:65` 的 `can_refine` 预留 `remaining >= 3`（refine + evaluate + generate 各一次），**这个算术没算 D6 白纸黑字写的"重问消耗全局预算"**。正常 5 次调用、余 1；两轮 evaluate 各多重问一次就正好 6，generate 被饿死。预留式预算和"允许重问"这两条各自都对，撞在一起才炸——和今天 G2 那条（`prompts.py` 要求的措辞撞上 G2 的词表）是同一种形状的错误，一天之内撞见两次。
 
 影响面比单题大得多：全轮 `invalid_structured_output` **29 次**、`coverage_mismatch` **20/20**、`full` **0 个**、必需证据命中 6/35。对照 `p1-dev-agentic`（21 题 0 次）与 `p1-holdout`（10 题 1 次），同一个模型。为什么涨这么多，我**推不出**唯一成因——供应商侧行为变化、P1.5 Prompt 变长，两者都可能，所以只记事实不下断言。结论是**本轮数字不能读作 P1.5 的契约能力**，修好之后必须重跑一次 dev。
+
+## 2026-08-05 · T31.2R-a：两次停在合同的停止条件上，都是我事实调查没做穿
+
+改动本身三处、源码净增 30 行：`complete` 加按调用点可选的 `json_mode`（P0 对照路径要中文散文，无条件开 JSON 模式会当场毁掉 P0 冻结基线）、空响应判定从 `content is None` 扩到含空串与纯空白、非 generate 的重问不得占掉最后一次调用。前审给了 `PLAN_REVISION_REQUIRED` 五项，我逐条核完**全部属实**，其中 PG-T312Ra-03 是我通篇引用了一个不存在的函数名 `_call_llm`（真名 `_structured_call`）——写 packet 时我读了那个函数的**函数体**却没读它的 `def` 行。
+
+真正贵的是实现期两次撞停止条件，两次都是同一个毛病：**我的仓库事实只核到了我想核的那一层**。
+
+- **第一次**：F2 我核的是「14 个用 `FakeLLM` 的测试文件都不传额外参数」——这句话本身没错，但它默认了"测试里的 LLM 替身都是 `FakeLLM`"。实际上有三个测试自建了不走 `FakeLLM` 的 `_RoutedLLM`。`grep -rn "async def complete"` 一条命令就能看见，我当初 grep 的却是 `FakeLLM`。更该记住的是**后果不对称**：三个里只有 `test_api_concurrency` 响亮地红（full→refusal），另外两个**静默降级**——`TypeError` 被 `_structured_call` 既有的 `except Exception` 接住记成 `request_failed`，18 条测试照样绿，而 `test_eval_contract_harness` 那一组正是 T31.1 harness 的集成测试，它绿着在测一个每次结构化调用都失败的 agent。红是提醒，绿着降级不是。
+- **第二次**：我在 packet 里承诺 `test_agent_graph.py` 纯追加、删改既有行 = 0（还是前审 PG-T312Ra-01 让我写死的）。实现完 `test_t302_g5` 红了。查下去发现它**冻结的正是我要修的缺陷**：改动前实测 `partial` 充分性 + 2 条证据 + 零 `generate` + 全量 `refusal`——一字不差就是 c05/c08 的形态。T30.2 当初测的是 warning 的 attempt 归属，顺手把这个终态一起冻住了。而它想要的「同一节点跨两轮各成功重问一次」需要恰好 6 次调用、第 6 次正是非 generate 重问，加了守卫后**结构上不再可达**。这不是"测试写错了"，是**一条既有测试把缺陷当成了规格**——所以我没自己改，停下来交给用户裁决。
+
+两条都按合同停止上报、拿到裁决后才继续（`size_exception` 8→10；G5 改期望）。G5 的新期望不降断言反而更宽：原来 `assert answer["warnings"] == []`，现在是 3 元素逐字列表，另加一条 `resolved_warnings` 的逐字断言，且同一节点同时覆盖 `resolved`（首轮重问成功）与 `active`（次轮被守卫裁掉）两种时态。
+
+守卫的形状也值得记一笔：我一开始想改 `graph.can_refine` 的预留数，算过才发现在预算 6 内**无解**——最坏情形要 refine 2 + evaluate 2 + generate 1 = 5，而 plan+evaluate 已用 2 时只剩 4，按最坏预留等于把补检能力整个删掉。前审同意把判定放到重问点、按 `call_key` 豁免 generate。事后翻《P1实现规格》§9.2，那句「若重试消耗了原本留给 refine 或 regenerate 的预算，预算守卫必须裁掉后续可选调用」白纸黑字**早就写着**——我是在补实一条冻结了很久却没实现的要求，不是发明新机制。
+
+门禁：`make ci` 1303 passed、`make eval-ci` 568+65 passed、`make verify-task` PASS（8/10 文件）。T31.2 仍不勾选——要等 T31.2R-b 也完成，重跑一次 dev 才有不被污染的基线。

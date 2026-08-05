@@ -62,7 +62,10 @@ class _ProbeEmbedder(FakeEmbedder):
 class _RoutedLLM:
     """按 system prompt 路由的并发安全 FakeLLM：多 run 交错时各调用各得其所。"""
 
-    async def complete(self, *, system: str, user: str) -> LLMResult:
+    # T31.2R-a：`_structured_call` 一律传 `json_mode=True`，替身必须接住它，
+    # 否则 TypeError 会被当成 request_failed，测试绿着但 agent 已全降级。
+    async def complete(self, *, system: str, user: str, json_mode: bool = False) -> LLMResult:
+        del json_mode
         if "查询规划器" in system:
             text = PLAN
         elif "充分性评估器" in system:

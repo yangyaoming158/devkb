@@ -662,6 +662,15 @@ async def _structured_call[StructuredT: StrictModel](
         if calls >= MAX_LLM_REQUESTS:
             warnings.append(f"{call_key}:budget_exhausted")
             break
+        # 重问（attempt > 0）必须给 generate 留 1 次：《P1实现规格》§9.2 冻结要求
+        # "若重试消耗了原本留给 refine 或 regenerate 的预算，预算守卫必须裁掉后续
+        # 可选调用"。不留则 plan(1)+evaluate(2)+refine(1)+evaluate(2)=6 触顶，
+        # generate 一次都跑不了、finalize 无 draft，必需证据明明在证据集里却整体
+        # refusal（T31.2 首次 dev 运行的 c05/c08）。generate 自己是被预留的一方，
+        # 故豁免——否则预留就成了它自己够不着的空位。
+        if attempt and not call_key.startswith("generate") and calls + 1 > MAX_LLM_REQUESTS - 1:
+            warnings.append(f"{call_key}:budget_exhausted")
+            break
         calls += 1
         if attempt:
             retries += 1
@@ -669,7 +678,9 @@ async def _structured_call[StructuredT: StrictModel](
 
         started = time.perf_counter()
         try:
-            result = await llm.complete(system=system, user=user)
+            # 四个调用点全部要求严格 JSON（schema 是 StrictModel），故一律开
+            # JSON 模式；P0 对照路径不经本函数，其请求侧逐字节不变。
+            result = await llm.complete(system=system, user=user, json_mode=True)
         except Exception as exc:
             call_latency_ms = int((time.perf_counter() - started) * 1000)
             latency_ms += call_latency_ms
