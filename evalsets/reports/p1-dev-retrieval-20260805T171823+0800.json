@@ -1,0 +1,3228 @@
+{
+  "schema_version": "p1-eval-v1.2",
+  "run": {
+    "started_at": "2026-08-05T17:18:23+08:00",
+    "split": "dev",
+    "modes": [
+      "vector-hnsw"
+    ],
+    "devkb_commit": "0f6079ee3b5aa7d981047567eff09cc80134a15d",
+    "devkb_worktree_dirty": false,
+    "command": "devkb eval run --split dev --mode vector-hnsw --project mini-mall --output-dir /tmp/claude-1000/-home-oslab-projects-Python-Agentic-RAG---------/95344674-3a3c-47c3-9dc7-61e45ecd2922/scratchpad/retrieval",
+    "holdout_accessed": false,
+    "holdout_attempt": null,
+    "holdout_rerun_acknowledged": null
+  },
+  "corpus": {
+    "project": "mini-mall",
+    "document_count": 445,
+    "chunk_count": 4788,
+    "sha256": "0b8af698f960489ae335633a488a7a8cde0cb76b44d1c78e0878c2b760194670",
+    "manifest": [
+      {
+        "rel_path": "README.md",
+        "content_hash": "4b5bd2d317326a6d104dd4b5a27421411998251395cb915d1cd32a6263040db9"
+      },
+      {
+        "rel_path": "README.zh-CN.md",
+        "content_hash": "7c779ec31271009538379081ffe4ac94eeb194d521cb48b8d09c990c51706213"
+      },
+      {
+        "rel_path": "api-gateway/src/main/java/com/minimall/gateway/ApiGatewayApplication.java",
+        "content_hash": "6ab404923ffd77434ea62a64d5a7cca777e14892c5c2e918e43f09385d4ed317"
+      },
+      {
+        "rel_path": "api-gateway/src/main/java/com/minimall/gateway/config/GatewayAuthConfig.java",
+        "content_hash": "d765c05f3203ac08ad45649d19a13098f8111f546c4b2d1a53b5407b9c603fb7"
+      },
+      {
+        "rel_path": "api-gateway/src/main/java/com/minimall/gateway/config/GatewayCorsConfig.java",
+        "content_hash": "74504a631bd8d82141cc800fd59f3a56357a1405cd0e976c476d32b2b7bf8dbc"
+      },
+      {
+        "rel_path": "api-gateway/src/main/java/com/minimall/gateway/config/GatewayCorsProperties.java",
+        "content_hash": "fb924dc0948c91974966977a3cb29d4ce43b73a0f31acdec7fa2cac637c2610f"
+      },
+      {
+        "rel_path": "api-gateway/src/main/java/com/minimall/gateway/config/GatewayRateLimitConfig.java",
+        "content_hash": "7d6a87035c26ece10b69fece45d10f06a3ae035be97da7546e2706d88584eb54"
+      },
+      {
+        "rel_path": "api-gateway/src/main/java/com/minimall/gateway/config/GatewayRateLimitProperties.java",
+        "content_hash": "794ba13eb357d2aa7d41a0e58ec575937931540c93cddf7cbe8eba92e9933693"
+      },
+      {
+        "rel_path": "api-gateway/src/main/java/com/minimall/gateway/ratelimit/GatewayRateLimitFilter.java",
+        "content_hash": "504c39cadc8b63045d1e26dc2517a6daf607fe40e9d7bb09190365ace98daad1"
+      },
+      {
+        "rel_path": "api-gateway/src/main/java/com/minimall/gateway/ratelimit/GatewayRateLimitResult.java",
+        "content_hash": "7ce2ed22d9686f56d792a60a87f851f3849c7a11afcbe10baba085d3668b5894"
+      },
+      {
+        "rel_path": "api-gateway/src/main/java/com/minimall/gateway/ratelimit/GatewayRateLimiter.java",
+        "content_hash": "2f2450fae3fba96d69f25fafa0f15e06d84439466a07ccbc0fa312da189fd45a"
+      },
+      {
+        "rel_path": "api-gateway/src/main/java/com/minimall/gateway/ratelimit/RedisGatewayRateLimiter.java",
+        "content_hash": "a1242222abeb5949c34986c74137bdaeedeb05cb8359817d67c051dacc799af5"
+      },
+      {
+        "rel_path": "api-gateway/src/main/java/com/minimall/gateway/security/GatewayAuthenticationFilter.java",
+        "content_hash": "fc8da5c8fbff82888dc2f2ab9ba1cfcd1e218aa07ce0c4df08214c3b0c753707"
+      },
+      {
+        "rel_path": "api-gateway/src/main/java/com/minimall/gateway/security/GatewayInternalPathBlockFilter.java",
+        "content_hash": "ed8ddee602dbc8966af3fd9a1123b28f00e3210a3285b38c4e400fe674f1cf80"
+      },
+      {
+        "rel_path": "api-gateway/src/main/java/com/minimall/gateway/web/GatewayCorsWebFilter.java",
+        "content_hash": "72162226f0652c691db6e7510050787a82c56c57b7901833f79a0c38b720ac52"
+      },
+      {
+        "rel_path": "api-gateway/src/main/java/com/minimall/gateway/web/GatewayErrorResponseWriter.java",
+        "content_hash": "4448061061865cbfdad1b27bb0f70c4c93e8e581cd0ad71f5032d8320ddb50ff"
+      },
+      {
+        "rel_path": "api-gateway/src/main/java/com/minimall/gateway/web/GatewayRequestLoggingFilter.java",
+        "content_hash": "e3bf99b5dc1b0f5250d4cf2c2e31d303a4a5b29bfbc7271c0f3a256a4324e85b"
+      },
+      {
+        "rel_path": "api-gateway/src/main/resources/application.yml",
+        "content_hash": "7a3910272de7f2a01f94840ea6bba43200c508667736b2d5021771a232aed0c1"
+      },
+      {
+        "rel_path": "api-gateway/src/test/java/com/minimall/gateway/GatewayAuthenticationFilterTest.java",
+        "content_hash": "9cb785b9797a3f277fb79ebcce5ea10f564ce1286d48d63303ab874917524c51"
+      },
+      {
+        "rel_path": "api-gateway/src/test/java/com/minimall/gateway/GatewayErrorResponseWriterTest.java",
+        "content_hash": "18882f9accbeee03676c49f8871c926995b0ede45d57bdffd6b92db31e3d0ee3"
+      },
+      {
+        "rel_path": "api-gateway/src/test/java/com/minimall/gateway/GatewayIntegrationRegressionTest.java",
+        "content_hash": "ecd54cd3d19baef31833785e2b7a520bbad248f6a6fe5bbc16726f1cc9f0fa84"
+      },
+      {
+        "rel_path": "api-gateway/src/test/java/com/minimall/gateway/GatewayRateLimitFilterTest.java",
+        "content_hash": "e8dcc5979c89737368a98dbc2da1afa3d0d506f98ccc75ba8df39b0391718638"
+      },
+      {
+        "rel_path": "api-gateway/src/test/java/com/minimall/gateway/GatewayRequestLoggingFilterTest.java",
+        "content_hash": "d62bd3a6126dae03d1d12798893026169f171ca13db7f4e966e11a95cc08f01b"
+      },
+      {
+        "rel_path": "api-gateway/src/test/java/com/minimall/gateway/GatewayRoutesTest.java",
+        "content_hash": "bd297e3d3f9a571d941c3c65f6ece2396cb3d1a405e442d5156595dd47e58196"
+      },
+      {
+        "rel_path": "common-auth/src/main/java/com/minimall/common/auth/config/CommonAuthAutoConfiguration.java",
+        "content_hash": "a3f5e7a4e87c171df1e81289d4bd3e12cc41817e4bfa50bd71e99b4ad59cba24"
+      },
+      {
+        "rel_path": "common-auth/src/main/java/com/minimall/common/auth/config/InternalAuthProperties.java",
+        "content_hash": "59ce26b42a3ae75c98904ebd13cb18cf5370f5e31950f8d23b69d74ba23ab07f"
+      },
+      {
+        "rel_path": "common-auth/src/main/java/com/minimall/common/auth/config/JwtProperties.java",
+        "content_hash": "f0279c33ed3a1de61a63762624c82e29a2690ec5bd60ea2beae89c39cc41b036"
+      },
+      {
+        "rel_path": "common-auth/src/main/java/com/minimall/common/auth/constants/AuthHeaders.java",
+        "content_hash": "393fd2c3625908697cc09e36a7b516a4c8abe237df3821be64b70bd4420aab06"
+      },
+      {
+        "rel_path": "common-auth/src/main/java/com/minimall/common/auth/context/AuthRole.java",
+        "content_hash": "407a9cad67ae7772ea9c41edee41eb7258c60cf5ca24a097bf758bef2cac24bc"
+      },
+      {
+        "rel_path": "common-auth/src/main/java/com/minimall/common/auth/context/UserContext.java",
+        "content_hash": "a60b985fa8e3dc953809eec54a8ed8429c00edb9955d59b762f3240a8f44db38"
+      },
+      {
+        "rel_path": "common-auth/src/main/java/com/minimall/common/auth/context/UserContextHolder.java",
+        "content_hash": "cbe49fafe07f99adf695177353a145d92f8c62d6c034c3c573b2198375f201c3"
+      },
+      {
+        "rel_path": "common-auth/src/main/java/com/minimall/common/auth/jwt/JwtUtils.java",
+        "content_hash": "3c4893b9fb04a9f3814a72322b95963700771251646ae6a56187f6dcf8170df1"
+      },
+      {
+        "rel_path": "common-auth/src/main/java/com/minimall/common/auth/web/AdminRequestContext.java",
+        "content_hash": "f60439e7ff8d5007b896a2a04039b42b99d7881e5585c6d9bdf59598679acec2"
+      },
+      {
+        "rel_path": "common-auth/src/main/java/com/minimall/common/auth/web/AdminRequestContextResolver.java",
+        "content_hash": "c8e7001695a18c60625bcf25860cd5f62777a16d42f83fb04d4d0fd9507e44dd"
+      },
+      {
+        "rel_path": "common-auth/src/main/java/com/minimall/common/auth/web/InternalAuthFilter.java",
+        "content_hash": "319f6f9df4f7173a39bc6e68b7d9063da58f1f0dc2f13db2cf3c59debd68a971"
+      },
+      {
+        "rel_path": "common-auth/src/main/java/com/minimall/common/auth/web/UserContextFilter.java",
+        "content_hash": "dfe406ff4213a3cd4ba674d69ea86e385d01fac820649bacdf8631bd25a50bdf"
+      },
+      {
+        "rel_path": "common-auth/src/test/java/com/minimall/common/auth/config/CommonAuthAutoConfigurationTest.java",
+        "content_hash": "82726c3bfda8732f1f39f543eb51f37cf0fb31015a7c5c4c30a5bcc3af6d3b06"
+      },
+      {
+        "rel_path": "common-auth/src/test/java/com/minimall/common/auth/config/JwtPropertiesTest.java",
+        "content_hash": "c576d54075fa10f325d79f3d0f7f28ac65e522a61964190064220c0caed60201"
+      },
+      {
+        "rel_path": "common-auth/src/test/java/com/minimall/common/auth/constants/AuthHeadersTest.java",
+        "content_hash": "671677cf93197bf67b52abb2164877336afeb24c501061c5b62deb78150e1a0d"
+      },
+      {
+        "rel_path": "common-auth/src/test/java/com/minimall/common/auth/context/UserContextHolderTest.java",
+        "content_hash": "7fa54e74663e5b354d7d339faeb410be30422ade4acab850e7f81bcc9be1963d"
+      },
+      {
+        "rel_path": "common-auth/src/test/java/com/minimall/common/auth/context/UserContextTest.java",
+        "content_hash": "c6a8e8ed7f9955d2626373139b15256ba2c443aac812397d37e49d13d18b792b"
+      },
+      {
+        "rel_path": "common-auth/src/test/java/com/minimall/common/auth/jwt/JwtUtilsTest.java",
+        "content_hash": "4b291d8aa65e3ffa8937ea06283320c1356bdb55cd755fd6992a7d2525242e60"
+      },
+      {
+        "rel_path": "common-auth/src/test/java/com/minimall/common/auth/web/AdminRequestContextResolverTest.java",
+        "content_hash": "7c7bec94a34d87855869a1d9d1572614820a520eb52a7cde67eb6849b6bb3d43"
+      },
+      {
+        "rel_path": "common-auth/src/test/java/com/minimall/common/auth/web/InternalAuthFilterTest.java",
+        "content_hash": "7511bdc9af1facaca5690dd80198d1a17ce4b35adf99bae6d1b4b78bedeec6af"
+      },
+      {
+        "rel_path": "common-auth/src/test/java/com/minimall/common/auth/web/UserContextFilterTest.java",
+        "content_hash": "3cedfcb2fc9ad419c6e5386762e8fac054305345c1b5e39094048bad2c1e456b"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/audit/AdminAuditAction.java",
+        "content_hash": "f8e3c9c5cd0cf7353b8d76c2e712156f15be2658287735ecd6e362bc34a187e5"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/audit/AdminAuditLogQuery.java",
+        "content_hash": "97cadda2d25c3acec20400f99e3938f265c3ce2e2830f6d3844d9a18bc514706"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/audit/AdminAuditLogResponse.java",
+        "content_hash": "554b1c46ea89e39b9709619cf13c69e175fd4d090ce19cb5b43978bb2b6a2bf3"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/audit/AdminAuditLogWriteRequest.java",
+        "content_hash": "9b6ed12a917d107266ccc28223811f88e720ee56851198420eca84e0f0f26c14"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/audit/AdminAuditResourceType.java",
+        "content_hash": "9b1d638c5727d15022e6b3463928fd269813dfedf73b93fdcdf231bbd0bd66f3"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/audit/AdminAuditSourceType.java",
+        "content_hash": "50ceedf78f71d58413d1c6c519e44e386abe0c66959bb27954b77e8a6ea75e99"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/audit/AdminAuditWriter.java",
+        "content_hash": "a34c0f752cc47dfedd8049d55c369eb725987b83ddedfa1bef91cab4c82ed8d9"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/audit/AuditText.java",
+        "content_hash": "93287ef76853d7f1040b8c4d5101130db747837ef11bb9b6e738988aef1a1445"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/audit/JdbcAdminAuditWriter.java",
+        "content_hash": "514602ffa0c0e219ccd57887ad882330130403204f51817fe7466aff54cfd230"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/config/CommonCoreAutoConfiguration.java",
+        "content_hash": "1d10706a5b7ba8973d262bf155cea02bfb6e97012f4e5bb85c0189e92605a4cd"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/config/PaymentRabbitTopologyAutoConfiguration.java",
+        "content_hash": "69b545315a349504a5b016ff289981c0227eabd6da13edea05a82010966a2ad3"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/event/payment/PaymentEventNames.java",
+        "content_hash": "e67ea4c433411f2d0f020b2c6fbc7550081744cebb7ec18e471448c5dc1b39bc"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/event/payment/PaymentSuccessEvent.java",
+        "content_hash": "02814db8b74769bf9bf62d55e45a191d96c422ef1ca701980a43a59850a9961d"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/exception/BusinessException.java",
+        "content_hash": "c8fd4695c14855e3f0cb34f52ecffb9b29e5d005b281de9b3efa88d817429cdd"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/exception/ErrorCode.java",
+        "content_hash": "5b89991dc9a2a6ae671ca3491c291fd901b458f92bc29d65e594e29c33d6dd97"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/exception/GlobalExceptionHandler.java",
+        "content_hash": "b28a7926f27b34d2290c0d1dd724bec1e1097c9679c03d268f15f7b8415f0589"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/response/ApiResponse.java",
+        "content_hash": "249ad858586f6c59fecb1ba91bfeedc8e64bc2b3d8b0e6a871693fbd6dabd914"
+      },
+      {
+        "rel_path": "common-core/src/main/java/com/minimall/common/core/response/PageResponse.java",
+        "content_hash": "72c7bb0965e110a073cb7b0d1afa01472e032f7022ef5e629c85b2c8092c73ae"
+      },
+      {
+        "rel_path": "common-core/src/test/java/com/minimall/common/core/audit/AdminAuditLogQueryTest.java",
+        "content_hash": "5c45faffd45246ac7aa6ba7096477126b8117b915f629e7edd7aa01e79159e57"
+      },
+      {
+        "rel_path": "common-core/src/test/java/com/minimall/common/core/audit/AdminAuditLogResponseTest.java",
+        "content_hash": "3209d89dc7776baf0f0f79c70115bbede705ada41f0f59deffad9d8a6322f781"
+      },
+      {
+        "rel_path": "common-core/src/test/java/com/minimall/common/core/audit/AdminAuditLogWriteRequestTest.java",
+        "content_hash": "798a370cfb22ca1ecabf1240bce2afb405f4a8128c3083267a69d891d31c58f8"
+      },
+      {
+        "rel_path": "common-core/src/test/java/com/minimall/common/core/audit/AdminAuditTaxonomyTest.java",
+        "content_hash": "548a98b4b9ab8a9146fb7b44bb7c5f2a673d5917a261aa0adcb3bda87205e49a"
+      },
+      {
+        "rel_path": "common-core/src/test/java/com/minimall/common/core/audit/JdbcAdminAuditWriterTest.java",
+        "content_hash": "6bb0a230fbbe3eebd316b4ca45f48724f801190061c383658c15402bbc7c8201"
+      },
+      {
+        "rel_path": "common-core/src/test/java/com/minimall/common/core/config/CommonCoreAutoConfigurationTest.java",
+        "content_hash": "44aca910c40e432392fd5e81714d18ef3ca3b5f44e5a13353abb53e2a8ef90ec"
+      },
+      {
+        "rel_path": "common-core/src/test/java/com/minimall/common/core/config/PaymentRabbitTopologyAutoConfigurationTest.java",
+        "content_hash": "92a8b230cb0546980955dbb16bd9cbc01e473544f9cc16eace22c76cb01927ff"
+      },
+      {
+        "rel_path": "common-core/src/test/java/com/minimall/common/core/event/payment/PaymentEventNamesTest.java",
+        "content_hash": "7f808c394b6edc0b58439ba1d91194cbbfb26592d1e2c7e9fded1ba431f574a4"
+      },
+      {
+        "rel_path": "common-core/src/test/java/com/minimall/common/core/event/payment/PaymentSuccessEventTest.java",
+        "content_hash": "88e04c34f8f3d5261952c9eea9c4d0b0720dab0a6423fe2d5127123cf4a4dd1b"
+      },
+      {
+        "rel_path": "common-core/src/test/java/com/minimall/common/core/exception/BusinessExceptionTest.java",
+        "content_hash": "a3a7e125ac97b4bc45bc509cc29fd601fc66f748d9e403d8e8823d0812dee98f"
+      },
+      {
+        "rel_path": "common-core/src/test/java/com/minimall/common/core/exception/GlobalExceptionHandlerTest.java",
+        "content_hash": "715d352ace66b49b41546d21bffc89fadd9521ebc5998e8a7bcd0b2e2631d6f7"
+      },
+      {
+        "rel_path": "common-core/src/test/java/com/minimall/common/core/response/ApiResponseTest.java",
+        "content_hash": "695b499f9f50a6c3e18eb26bc1167cb5ba25d73fa26a60f941ed334987c109e1"
+      },
+      {
+        "rel_path": "common-core/src/test/java/com/minimall/common/core/response/PageResponseTest.java",
+        "content_hash": "d7223fce21f1a713427b511f600b189eeb9749ffd099bcd19cbbd4b114069cb2"
+      },
+      {
+        "rel_path": "docker-compose.yml",
+        "content_hash": "db2f6dd4da307eeaf0157b0818ff878409a65b684ef01d3c5c9cf8044aecb3df"
+      },
+      {
+        "rel_path": "docs/ai-assistant-smoke-findings-2026-06-12.md",
+        "content_hash": "33d479c0e6e7b82efa063137b0f2a6d0f2a3086aa622d291aa44ae7056c84868"
+      },
+      {
+        "rel_path": "docs/api-gateway-contract.md",
+        "content_hash": "129e3d8e3afdece917835008d15d8c90702aef1d0393a04cd79c546b0731b67f"
+      },
+      {
+        "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+        "content_hash": "0495d59376e2c008b4565f44f0cd7cb7f90e7447c4f105a586dedbbc5847a7f0"
+      },
+      {
+        "rel_path": "docs/architecture.md",
+        "content_hash": "d9a0a7de7fc2b161261d7dda4bbb694551918221951c1bf238da204ae7e7680a"
+      },
+      {
+        "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+        "content_hash": "685d796e58b2e50097cfeccf9d704bfb8faeb9e4b0fa17fee7a84ede50026f9d"
+      },
+      {
+        "rel_path": "docs/audit/fix-plans/README.md",
+        "content_hash": "53586aaf085823b815d148f847ad7f0943c7096f846031f3f5f7cc4ab3233c48"
+      },
+      {
+        "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+        "content_hash": "4212173536eebbcdaf0e40f8bdd6c0b20c9a0136092780add71e2626425a8b7b"
+      },
+      {
+        "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+        "content_hash": "cae7c653689f40f8f8dd5626a93e805039262ee42543fdb2ad44fedd103b97bc"
+      },
+      {
+        "rel_path": "docs/audit/fix-plans/phase-c-plan.md",
+        "content_hash": "616d498faff44cd3b622f2228b4169a90d0ff96cd4eafdb0e482b6ce4b7a9ee5"
+      },
+      {
+        "rel_path": "docs/audit/full-repo-audit.md",
+        "content_hash": "275a91e4ee85e95e408de1e6b3a158928f73649886c78ee4fcd8b2129aa179f2"
+      },
+      {
+        "rel_path": "docs/demo-runbook.md",
+        "content_hash": "e63d5ba37f4b4bc0b0f584d46c96660d5a614cb1c692cef326f6a367d36b635e"
+      },
+      {
+        "rel_path": "docs/deployment.md",
+        "content_hash": "a9ef63caca0b4a848cc0eabe2620863055a30cb5214b0022ae9cbad119a14fc7"
+      },
+      {
+        "rel_path": "docs/dev-log.md",
+        "content_hash": "1eeb1ce22d83170c2bd0f94b10874ab298822890e3fbc9a51d7f875045252e8a"
+      },
+      {
+        "rel_path": "docs/dev-quickstart.md",
+        "content_hash": "d25f2a9a955d4c6e69fe854a4705be1ad6bbac24792e5e0e78e7579349822c7c"
+      },
+      {
+        "rel_path": "docs/final-acceptance.md",
+        "content_hash": "c000346a2b9a68e6b6b549f6becd05570358e8dc35d8bcf46c8a76ec02835da3"
+      },
+      {
+        "rel_path": "docs/frontend-integration.md",
+        "content_hash": "ec141b253fbe9942c7454f464d3139be2a8efe667d42a168075363177235160f"
+      },
+      {
+        "rel_path": "docs/history/api-contract-review.md",
+        "content_hash": "4364db9ed57c60e8ebcdf9ef4057d9758badd489bb4dddb0bd3c24e632bb3b4f"
+      },
+      {
+        "rel_path": "docs/history/phase0-api-contract-scope.md",
+        "content_hash": "446db274a60892c5fba4f2265d58f550a4335ce5fcd8cb48d646d11fa9839c8d"
+      },
+      {
+        "rel_path": "docs/history/phase0-dto-pagination-audit.md",
+        "content_hash": "28fbe91189fa9a98074ac560cba6ff392491fa03870213740c99909a46a13c45"
+      },
+      {
+        "rel_path": "docs/history/phase1-frontend-design.md",
+        "content_hash": "e1a6b81a4df1a7be028684379adbc4272987819b792422a468cfd1834e06f0e4"
+      },
+      {
+        "rel_path": "docs/history/phase1-frontend-prereview.md",
+        "content_hash": "a5640e50c8308cdc600913f59e401acb7c087216afa36e8a40f683dbf5678f6a"
+      },
+      {
+        "rel_path": "docs/history/phase1-ui-redesign.md",
+        "content_hash": "920903002d574e36396b79a72e7288776f9b0a8601545d556f42589dc5f0e6be"
+      },
+      {
+        "rel_path": "docs/history/phase2-5-ai-inventory-contract.md",
+        "content_hash": "3b5db89e114ee9df511f13f457210f1fa776586826cd931e604ab0d55c687295"
+      },
+      {
+        "rel_path": "docs/history/phase2-admin-api-contract.md",
+        "content_hash": "cadd7141f3ca87ac5a8b436c08673489b1e4738429847a1116fa6be8672f263f"
+      },
+      {
+        "rel_path": "docs/history/phase2.5-ai-inventory-backlog.md",
+        "content_hash": "80b4796875c2648cd0625e4f78c347aeadd7dbc98f1880b9e45f4e5b88d76fed"
+      },
+      {
+        "rel_path": "docs/history/project-acceptance-report.md",
+        "content_hash": "00b45619caf221dfacd9865086781cb07738e3b207ffde220bec90c966924a95"
+      },
+      {
+        "rel_path": "docs/local-infrastructure.md",
+        "content_hash": "3139bc7a930cf939aff7c5377f626c2983cd06cf6c30fa654c9c6763e73f5ed3"
+      },
+      {
+        "rel_path": "docs/messaging/payment-success-event.md",
+        "content_hash": "5a40fc06c54581998c60d489ba09bb365f68e91e1f9ff6de2b8777945441bd43"
+      },
+      {
+        "rel_path": "docs/observability.md",
+        "content_hash": "5ed7488fcdaa225fba4c94d2125db98b2966a79c7407f363ca9cf77a1670600e"
+      },
+      {
+        "rel_path": "docs/phase0-acceptance.md",
+        "content_hash": "2eb25fb0be6dd729225a1ce1038b890ac0ab496e568c0361da83a1b7d2e910cd"
+      },
+      {
+        "rel_path": "docs/phase1-frontend-acceptance.md",
+        "content_hash": "9f146a58ab60c753afec4c0b9c870dbee378488916f023bcbd4ac9a6e9b37d16"
+      },
+      {
+        "rel_path": "docs/phase2-5-ai-inventory-readiness-acceptance.md",
+        "content_hash": "520bea62424917f90df2bf57846f7f678f97cf84c24027be960a39615d197c4b"
+      },
+      {
+        "rel_path": "docs/phase2-admin-acceptance.md",
+        "content_hash": "938aef70a3de026f8b775a1e3d280654fd1f9761ae7e1891590f41eb55e67cb5"
+      },
+      {
+        "rel_path": "docs/phase3-acceptance.md",
+        "content_hash": "ea781318c8f8a40b003ed11698f801cbf898ca596be20d511b2603e7ef5fa2d6"
+      },
+      {
+        "rel_path": "docs/phase3-ai-inventory-contract.md",
+        "content_hash": "81c720fd2a0322b903d7f1a20195548a7a875752ecba45e710e06e7fad1d16af"
+      },
+      {
+        "rel_path": "docs/sql/README.md",
+        "content_hash": "c9a6faeb49b5d63d4a49e850db361de19d69ab97e23f2d784eb74ed7ad548d67"
+      },
+      {
+        "rel_path": "docs/sql/migrations/README.md",
+        "content_hash": "b9bf59e2a6e51b7dd940bfba7cb6178d610be1e43a06df39c175450b3ab20fce"
+      },
+      {
+        "rel_path": "infra/grafana/provisioning/dashboards/minimall.yml",
+        "content_hash": "395bba225e4fd2d968b52a1526cd2ee3646848cfcd5f12a4535c47cdf6c3a33d"
+      },
+      {
+        "rel_path": "infra/grafana/provisioning/datasources/prometheus.yml",
+        "content_hash": "e236c770a1b13f90725fe9a487cc7464c990cdb2a1d954f2cd33c2614d29b226"
+      },
+      {
+        "rel_path": "infra/prometheus/prometheus.yml",
+        "content_hash": "1760dccd0562e42a01452431a2bc1ec1ad886d73649a7e3299db6fd44c70e182"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/InventoryServiceApplication.java",
+        "content_hash": "b8e805d866d4a6a0941face3a45b385b9bd97d9a1a81566c82738cfb2186289a"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/AiProvider.java",
+        "content_hash": "9dbc49bc671ea803db167fbc33c6af94871ea9ad5a95565c82d76d9987f2b8d0"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/AiProviderErrorType.java",
+        "content_hash": "24bc438c4b6ed56c74ae6b35a184a2c2dbf62c008e7423d2b119be8bae0c495e"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/AiProviderException.java",
+        "content_hash": "c6cb1d26421f97a1d213621604a871736820cf1928de0ff5394d124fadc192f7"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/AiProviderMessage.java",
+        "content_hash": "75cbb82d39e878d3e37172d5ceab13904072a0dede5662a02b76cbecac42a83f"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/AiProviderMessageRole.java",
+        "content_hash": "7bdb792a736d412019834e71ca122cf8a804fefff68fdadfc86c539ad683acb1"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/AiProviderRequest.java",
+        "content_hash": "d813369eaed66676d0e7f31329f53e33cf01e06860c15bc5313ef838400b82da"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/AiProviderResponse.java",
+        "content_hash": "7aa2ee265640c6204041192450d7ea29f74ff31df446cb913b8fc9b6dc06d6df"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/AiProviderRestClientFactory.java",
+        "content_hash": "d7c524fe44dcbad9ae94c6bd70b22eb81582d298ed5f7dd20b2ea1bf3538a0de"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/AiProviderTokenUsage.java",
+        "content_hash": "275412421955036e1899d145f2eb9c626183475d2a34a9b547be037bd9a0ed07"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/AiProviderType.java",
+        "content_hash": "d7a04f7ec8729c60d15392c92a8d4c7ce0e8d811c5ad671ca46163265ea1781a"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/DeepSeekAiProvider.java",
+        "content_hash": "a00977a084a973cef281c00cf0d3198c776d156ad31f557fc9f8dfc043051472"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/MiniMaxAiProvider.java",
+        "content_hash": "567d4ed0f49162ffc4f1ed35d4d2bb41afd43ad02dcc5b8d5805b5b2ccc5881f"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/MockAiProvider.java",
+        "content_hash": "6993b00898f0e9c725cb813475169d3ae79d0ea6fb81229e06881c5ba7708510"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/OpenAiCompatibleAiProvider.java",
+        "content_hash": "014d2071914e63868bb7e3e6acb787a25a98874c137a0f767126e2b6deb4c25a"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/analysis/AiInventoryAnalysisRequest.java",
+        "content_hash": "49c2e7224f591637bf8fe1beb7bed88ee0086fcb03a00754c4432f13029b9921"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/analysis/AiInventoryAnalysisResult.java",
+        "content_hash": "4a03f0c682a1d1a0237082fd2b0e42c99ca4a4b01735afe3ace0b457346a41ad"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/analysis/AiInventoryAnalysisService.java",
+        "content_hash": "d00562202a5784563da6045319f9d06749915d3e5fec013bb2dcc0856a684ab7"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/envelope/AiFinalAnswerEnvelope.java",
+        "content_hash": "a3ac6beeef4e175bf4258ce9b64ca3ddce8652914026387eecb3f0363436b481"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/envelope/AiToolEnvelope.java",
+        "content_hash": "fc54061ffe205c1b24667a0db5fb9ce2b2a3df7c6c4c2c4bea107fc623c59841"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/envelope/AiToolEnvelopeParser.java",
+        "content_hash": "0e5616baa4ee34c7766357bae3cb3de22f59d41be32f749e75eb87a5243a24ab"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/envelope/AiToolEnvelopeType.java",
+        "content_hash": "9fd8fbb71ff798f270bdc9401e14508062cde7a5bfe79b0ecceaf8f8958082d4"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/envelope/AiToolRequestEnvelope.java",
+        "content_hash": "b64d4fdfde7358b892f9dfcce466fe35b46d8c5e6860792a7c6f49cc61b40973"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/invocation/AiInvocationContext.java",
+        "content_hash": "009e5edc7b82581f843ec07a03281167bd94d4dc98f136d8344c703ee51db5cc"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/invocation/AiInvocationLogWriteRequest.java",
+        "content_hash": "6a73a29589af4a05f1e3c3a8baa539dd6993be49d4df75fe8877efcae0867917"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/invocation/AiInvocationLogWriter.java",
+        "content_hash": "89defec108c27fbedcafb6f8096d6f5b5f28eab90bde09df4dbaecb57b24f65f"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/invocation/AiInvocationToolTraceEntry.java",
+        "content_hash": "fd3978ae4ac5e9da4628595689b31a27f57e66172f5bdb7008604334498b3120"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/prompt/AiPromptTemplate.java",
+        "content_hash": "03f9d49f7894025270e3c43669685c46c183041dfe7376ee14de609b6c7d5187"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/prompt/AiPromptTemplateCatalog.java",
+        "content_hash": "49f340d4eb50590c23563d1101bab7e2462006eb80a81b299f60d69e0690eda9"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/prompt/AiPromptTemplateId.java",
+        "content_hash": "54ae37be1f40b946f91e7c2bb7a1146b93089c52a66ad24f2313efb0dac6ad4e"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/tool/AiInventoryToolInventoryPayload.java",
+        "content_hash": "a2d1cd08ec1043b89e3cbda9511a9c7b3e43b2171678b9da6d8cb200ee41fb1d"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/tool/AiInventoryToolName.java",
+        "content_hash": "70cf539a9a76c34815883b7c25c8c26efe13b32d5a5a6ac6f221dd5ec8bc6c1a"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/tool/AiInventoryToolRecordPayload.java",
+        "content_hash": "ed96be8c434d608fd7a78a1401207de93a87da86276869fcdcb121f222f31bd7"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/tool/AiInventoryToolRecordsPayload.java",
+        "content_hash": "8df429ee8e268f36a37df876c03035687af4dbb45014511520ba6fcd12d44d08"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/tool/AiInventoryToolRegistry.java",
+        "content_hash": "38121c82cd225f30c23ec5631740c13b88351cf814dad9a7e5d3465920c4a247"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/tool/AiInventoryToolResult.java",
+        "content_hash": "7b85c833102bac66a4bfc6d50fe293766f7bb862dc638669bb8cf65ad3ca4caf"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/validation/AiAllowedDateValues.java",
+        "content_hash": "90372ab96f066f8dc84629c3a4befe7657c939063cfc0c1279d2a4ec52515628"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/validation/AiAnalysisType.java",
+        "content_hash": "92a9cf6372684738fc407c5d4f9189eb8ac6fb35610c0cf77b3c44cbe7e3cb35"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/validation/AiModelOutputValidator.java",
+        "content_hash": "36e06d3d400d5308190008e2752a6ef8c6c54827e9231cb33de57c10d49ebfb4"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/validation/AiOutputProductFacts.java",
+        "content_hash": "95b74e1a820edf4d2ac29b1dffbf8ef7741f6fba5a8f96367c62e5c749bcda21"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/validation/AiOutputValidationContext.java",
+        "content_hash": "e9d8bb4914983974a293ea01e47226aa6e927ef0a27a50be2f451ec487ab05de"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/validation/AiOutputValidationException.java",
+        "content_hash": "31d50d41b68cc24d3ac74ba5429c1f64ab2b759bf0df079ed54c9954d77f8cdc"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/ai/validation/AiValidatedOutput.java",
+        "content_hash": "d0460a6f3daa1492fbcdb063f93897507e9a2e8b2fb26e5a67350c101a6f9673"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/client/order/OrderServiceSalesEvidenceClient.java",
+        "content_hash": "63a97184cef076e741f165343ab3008f7f74eb7b1d664a76a703f7cee1161c35"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/client/order/SalesEvidenceClient.java",
+        "content_hash": "ca49b1e299be3e0550a8d047e6d3a7886de45b159ab62c4743cd9473847e4b47"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/config/AiProviderConfiguration.java",
+        "content_hash": "be3f74a69daa3d03e0475e21e29b92cfbbd41f99ce4242c58072bb1571b01026"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/config/AiProviderProperties.java",
+        "content_hash": "4cf3c1b3c2c772148f4e536469efc2b1dbbe2e829e52e87d6f9d27ff7a04e5d7"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/config/DemoDataProperties.java",
+        "content_hash": "e64661c67b844001691ef33726fa60b4da9dda3a7f4e0aa1bcd6f762c20752a9"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/demo/AiSuggestionDemoDataSeedContributor.java",
+        "content_hash": "e8b0906b039918eff26cdf154d91fa0df30bc7877276a638023d64030c70d261"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/demo/CoreDemoDataSeedContributor.java",
+        "content_hash": "55d0c87515eb91beacbb74f3ca6cb04ebfd6e66e828933bbbbd7d7cfdfb0e8c9"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/demo/DemoDataRunner.java",
+        "content_hash": "d63f8ccbd056dedde7a4446ec5bcc7fdcd6dd431cfb085edcbfc8f4336349c35"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/demo/DemoDataSeedContributor.java",
+        "content_hash": "e41dc69aa226e950aedfa9e55640bd163a4905e99fe53f3857cd700cca65e988"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/AiInventoryEvidenceType.java",
+        "content_hash": "0ce544992e4274b123501cc422fb308c7f6ac950fcfe128c38a64eb6346233cb"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/AiInventoryQuestionIntent.java",
+        "content_hash": "3774ad5a91cd1fb8ea7d1bcead99817a191b0e941f107295a6e966b0d75e0713"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/AiInvocationLog.java",
+        "content_hash": "db9c7575971119f9643217d7e9bc51c69f92d258ffa71f350448ac8de08d2e1e"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/AiInvocationValidationStatus.java",
+        "content_hash": "d6955c78d64a00d80f385ef56111790792761960a959f464eeebecb23b2b9f35"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/AiOperationSuggestion.java",
+        "content_hash": "4498c740a6af5e4011e6d173527274f32200ae328f3c6485d7bfcd6e949de703"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/AiOperationSuggestionItem.java",
+        "content_hash": "5edb8d2f658f4ed2d108614477ac6801e07fb8794f0cb2aef29c8b7b8a2cac77"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/AiOperationSuggestionSource.java",
+        "content_hash": "c0146aed5ae04f0d96d9e109dd025c7128e4a2b9c7852ea8a82f5ccb50a8841f"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/AiOperationSuggestionStatus.java",
+        "content_hash": "725a7bcf72ef6ea1a2ce675eb0737eec970c9d7d1062dd3d7017796acc27f350"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/AiOperationSuggestionType.java",
+        "content_hash": "390dd2089d74b784dc2c9c108ae9bf4c934b981b7abb3840e723961b49c44d02"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/AiSuggestionRiskLevel.java",
+        "content_hash": "683c490bf719437d9f54cae7f057b5180aad6fe05d3657b673063e29ebb50357"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/AiSuggestionValidationStatus.java",
+        "content_hash": "b212482561655df016fcdffdf0f7406a91043f4e0f54246695f8e997d0c5c490"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/InboundOrder.java",
+        "content_hash": "570a96a6b9827b3c050d86ae2e19e9c112d8ab2666404452fa4801ab04a4936d"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/InboundOrderItem.java",
+        "content_hash": "7b77144b154fe3405a77b350c118a5a69b4c210654092d8637d75139efddc44b"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/InboundOrderSource.java",
+        "content_hash": "2d8dd0f684f5a8df9a3c9fc0d96aaf081d7272f14f7b6f4b2aca6fb88c968221"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/InboundOrderStatus.java",
+        "content_hash": "def18d3ecaf92e4a99ef90b3dc8bc4b612053a0380a71bb2e4b31bc3836556b7"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/Inventory.java",
+        "content_hash": "3d21e3cd530274379d1c08cd6bc90f826fce2b0578299c6f67661d71ea03b0ab"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/InventoryChangeType.java",
+        "content_hash": "d4ce3e3bbac2b849237169e1c43d7e45267224fd11efe711d5ae09d5d090c97e"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/InventoryRecord.java",
+        "content_hash": "0c7af14364cd13be4dee5bc04979f54100bb9649de666e3b9759bc58fa7b9fa5"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/InventoryRecordSourceType.java",
+        "content_hash": "a691a01812730ae98b1fb7555d4c1308c4b9cd06ddb2e008f393611bf076af3a"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/InventoryRecordStatus.java",
+        "content_hash": "2e374999e4015c439b1dcaa57e82b393e615b5d321a7ef72b5d100592f690baa"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/InventoryStatus.java",
+        "content_hash": "3661e8540fb32bfd3a5b4a9b1188d45ecacac02f14c2fe4af745ecc0d4e5592d"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/StockState.java",
+        "content_hash": "4190676db34ae1173a58ff99442675b41bff79c528482c37c28c22d89e410224"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AdjustInventoryRequest.java",
+        "content_hash": "c4da162f99351c0157d83369cc9d9635c72de08312153d8a727adfdeaf04390c"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AdminInventoryResponse.java",
+        "content_hash": "f803ca01ed0bae150ae0c3d7ee10674919232f258ef0f243d74b508f416cea8a"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiDailyInventoryReportResponse.java",
+        "content_hash": "b46aaba82efae2d6986ec654b17fdfc359e0f9c7aca83e863783c7c15b9ee89d"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiDailyReportInboundSummaryResponse.java",
+        "content_hash": "54d06b5c0d0dd96b1f50cf0dd28d2fca1be9edecd47c854a388512f150da095f"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiDailyReportSuggestionSummaryResponse.java",
+        "content_hash": "eb13b0c8547a1522f350c42fcfeccd9b86b5c0c59e24c571b32fcf3852d0ce93"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiInventoryAnalysisItemResponse.java",
+        "content_hash": "3fe900ab554098d6532cdb865358c6af4a385c2d804e551226ec8974727ca531"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiInventoryAnalysisResponse.java",
+        "content_hash": "7269d3fec860a232c1d1e8413e54cf10f0f9227aff78819c28923d51dff389fd"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiInventoryAskRequest.java",
+        "content_hash": "91c0f916190bbd888e7a7fad3e4112e79c9e38952a8e6db65450372a9261de44"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiInventoryAskResponse.java",
+        "content_hash": "f2236bc916dcca1bc0f7a6da63e00ad591552690ec9b7e8a17e1ea8320751e78"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiInventoryEvidenceResponse.java",
+        "content_hash": "06aee9b8dee3107225eefeaeacf11e5dc619ff0121206f9251da1abd410a307a"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiInventoryHotProductsAnalysisRequest.java",
+        "content_hash": "93a9a54427a07339e4c4827a0e65491d5c8441210bf67949fab835b763cbcc33"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiInventoryItemEvidence.java",
+        "content_hash": "af5ceb241997c599e30f2613d17b27e3524985d0fe7b5d3f6ead946ccec49d12"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiInventoryLowStockAnalysisRequest.java",
+        "content_hash": "48bcce887b18449ce912a5646b5b46128be5ca29eed05666f244f6aad4388a0a"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiInventoryRecordEvidence.java",
+        "content_hash": "404c9e1deae750c01ad5303f610c954886c2484bf42fc77f94e6cdfa35f7b2c5"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiInventorySalesEvidenceResponse.java",
+        "content_hash": "8235f08f9f6067b936486a992344990146a6c71da4c8ea67153bc599761d8072"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiInventorySalesItemEvidence.java",
+        "content_hash": "7b2019e9924e752a69eddade69512579eefee81e0f9c9cb6b908cfa0f5416d9d"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiInventoryToolTraceStepResponse.java",
+        "content_hash": "6799cb059010c3001fec5f84ea4fe8ea1ca386fe63469b181059cea3086d60a7"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiReplenishmentSuggestionGenerateRequest.java",
+        "content_hash": "517540dd3a8f59665b96d0be4a2e6a76bd0ce430489f4a7fb7964ce36798cc84"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiSalesEvidenceResponse.java",
+        "content_hash": "318bba8bb137e39832f82b5c15e2501490943beb14b89f9fd21a69c504801866"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiSuggestionItemResponse.java",
+        "content_hash": "953c6f4b72fb082d45a1d4c0c8ae9c202572a7efd015e4af367f77fc16f53f8c"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/AiSuggestionResponse.java",
+        "content_hash": "2ee8be43dea8ec5ccb8e8a8dd97944c3e1464d7823bcf2b26c6876d069efaeb7"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/CreateInboundOrderDraftItemRequest.java",
+        "content_hash": "9063ff3e0b0c594889722ba673cb8b4044eaa4d3dd1a4222cf03bde5bc92fad8"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/CreateInboundOrderDraftRequest.java",
+        "content_hash": "b4dea4234135ccc7a5463eca4f7e246d9a8f76de1e0e45e12ddeaf77bdc9c97e"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/InboundOrderItemResponse.java",
+        "content_hash": "965b28e9d9b43957185350c033c2315ab08a6f6114de83a98c0dd41150b9a72e"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/InboundOrderResponse.java",
+        "content_hash": "fea524fdc72ee3fdc99d936f1fb5f3eae8e63ebda26b9a7bb20280199b6c9bff"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/InitializeInventoryRequest.java",
+        "content_hash": "88e114d5fc8c6276ebf8dd7766dcdc7960d4b5bea9c6feaec698274092d04bb6"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/InventoryChangeRequest.java",
+        "content_hash": "136df3a7f5d32451e204114d41d235fc070012034a5cc254862fde592e1c3919"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/InventoryRecordResponse.java",
+        "content_hash": "7c8067c05ce49b2a334ca300617059a89ab0e633739bdd6ff0bd0c5cb50025a8"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/InventoryResponse.java",
+        "content_hash": "26f084d15ad75de3f88a63e7428e0592b987f1df1106ad811bed25e4ea643443"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/InventoryTrendResponse.java",
+        "content_hash": "5448fa66ee236961136b2097e30893009419dee078b5ea6993b0ce60cc992509"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/RejectAiSuggestionRequest.java",
+        "content_hash": "845f704a4adf01d48a505f4046a8feebbfe3ccb6e349614dbf48c8b72b0b1997"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/dto/UpdateSafetyStockRequest.java",
+        "content_hash": "c7a94c70b3e680621801fc289ad1555c83a79db9f763ccf04add8eee588b4b59"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/repository/AiInvocationLogRepository.java",
+        "content_hash": "3768f72f57155eeee743397cb077980df3919e40bf528af1df3e78b76547b78d"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/repository/AiOperationSuggestionItemRepository.java",
+        "content_hash": "e425a88f1f8a61b4dd2ae01837582660aefb46685b91908f79fecf5e01e65fe3"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/repository/AiOperationSuggestionRepository.java",
+        "content_hash": "60493555b01a2d33670871cc49d3fe6ac5d8143f90a28b0a53c304910f619e34"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/repository/InboundOrderItemRepository.java",
+        "content_hash": "3df38221462f6c89c5246890df9e2502016f18ef220f022e6e063b77d1a1a29c"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/repository/InboundOrderRepository.java",
+        "content_hash": "e4184719d6697c101866cad88dd09a303dac3d318b803c468ddc663732ef97d4"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/repository/InventoryRecordRepository.java",
+        "content_hash": "0707545ded588b17a60af2f21296bb4379429356ae3aed3df88e111e4892d57c"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/repository/InventoryRepository.java",
+        "content_hash": "59a561503d4154717d1ae4d62b6558f9c01915563539af9870a8de56b80b42aa"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/service/AiDailyInventoryReportService.java",
+        "content_hash": "e946bc465b4d995c287d83162c102890cf15253d1078468188d9dd81528d3f06"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/service/AiInventoryAnalysisApiService.java",
+        "content_hash": "a0784960e3904171ee90e5f2989501eac91381a67bc42418d65527bfd53f4865"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/service/AiInventoryEvidenceFacade.java",
+        "content_hash": "b262dfd0e632416e370c88e8fbc50c271cfd172e4aa49fd8f5118d3fc9f28e72"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/service/AiInventoryQuestionService.java",
+        "content_hash": "51d216ad44e001a8188be93beedf271826a0d6ce4276f6d3ab8518640755d882"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/service/AiOperationSuggestionService.java",
+        "content_hash": "8ae389e5ae25d20de3d140dc10c9eb2bbc095c15ecd4e41b9d1a9288595c03a2"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/service/AiReplenishmentSuggestionService.java",
+        "content_hash": "71d7363e717b6b93bd4665970bee15dfd68712e4d267d45604a686483c977611"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/service/AiSuggestionAppliedSynchronizer.java",
+        "content_hash": "d042610f1b11ef5234b0198bd84fa270207cb4544e8b437cdca38cab8545c75f"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/service/InboundOrderDraftService.java",
+        "content_hash": "5ea8e20834e2927b921a3efa90fadf97a92933c7711bc2351f89ee07742ce3fe"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/service/InventoryAdminAuditContext.java",
+        "content_hash": "01f181a165865f2726321cd044571bb55920ebf4ecfe7681ae87babd61a976af"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/service/InventoryCommandService.java",
+        "content_hash": "4762255714655ef0638a07e81991645bd8df713b0d8da80e8830005604732dd0"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/service/InventoryQueryService.java",
+        "content_hash": "845b326c96b952bc28ccb0e9d1c306eab9bd63dd05ca169b29f7acdb7597cf29"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/web/AdminAccess.java",
+        "content_hash": "6970fd393894b64168d179f603ef8a1f2308ab8da2d453aae2d471638bbb1710"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/web/AdminAiEvidenceController.java",
+        "content_hash": "719b768601befac9cb1e5e191d34adf16c975cbb790d030d9d7f139a232c721c"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/web/AdminAiInventoryAnalysisController.java",
+        "content_hash": "2e44202098a6f3f3e9f1b0cc8299ddeceb9510ad9cb0ffc5adb12bf0d1573e32"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/web/AdminAiInventoryQuestionController.java",
+        "content_hash": "74e220f9f839565133c4bb0fee2886ce90c5292b4f27ade9e7e9dc9cefb709a9"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/web/AdminAiReplenishmentSuggestionController.java",
+        "content_hash": "f19d74128e703c25e1a7e0630bdf8b509ed8a7cbda763d54adfafc05a3a195c1"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/web/AdminAiReportController.java",
+        "content_hash": "fa3e590d37ab6fa15c1a646984799eef07ed86daf5c33b779916bf46fe90542d"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/web/AdminAiSuggestionController.java",
+        "content_hash": "1e340f7b070817874d71a2b3e9f3a558f04f9f204e7594d6072ca2ccf0ed02d2"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/web/AdminInboundOrderController.java",
+        "content_hash": "b3b7a0701637cb56d54dae796ca2fb23a10daa001fbb3b8e7200b05949c0697f"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/web/AdminInventoryController.java",
+        "content_hash": "0c8d9e6e39272a1a44769530ccc281b2f961dcfea14be54b37d6ed6fbf560692"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/web/AdminOperationStatsController.java",
+        "content_hash": "24db63cb96074fb917e5b4ed55fab7ce1f2e5fcf55cd37d857508332ee0ae6a3"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/web/InternalInventoryController.java",
+        "content_hash": "7e637ab79ab57cb5d3672daf722b752a4e431d2d7748d0afa123c018585da2db"
+      },
+      {
+        "rel_path": "inventory-service/src/main/java/com/minimall/inventory/web/InventoryController.java",
+        "content_hash": "01ccbd6e168be10a4049beef5cfd24844826bf0b7106e7846b386def7b6f6984"
+      },
+      {
+        "rel_path": "inventory-service/src/main/resources/application.yml",
+        "content_hash": "58a1ca7fd0fdf6eccaf887997423e64f562e5eefcae4e02c5f801ae74273146f"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/InventoryActuatorEndpointTest.java",
+        "content_hash": "c612e4c24d7d5eba161a83b2ed08e6baa699907e89b0e9233d1084bd840523a0"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/InventoryServiceApplicationTest.java",
+        "content_hash": "f46c3baf42bce4e85c87a434192f538424202a4e108cb44de1cc9f9b60d126c8"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/ai/AiProviderContractTest.java",
+        "content_hash": "6a6f7ff95f0dcf2d8bea0fa34dac870accc98ef143dde497d5471f409dba9b7b"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/ai/DeepSeekAiProviderTest.java",
+        "content_hash": "b1cbb26fb9bf91954d43720419daf2b4881b9aad310b2166088d3d3d487beb24"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/ai/MiniMaxAiProviderTest.java",
+        "content_hash": "b35677be478b4f01f48f5d695787d85e24052ed713f116f71aeedec7ffad0607"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/ai/MockAiProviderTest.java",
+        "content_hash": "1a465e0a106ad9fc0d0611b343be573c37f541ebdfbbd6d7af9aa2abb524a0a0"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/ai/analysis/AiInventoryAnalysisServiceTest.java",
+        "content_hash": "32b40b6a3ebc686b0e895f1c587c3154cb25bb4e8d9e30c5abfed03abc16a83a"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/ai/envelope/AiToolEnvelopeParserTest.java",
+        "content_hash": "94c4cd1ec8ab7eb45c257305971a6346cfc79b041ed36ed6f85edc04ad8161a8"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/ai/invocation/AiInvocationLogIntegrationTest.java",
+        "content_hash": "39201c29cc1e68a378940e836357f37a3b28b9eb0fbebb9eff95dfd70162f988"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/ai/prompt/AiPromptTemplateCatalogTest.java",
+        "content_hash": "ca44df06bf5cd91449fa4724051bad462e15493d00a606e41e1a88e8d5e1b90a"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/ai/tool/AiInventoryToolRegistryTest.java",
+        "content_hash": "cd612dadb6c14b51eca4d30941da060166f14c2c79f45361a283fab947ff65fa"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/ai/validation/AiAllowedDateValuesTest.java",
+        "content_hash": "33106a51add9e009b8515e4acd35a59e97528d5807504ea479bbdf7c32c8875d"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/ai/validation/AiModelOutputValidatorTest.java",
+        "content_hash": "d0530fb2b5132cbde77937d18e1a336b594fd9a544f2ce0e014c8b327ba8fe22"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/client/order/OrderServiceSalesEvidenceClientTest.java",
+        "content_hash": "f6bf325c5e245b07be5858ba91c64ff034a122c310edcd3e0f72429a10f2e392"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/config/AiProviderConfigurationTest.java",
+        "content_hash": "6f255faa46cff60b679bc3c0febe2e0aaf3afea397b612eb98acf5f2847fb330"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/config/AiProviderPropertiesTest.java",
+        "content_hash": "14be31e4544e77d85694bab374bcfc349ddc87a37586076a6fdc3511cb29cf47"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/config/DemoDataPropertiesTest.java",
+        "content_hash": "b3d12af9c51dd9d84df8e49b4d666b9d2f397e606b248773d40bac47eea73475"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/demo/AiSuggestionDemoDataSeedContributorTest.java",
+        "content_hash": "59b8bdf4d99c8ea6095fea8ca64ba38994075a9585f909fc964db4633c154b30"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/demo/CoreDemoDataSeedContributorTest.java",
+        "content_hash": "aff67cb1465d0fc9367278b2ef99259bad2bc285a1768f319ff54195c636db3b"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/demo/DemoDataRunnerTest.java",
+        "content_hash": "4847d43ba929d2bf58d18efbc8fc6e4b4f34922f1c14567ab442f38406ed967e"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/dto/AdminInventoryResponseTest.java",
+        "content_hash": "aea591cc891863aaf8d6ddad4e8e39091f026121acfb9a1146d77f400d947936"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/repository/AiOperationSuggestionRepositoryTest.java",
+        "content_hash": "f69d7b278ea20cb67eacaacee7080264d66e7b2b396819788e1340ebe4272d07"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/repository/InboundOrderRepositoryTest.java",
+        "content_hash": "29113caad19b63542e5a2102c92679ed3e07ace29f248a4d652643ee03c59db7"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/repository/InventoryRecordRepositoryTest.java",
+        "content_hash": "8aae35cd8bf7fa82f5b9ed4227650083c86b1c9867ecd88c8a0198105f02eded"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/repository/InventoryRepositoryTest.java",
+        "content_hash": "6e2fb45750955e040c8c571e6725ee420d0a112fc9b7764434fdb214d491c2ae"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/service/AiInventoryEvidenceFacadeTest.java",
+        "content_hash": "642f8a857fdd7e4f18369bf484478a38e1d117e254001bbf5a217717f6ce030d"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/service/AiInventoryQuestionAnalysisServiceTest.java",
+        "content_hash": "f4b1b94cac8949fd5e2bf5c389a996e31d92e43e679c40a4e565f6f9bce0c29a"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/service/AiInventoryQuestionServiceTest.java",
+        "content_hash": "6e98d381d2d95dfd6965e4bda500eaba99b047f004498800f2be7caa1cab827f"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/service/AiReplenishmentSuggestionServiceTest.java",
+        "content_hash": "e2c2364864838522b144e76338129804b7f18650882eead91767f78dab21ffef"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/sql/MigrationVersionOrderTest.java",
+        "content_hash": "a1838c975b3bf39962ed5f1487d64611a4d44ded47d137ef67a93fae08ef3412"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/web/AdminAccessTest.java",
+        "content_hash": "683e079ce716f153a4e3d88642d5aa0c699f5c09c3f2c9ea9a8b8d921def0539"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/web/AdminAiEvidenceControllerTest.java",
+        "content_hash": "d5c4d9ef8f4747fe8be5faff51656fddb9f5f37ca7ce57b9f1f215ef9a8dfcba"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/web/AdminAiInventoryAnalysisControllerTest.java",
+        "content_hash": "14a60c36ecd8a29e58ab062adabcfa8e949d968374a6406f6210d01948688f83"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/web/AdminAiInventoryQuestionControllerTest.java",
+        "content_hash": "cec19e9794dc709557fb2efed3e8704dc7047f04f2c570a023fda8f6569225f0"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/web/AdminAiReplenishmentSuggestionControllerTest.java",
+        "content_hash": "270a8a0da69958473f1627d65f2634955174f9b0ed974a48a94d9d86c9ac5c47"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/web/AdminAiReportControllerTest.java",
+        "content_hash": "22888a685acc250d00c3309c8644845381640b1e7b00b1f15c4fb26b3f01896a"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/web/AdminAiSuggestionControllerTest.java",
+        "content_hash": "0ff9b530c8cea61f375886960d31b527f9fddebc43879d595a08b25f0cdd41a8"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/web/AdminInboundOrderControllerTest.java",
+        "content_hash": "b7206ecedc3f02d2dffb80e5ff20f39281ad228c11727b1371dc3dc086497823"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/web/AdminInventoryControllerTest.java",
+        "content_hash": "13d90087e54263e215ac5a0b4bc56b6af5357d1ee24caf1c8248c6a5b44ba95e"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/web/AiSuggestionAppliedSyncTest.java",
+        "content_hash": "b29c1966d8163d56217d7067b16eb2eeb2858c1749b7a18c4e6fd5919c4d3eb6"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/web/InternalInventoryControllerTest.java",
+        "content_hash": "ebed94be240b7c2655adc36efbf00238bb839ea05cdf7a5119e81a94412ea005"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/web/InventoryControllerTest.java",
+        "content_hash": "ad0c347dc24aa4a4be7a8f135d6ac26275ce236273c999e7487e7ccb69e5a11a"
+      },
+      {
+        "rel_path": "inventory-service/src/test/java/com/minimall/inventory/web/Phase3AiLoopAcceptanceTest.java",
+        "content_hash": "16174fb5297ff7e0cf2bb796b93327ee5f3ea80ae40af2e58f3c38f6a63e1c42"
+      },
+      {
+        "rel_path": "inventory-service/src/test/resources/application-test.yml",
+        "content_hash": "fea22cfc72e9fbbdada5940bd95121c8d56b2ea2e73b81fabeb0842d9b601dde"
+      },
+      {
+        "rel_path": "notification-service/src/main/java/com/minimall/notification/NotificationServiceApplication.java",
+        "content_hash": "0ad2991c6a75d991001dee09da8eb5c8aed48e4544d603af7b07cc50f1cf6015"
+      },
+      {
+        "rel_path": "notification-service/src/main/java/com/minimall/notification/config/NotificationRabbitConfig.java",
+        "content_hash": "50e0a1381abbc8f08755e88fe511535130bce7f5797ffb56d33c7ef4eac2939c"
+      },
+      {
+        "rel_path": "notification-service/src/main/java/com/minimall/notification/domain/NotificationLog.java",
+        "content_hash": "332bc6a3b8d3728c307fc7e7d7750287b8f90260ebe7961b432edb2b3a763410"
+      },
+      {
+        "rel_path": "notification-service/src/main/java/com/minimall/notification/domain/NotificationLogStatus.java",
+        "content_hash": "8ff925d337ea8bcf0bd043c90281da9f1700446c271db7dcd368c70ee2843766"
+      },
+      {
+        "rel_path": "notification-service/src/main/java/com/minimall/notification/domain/NotificationType.java",
+        "content_hash": "f1560ac5f6ac6ddef4c11e583ec785b4d3e81c468690dd7ae5c1c4fd925519a1"
+      },
+      {
+        "rel_path": "notification-service/src/main/java/com/minimall/notification/dto/AdminNotificationResponse.java",
+        "content_hash": "8241f0201f19173a6a9bd41570e1c94b42898034b2e36ceba50838b6d97aaa84"
+      },
+      {
+        "rel_path": "notification-service/src/main/java/com/minimall/notification/messaging/PaymentSuccessEventConsumer.java",
+        "content_hash": "73814c38f3d5b5ce4de173bf77c650db52f88adc3c5f96fe506a6ccd159b7e7f"
+      },
+      {
+        "rel_path": "notification-service/src/main/java/com/minimall/notification/repository/NotificationLogRepository.java",
+        "content_hash": "eb5c36078dc781af631e30f9f5e7794f2497f2f3c19f49693edc552df4e18a55"
+      },
+      {
+        "rel_path": "notification-service/src/main/java/com/minimall/notification/service/NotificationQueryService.java",
+        "content_hash": "6ac3a992cc51e3f1a6a48780f9ab1b41f7b9d91397c852e071dc79bcc0792f51"
+      },
+      {
+        "rel_path": "notification-service/src/main/java/com/minimall/notification/web/AdminAccess.java",
+        "content_hash": "af147dc782be7104981a8a6177322e5ce15373f092eb3b193783cc970c788cfc"
+      },
+      {
+        "rel_path": "notification-service/src/main/java/com/minimall/notification/web/AdminNotificationController.java",
+        "content_hash": "6df587c47e695e62995196997dac74bf4983604a95e7c9a8c33e206a9dc720e3"
+      },
+      {
+        "rel_path": "notification-service/src/main/resources/application.yml",
+        "content_hash": "86bc628ade706e60f6e5eaac59e19103495f1240176b2051eb462d08344cb0e0"
+      },
+      {
+        "rel_path": "notification-service/src/test/java/com/minimall/notification/NotificationServiceApplicationTest.java",
+        "content_hash": "9c722c8d990b07f11a7c4256f5719e89238a871b7950be1aa0cb68f716dbf113"
+      },
+      {
+        "rel_path": "notification-service/src/test/java/com/minimall/notification/messaging/PaymentSuccessEventConsumerTest.java",
+        "content_hash": "e6f37c50cddcc5a69fb78ed1e261f2a4e5b8f9018d0ef47322655fc82b1de30e"
+      },
+      {
+        "rel_path": "notification-service/src/test/java/com/minimall/notification/repository/NotificationLogRepositoryTest.java",
+        "content_hash": "bcf8ef29d2f18234788dac421844edd4bf610cc58d5f33d4e6d25b2e57f38ff8"
+      },
+      {
+        "rel_path": "notification-service/src/test/java/com/minimall/notification/web/AdminNotificationControllerTest.java",
+        "content_hash": "5b1fd8b81a2103fd9e37a2af09429f6cad10d643cc8c477ad40fd074b66090ed"
+      },
+      {
+        "rel_path": "notification-service/src/test/resources/application-test.yml",
+        "content_hash": "8e3b26f7aefdef71fbae6948b8e52848f787f54b10d9f6ae49827788cce5adb8"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/OrderServiceApplication.java",
+        "content_hash": "6f004e7397727a4813aaff5d2b74d48e1b2d046922aa91c5b57d8bac71f05d15"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/client/InternalTokenInterceptor.java",
+        "content_hash": "2d6126913e335540451def4ad795993bd7a97377a9147a54d9ed1a37c3513bab"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/client/inventory/InventoryApiResponse.java",
+        "content_hash": "6e41c6840fe7bd43f76a6a03523888f134e5e88adc04ef788319eb1343e11c45"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/client/inventory/InventoryClient.java",
+        "content_hash": "a7369617a196346c090e3dc637064466b9a25415caed6def2221246eedca8489"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/client/inventory/InventoryDeductRequest.java",
+        "content_hash": "31a648093f57e424cbd001d0cecde863a332d49c5a1121c5f30ba90c383e9be6"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/client/inventory/InventorySnapshot.java",
+        "content_hash": "ff924b109dfe7333652ab3317a5ae98fb8f7f57ff83e429bbe6671189b40e54e"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/client/inventory/InventoryStockState.java",
+        "content_hash": "24786ae9fdc75b9252594d2f1fb92a912a3ea7c3eb72baa1cb90c30708eb1b92"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/client/product/ProductApiResponse.java",
+        "content_hash": "0b61705c582ddb5f89f7761962e8421a8ee14db04b89fd574ed9483f2d1158bf"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/client/product/ProductClient.java",
+        "content_hash": "48d163e65ae921b40a592f6dfdb5684a4d7b961a150e43cf85ac3973cf7e0f64"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/client/product/ProductSnapshot.java",
+        "content_hash": "6f4c6ebc86915017fce88c5561cb25e3fd585019310c83a446a3558bfe815db0"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/client/product/ProductStatus.java",
+        "content_hash": "6293af8d3f8366c56f5e4042959071d6e0fb8cdefaaa2eb6a4db57069e26b2df"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/client/product/ProductValidationService.java",
+        "content_hash": "57a40fe3388d1af10f9d9e3b6f802bd3463bbd64a7ac4cbd8450d12acdde786e"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/config/OrderRabbitConfig.java",
+        "content_hash": "0584191ac362f65d9955e53a2bb473fa8f47d02111a0c9cfa678e42a36c687de"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/config/OrderTimeoutProperties.java",
+        "content_hash": "f3abbdc8206767faa637d5fb64375bc00103716236375732367afc4f34dd3fbf"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/domain/Order.java",
+        "content_hash": "5c3f897c710efb637468780bf1313c651dcbccb8b798a025b2e5a7ca85253dd0"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/domain/OrderEvent.java",
+        "content_hash": "ac3ff78a5cc4621165c0d84e90c90a06dbee94a0d1883fc4b31e1dec99c209ac"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/domain/OrderEventType.java",
+        "content_hash": "2de293e8a8e78b677ea9c41b3d2a1f698b4687d1203b5d1b3ca14055c9f7247a"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/domain/OrderStateMachine.java",
+        "content_hash": "476979435e538edb77d2ff7bcdb56086d08f664e932d6a75823b18c40104958f"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/domain/OrderStatus.java",
+        "content_hash": "7765c481f362ba88970486277051c4f80e495dde15e9bab5d9a10ebc83ef551d"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/dto/AdminOrderResponse.java",
+        "content_hash": "22d79e3a3125ac3323c66a777200b783eacdae7b0ce21b55ceb855f236e24721"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/dto/CancelOrderResponse.java",
+        "content_hash": "f0659c1866258ed3ec5c88ee5fd5f6443c07270fa9df8a61f91e95be2bfb0247"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/dto/CreateOrderRequest.java",
+        "content_hash": "e301afd0f438952917f2ba10eaa7bc9577f7daedc52e09c168ffad8d4dbebd03"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/dto/CreateOrderResponse.java",
+        "content_hash": "22f9fffa166b8cb5fc9c6a40c5be8a713b5ccf92a76adde106f85d5280f891af"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/dto/OrderDetailResponse.java",
+        "content_hash": "4338a83d27392b444fab69d0fab38cef7d5c2744837aa089bc854df63e9b73e3"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/dto/OrderEventResponse.java",
+        "content_hash": "05c955343ecef48723c2b2b1d51ef74274262b5e8bc5d4ec2a4c0640c36736cf"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/dto/OrderItemSummary.java",
+        "content_hash": "322e004ae43cfd6fa16fe2444ee52a353f9f342642b6c6019afacac08560bb2c"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/dto/OrderSummaryResponse.java",
+        "content_hash": "c19841ed405fa21923cbc46021c4cacf3bf475d34fdc6de1e727fa193804e262"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/dto/ProductSalesAggregationResponse.java",
+        "content_hash": "0accb1f2e60f034034fcddc5a389b22a47203fcbd0a31ca50c3f5b2b96924ef5"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/dto/SalesByProductStatsResponse.java",
+        "content_hash": "7f5604257ec97d5fcdc92f255ea2773bb995c5cc60e806a3d9537f7d83bba87c"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/messaging/PaymentSuccessEventConsumer.java",
+        "content_hash": "ceab80a472618bdd84f6e3c060202ce7b7cf865b455ae36bc76421f454ac7450"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/repository/OrderEventRepository.java",
+        "content_hash": "478087668c99d839bb32517bec50f502c45bd5b75022092f3e573ecf1552d0b7"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/repository/OrderRepository.java",
+        "content_hash": "dd78c6b91c515fc182eae675b79a1054e3ab0d187fdbdd220085eddaae8ccbda"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/repository/ProductSalesAggregation.java",
+        "content_hash": "223c8c899b14bde3fe2c7b9b1152557595281484a442d6ecb7e2f4bf9b015806"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/scheduling/OrderTimeoutScheduler.java",
+        "content_hash": "d609c5af7e07d3ea610b7473468d40c058f269e109a7582cd597324209075e0a"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/service/OrderCommandService.java",
+        "content_hash": "b289eb7534b30221a9916e001085b651fc6b98f8f6056acbf0a912d841fcfa99"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/service/OrderQueryService.java",
+        "content_hash": "e3b9b7e9f9728c24a82bd587de5f090b8bd9e8ac4c01a0b3d12c5e051e7880e9"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/service/OrderTimeoutCancellationService.java",
+        "content_hash": "2a20dbf6b2e14910b97f39d75086528b647edbe110eac972ed941c6dff87ee03"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/web/AdminAccess.java",
+        "content_hash": "12d87721d96454d78404aa3536f1a2f1c58f10a925aca8b47a1546520ae39198"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/web/AdminOperationStatsController.java",
+        "content_hash": "af9104a279c0a326410f5e57b2625ff9259ca39015e5fced6f11fa5a24cd7673"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/web/AdminOrderController.java",
+        "content_hash": "e565437cec93655481081692676666489ce2769056ff837911b6c94bd4d1fb5c"
+      },
+      {
+        "rel_path": "order-service/src/main/java/com/minimall/order/web/OrderController.java",
+        "content_hash": "5734e359a136805defb7f006cb28f3ed6178cb6b86c54ce220c5af2cb8bb8120"
+      },
+      {
+        "rel_path": "order-service/src/main/resources/application.yml",
+        "content_hash": "90f415d5caac0606786e33c49604eb260da49183e4ba2142c35e0ff1bf301bfd"
+      },
+      {
+        "rel_path": "order-service/src/test/java/com/minimall/order/client/inventory/InventoryClientTest.java",
+        "content_hash": "c510277cad09dbc7490447d323da6dc4e1e17c1238f4cad5a3f434f33016a249"
+      },
+      {
+        "rel_path": "order-service/src/test/java/com/minimall/order/client/product/ProductClientTest.java",
+        "content_hash": "9a06d5b2fa54b3c10904ac42cfd02643ec650f5873403e37b1fe68c01334e72c"
+      },
+      {
+        "rel_path": "order-service/src/test/java/com/minimall/order/client/product/ProductValidationServiceTest.java",
+        "content_hash": "eb780c26ff5434e4901c8ec4076021420fbe0a2d88d6e2f8eee60d3e261c3f0c"
+      },
+      {
+        "rel_path": "order-service/src/test/java/com/minimall/order/config/OrderTimeoutPropertiesTest.java",
+        "content_hash": "c62d8ee79873d7ce45bcb84fa4907dd155a0c38707c4583657fd7b156e4aee8f"
+      },
+      {
+        "rel_path": "order-service/src/test/java/com/minimall/order/domain/OrderStateMachineTest.java",
+        "content_hash": "a808dff01a6954a3c1e932a94f5d98b1d678c5a30f9da39a9f27f4b96c04ce09"
+      },
+      {
+        "rel_path": "order-service/src/test/java/com/minimall/order/messaging/PaymentSuccessEventConsumerTest.java",
+        "content_hash": "b790ef960218c33a67159c6bc9190fb05dca2ecbeee10bf408ea95e527cc91a8"
+      },
+      {
+        "rel_path": "order-service/src/test/java/com/minimall/order/repository/OrderEventRepositoryTest.java",
+        "content_hash": "7a2c2bab2185c006a49375ec01064e5c391db7c4ea34557128b66dca4b987adf"
+      },
+      {
+        "rel_path": "order-service/src/test/java/com/minimall/order/repository/OrderRepositoryTest.java",
+        "content_hash": "93991a10c18285053d1e7a6704c29e7cbf2cc05495cdcda000984e76cc929882"
+      },
+      {
+        "rel_path": "order-service/src/test/java/com/minimall/order/scheduling/OrderTimeoutSchedulerRegressionTest.java",
+        "content_hash": "4250f135949eab706b1f944d0a756fde6543e72ea2ccac634512e240510bdcaa"
+      },
+      {
+        "rel_path": "order-service/src/test/java/com/minimall/order/scheduling/OrderTimeoutSchedulerTest.java",
+        "content_hash": "d1932a2c24cb8a04c9f2b67056b8316c14f943bd88d0c0021f024b224240b63f"
+      },
+      {
+        "rel_path": "order-service/src/test/java/com/minimall/order/service/OrderCommandServiceTest.java",
+        "content_hash": "94ce632f7e534d562db380bdb90fd1a70910d2ce0e78e6f4365b40c64cef84db"
+      },
+      {
+        "rel_path": "order-service/src/test/java/com/minimall/order/service/OrderTimeoutCancellationServiceTest.java",
+        "content_hash": "cd23efe4e3b2341ebe8130494d40bc38b345c89a7a481cc07c59ad11a5905539"
+      },
+      {
+        "rel_path": "order-service/src/test/java/com/minimall/order/web/AdminOrderControllerTest.java",
+        "content_hash": "cfcb4fcfed91efa532a2080de25d191d91adc650040d4946e12530b89b81a4b1"
+      },
+      {
+        "rel_path": "order-service/src/test/java/com/minimall/order/web/OrderControllerTest.java",
+        "content_hash": "1e91180282b5d24b203a685401ab4f246961e47352ae3c407e353e8cbac95443"
+      },
+      {
+        "rel_path": "order-service/src/test/resources/application-test.yml",
+        "content_hash": "61f8846c9334c773ae0628571887bab8c175892da9a8e15242c02f78796deb55"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/PaymentServiceApplication.java",
+        "content_hash": "cb4d2015057380d186dd8b809bde9555962bece9187a39d238db0786706533b6"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/config/PaymentRabbitConfig.java",
+        "content_hash": "4a34d150925890e09e66998b9f429623245435592034ba16f31897fbadf00645"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/domain/Order.java",
+        "content_hash": "b1923d34a7efe82d3d537049c6974c685b990fe4f7b1e3bf28467ce0e2cd14d5"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/domain/OrderStatus.java",
+        "content_hash": "67442e22c893978a9b3d749e97f875cbd3d206c115324657c610380c22bc3130"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/domain/Payment.java",
+        "content_hash": "67570aa334501ea4b68b0a288b6d81eee2024afbe0daf952b070cd1a2d2c4382"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/domain/PaymentChannel.java",
+        "content_hash": "7618f873c525c6ebd80545cdf0a07570f9e7733a7ebcfbfdf809e5b2c5eaeb46"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/domain/PaymentStatus.java",
+        "content_hash": "95353cd443dc0566cd2f32a47bfd42d6defba509ddc3b15e3ead02d349ede74f"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/dto/AdminPaymentResponse.java",
+        "content_hash": "a75c057a346e7677564d20a5e01a08992df21bf702fa570983265e2e49208131"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/dto/PayPaymentRequest.java",
+        "content_hash": "535cb5a007ffe346e5f9ce37f3754d69695d130ce72fdf7ad33622e03ad25771"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/dto/PaymentResponse.java",
+        "content_hash": "986e9a2a406d8f2ce3a9ac599ca739951754eb41fc1c63f2d0a17e4fa92a78d9"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/repository/OrderRepository.java",
+        "content_hash": "f9c2285fc55f4c69171b9311d9da6ebd72ea054c4eee38834894ed691a0fdc14"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/repository/PaymentRepository.java",
+        "content_hash": "9dba88b4b6a55593d6d10c06f6e2d2136d25bd7bf973a4f8e8b17ddc1b72d7d9"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/service/PaymentCommandService.java",
+        "content_hash": "be7034a8a67a4c77de0dae620cd3fadb8931c6c22e5caf9bb147516d65b8a0d8"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/service/PaymentQueryService.java",
+        "content_hash": "af11e1e55f04ff84a5b2f2f0646a95cf7acf71ecdf0adc0296e66e6e25ea30f2"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/service/event/PaymentEventPublisher.java",
+        "content_hash": "092b40043e6c7195b18901f7209b77946ca850344e1ded760ad920083b5fb742"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/web/AdminAccess.java",
+        "content_hash": "d798253834bea4927845947bc637fc405c59a148a87a563ed2d5a1ada5eb88fb"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/web/AdminPaymentController.java",
+        "content_hash": "93bc70722b006fe547b9068d739b272423986fe3b8682d400ab9f4c3b210e9c7"
+      },
+      {
+        "rel_path": "payment-service/src/main/java/com/minimall/payment/web/PaymentController.java",
+        "content_hash": "af8d91db9af60e277fe43a3e5df494129224b01c9506418eaddc909b50cf1f4c"
+      },
+      {
+        "rel_path": "payment-service/src/main/resources/application.yml",
+        "content_hash": "d6f53cb7985ca4773886f816f9969d2109c8f8701b09bd29dee1bf641a5a5af6"
+      },
+      {
+        "rel_path": "payment-service/src/test/java/com/minimall/payment/PaymentServiceApplicationTest.java",
+        "content_hash": "7f4c62083304c989c61353261fb5c522fd186adbcc13427a3c73494ff081f9bc"
+      },
+      {
+        "rel_path": "payment-service/src/test/java/com/minimall/payment/repository/OrderRepositoryTest.java",
+        "content_hash": "b6b98e11107ae7e732499d977b2fbbc0f798109584605df39ce450700e21df07"
+      },
+      {
+        "rel_path": "payment-service/src/test/java/com/minimall/payment/repository/PaymentRepositoryTest.java",
+        "content_hash": "e068c23a8f0e92eb5769871766c14fddaebbaea7aa03d5df2d3f1eb43b865aed"
+      },
+      {
+        "rel_path": "payment-service/src/test/java/com/minimall/payment/service/event/PaymentEventPublisherTest.java",
+        "content_hash": "dbee3a6c38f8a4625b34648ff2f17222b3ebb15171ca236c2fd76e8c22915321"
+      },
+      {
+        "rel_path": "payment-service/src/test/java/com/minimall/payment/web/AdminPaymentControllerTest.java",
+        "content_hash": "ad75774bd4b43567ce3f39d88ca7f2b6dace4ba48b92bcbed5c59413fb3c5bd1"
+      },
+      {
+        "rel_path": "payment-service/src/test/java/com/minimall/payment/web/PaymentControllerTest.java",
+        "content_hash": "2200f0829ff85e151035e31d2a47f75dbb0645551ab7af4d5e5156d5a06c4e7d"
+      },
+      {
+        "rel_path": "product-service/src/main/java/com/minimall/product/ProductServiceApplication.java",
+        "content_hash": "f9c0a662f6c97c300c03c8c97e3fab0bf88fd1aaf06589d5397ba323bc6e8ac6"
+      },
+      {
+        "rel_path": "product-service/src/main/java/com/minimall/product/domain/Product.java",
+        "content_hash": "dd6a4dcd50c1beba5358abab0ac521235d9de11f0fe70a61404c95595cd62db2"
+      },
+      {
+        "rel_path": "product-service/src/main/java/com/minimall/product/domain/ProductStatus.java",
+        "content_hash": "c9f6820b3db1140de6886b91936fa931c6a7554c9774f1b3826fc0aba957d802"
+      },
+      {
+        "rel_path": "product-service/src/main/java/com/minimall/product/dto/CreateProductRequest.java",
+        "content_hash": "2cbef10576626d0ccc428dcb7c7f5f8f9d9ac3143c2ad9cd2c90f5c919b6f615"
+      },
+      {
+        "rel_path": "product-service/src/main/java/com/minimall/product/dto/InternalProductResponse.java",
+        "content_hash": "d4722cb445f57d15b18bb2e7a2edf8a463ec1ee2f5557bcea5ef32d40b267dde"
+      },
+      {
+        "rel_path": "product-service/src/main/java/com/minimall/product/dto/ProductResponse.java",
+        "content_hash": "f888ba24636459b98d3f21953f0fb47775f4abf7d83d7b3f112090efb050be3e"
+      },
+      {
+        "rel_path": "product-service/src/main/java/com/minimall/product/dto/UpdateProductRequest.java",
+        "content_hash": "e030868c7b45c91b62934a5dde61066f997f588034528ea2e7a137126649f79b"
+      },
+      {
+        "rel_path": "product-service/src/main/java/com/minimall/product/dto/UpdateProductStatusRequest.java",
+        "content_hash": "af1115e9642b925370c4edeaeb6085868cf8db2d2fb48c06e6a6abcccdc1a549"
+      },
+      {
+        "rel_path": "product-service/src/main/java/com/minimall/product/repository/ProductRepository.java",
+        "content_hash": "0cc45c0ba662e8f61e9121302bdf3ed014cfbd90d55ad341e91cfc070dfb68bc"
+      },
+      {
+        "rel_path": "product-service/src/main/java/com/minimall/product/service/ProductAdminAuditContext.java",
+        "content_hash": "28b39d9056c1846ccbc26d5b338a0ef45287416733adfd224541382469c4acf8"
+      },
+      {
+        "rel_path": "product-service/src/main/java/com/minimall/product/service/ProductService.java",
+        "content_hash": "87f75a887c202626ca0d3e29e4786e1954f355fc87414ada1af24a5cb8cca4f5"
+      },
+      {
+        "rel_path": "product-service/src/main/java/com/minimall/product/web/AdminAccess.java",
+        "content_hash": "626bd878ec160c3182e165e894584761ab29abf15d32b4faa76a496e5a84929b"
+      },
+      {
+        "rel_path": "product-service/src/main/java/com/minimall/product/web/AdminProductController.java",
+        "content_hash": "bb6b8cc7d06a7428e0706f9a08ad6768b8fdd8ed98b629371e4905074de31ed7"
+      },
+      {
+        "rel_path": "product-service/src/main/java/com/minimall/product/web/InternalProductController.java",
+        "content_hash": "0bb6b204eeb5876baf5f73cf1fc4e2648a337e39df49243b537f1d3dbd8cf699"
+      },
+      {
+        "rel_path": "product-service/src/main/java/com/minimall/product/web/ProductController.java",
+        "content_hash": "a7c0d12b3ba439d4e267bdd617b0e7977f05d7b2059e546806fa362a8135f3f1"
+      },
+      {
+        "rel_path": "product-service/src/main/resources/application.yml",
+        "content_hash": "8cd3f18f0fd0890c71e32bfd34b4a6f5f36e0fc75c89745af63f1bdab085d020"
+      },
+      {
+        "rel_path": "product-service/src/test/java/com/minimall/product/ProductServiceApplicationTest.java",
+        "content_hash": "f6e8476fb382047a7113c677af0eba3a7908d74b70f6d749b4956e3e8ce3cfad"
+      },
+      {
+        "rel_path": "product-service/src/test/java/com/minimall/product/repository/ProductRepositoryTest.java",
+        "content_hash": "c21d45e3d1de070b1646aa81f4f327970d5b77931a9f6d860b2a2f5aae842046"
+      },
+      {
+        "rel_path": "product-service/src/test/java/com/minimall/product/web/AdminAccessTest.java",
+        "content_hash": "ecd866756487b8d007b4bc49bb2faa614302a05b81a1e063863568820b676096"
+      },
+      {
+        "rel_path": "product-service/src/test/java/com/minimall/product/web/ProductControllerTest.java",
+        "content_hash": "09a73c08fb32778f2a1d5560b598a24e71e225db59d2503ee29a7f015d385791"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/UserServiceApplication.java",
+        "content_hash": "3918e4272914e669c0ed64d9051ea43664e8e92b3542b21d34df542b8636f499"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/audit/AdminAuditLogQueryService.java",
+        "content_hash": "aeee3bc9d3f4d3fd7a70e7d1c7384467f55581ae964d3f94d24dd3eb6e010929"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/audit/AdminOperationLog.java",
+        "content_hash": "73239723bbb1270b4451472ecf8abebc5f7db052ba1ca25d26d0100784bfe1ea"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/audit/AdminOperationLogRepository.java",
+        "content_hash": "f4790dc0e478335b21f43904f4d4142994f8f883ac93a3d6ccd74476ae3842b9"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/config/AdminSeedProperties.java",
+        "content_hash": "5b0db774ec028478e3000d252e17acc9ad5acf50d844115654575eb593bf89cb"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/config/UserSecurityConfig.java",
+        "content_hash": "6736b6c10eb6168c9319c867908d1bf628566c5902708e01e09aff54b82f94e7"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/domain/User.java",
+        "content_hash": "2b419a9ef38cc73d305e879fb64c2e5a65885c4fa0130060589e2f6915396749"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/domain/UserRole.java",
+        "content_hash": "e2e74a5e65ad9a631ed77808ea0bfee1acef571d532ef5f3f0acd5ba53184934"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/domain/UserStatus.java",
+        "content_hash": "9f619780d2aabc306fc4887ca41b63a2e410c4f4a7e814e7a62deb71c6398ddf"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/dto/CurrentUserResponse.java",
+        "content_hash": "86f26307bab849cc1c6b109844633efe3841d9bb13486b47890d949153610dd3"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/dto/LoginRequest.java",
+        "content_hash": "b30783e9a98165950b5737202bb202ce81067c2b5570400f9520856815254376"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/dto/LoginResponse.java",
+        "content_hash": "6cd21eaa32151b8ab69cf593161271df73c602ed0bcfc2b23744c76c123d5c34"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/dto/RegisterRequest.java",
+        "content_hash": "b0ad3773a045a670b3e937532fa8c14a022e7dca77488457c6c79ad4f4bdbf80"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/dto/UserResponse.java",
+        "content_hash": "e3e9ae697d53ea2e4dffbea2bb3f30c0f319c5e241ffa5e413a9c75175bd526a"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/repository/UserRepository.java",
+        "content_hash": "77328b7e27d25aaa5303f4763d69539943fd75f9f2fe0e0984a088f5ac81eacb"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/seed/AdminSeedRunner.java",
+        "content_hash": "05521cfe72fc16bf75a2869f208a09fbdc3b199ae52ef4dad40a8306fedec8c6"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/service/UserAuthService.java",
+        "content_hash": "571395fabf17354a7efacfd37f347d7bf9c9069688e716e10c0ebfb86540ae25"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/web/AdminAuditLogController.java",
+        "content_hash": "a6dffeb1dc8cf02a5d72e98d1c9f5d13d974086b2779f14c9bda3f1eb332c0ad"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/web/AdminAuthController.java",
+        "content_hash": "b54a884b7e2483262bbab04f6f58e459660b4345ce3f18f79d9734329fc82bbc"
+      },
+      {
+        "rel_path": "user-service/src/main/java/com/minimall/user/web/UserAuthController.java",
+        "content_hash": "b12d9282c17848e45c79ca72ba858eda47d35322ee6e3a9863152f2c32120ff3"
+      },
+      {
+        "rel_path": "user-service/src/main/resources/application.yml",
+        "content_hash": "66eb7e79401103758fc0ae4a86672b442f00aa6ce7461d7767110a2d491d419b"
+      },
+      {
+        "rel_path": "user-service/src/test/java/com/minimall/user/audit/AdminOperationLogRepositoryTest.java",
+        "content_hash": "fadef92784ecc36d6ddee69d41d2226561ab9ac1871b749ade4ae177ff87f493"
+      },
+      {
+        "rel_path": "user-service/src/test/java/com/minimall/user/config/AdminSeedPropertiesTest.java",
+        "content_hash": "83363bb2fd88924dcabc6b2e4ca5536f03d67c5e8339bf506e0bd0a7f1e32f1a"
+      },
+      {
+        "rel_path": "user-service/src/test/java/com/minimall/user/repository/UserRepositoryTest.java",
+        "content_hash": "e412a00376a856e24783af8830907a4b6c04e2507fe02a3c031f14c6cd60d3d2"
+      },
+      {
+        "rel_path": "user-service/src/test/java/com/minimall/user/seed/AdminSeedRunnerTest.java",
+        "content_hash": "261a87f0eee6afb473311cec913b99b9ff108c4cb708e31a61239762ef6270b8"
+      },
+      {
+        "rel_path": "user-service/src/test/java/com/minimall/user/web/AdminAuditLogControllerTest.java",
+        "content_hash": "d267ff7585f8c6ce1eaead8e193f047c583d81d79842ba9b7c5adbe9656570db"
+      },
+      {
+        "rel_path": "user-service/src/test/java/com/minimall/user/web/AdminAuthControllerTest.java",
+        "content_hash": "f0c7b458d9d27d974ab463ed1797cdf8bdecefd505b22460d7594e1c6cf7db20"
+      },
+      {
+        "rel_path": "user-service/src/test/java/com/minimall/user/web/UserAuthControllerTest.java",
+        "content_hash": "fc7fbcf53038a29150dcaef2b5f4d7488989179edcbd238251ea28f1428195e5"
+      }
+    ]
+  },
+  "dataset": {
+    "answerable": 17,
+    "unanswerable": 4,
+    "evalsets_dir": "evalsets"
+  },
+  "config": {
+    "top_k": 10,
+    "agentic_top_k": 8,
+    "rrf_k": 60,
+    "per_channel_n": 50,
+    "ef_search": 40,
+    "embedding_model_id": "Qwen/Qwen3-Embedding-0.6B",
+    "llm_model": "deepseek-v4-flash",
+    "prompt_version": "p1.5-agent-v6",
+    "mrr_max_drop": 0.02,
+    "hnsw_overlap_gate": 0.95,
+    "citation_proxy_gate": 0.85
+  },
+  "retrieval": {
+    "metrics": {
+      "vector-hnsw": {
+        "recall_at_5": 0.47058823529411764,
+        "recall_at_10": 0.5882352941176471,
+        "mrr_at_10": 0.38585434173669464,
+        "latency_ms_p50": 80.35468899993248,
+        "latency_ms_p95": 882.3979930000405,
+        "group_first_hits": {
+          "natural-language": [
+            1,
+            null,
+            4,
+            null,
+            7,
+            null,
+            2,
+            6,
+            null,
+            null,
+            2
+          ],
+          "token": [
+            1,
+            null,
+            1,
+            1,
+            1,
+            null
+          ]
+        }
+      }
+    },
+    "overlap_exact_hnsw": null,
+    "questions": [
+      {
+        "id": "q01",
+        "question": "创建订单接口是怎么防止用户重复提交的？",
+        "group": "natural-language",
+        "relevant": [
+          {
+            "rel_path": "docs/dev-log.md",
+            "anchor": "Task 10.5 - Duplicate submit idempotency for create order"
+          },
+          {
+            "rel_path": "docs/api-gateway-contract.md",
+            "anchor": "4.1 Customer And Public APIs"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": 1
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "eddd993d-f0d6-42b6-ab4a-12f986ccc09a",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 10.5 - Duplicate submit idempotency for create order"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "042a387d-9d76-414d-9de8-ab5c89433c35",
+              "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+              "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第三部分：核心业务链路审查 > 不变量保护核对表"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "99d505d4-7fa0-4e7d-832f-5ce0276b9eaf",
+              "rel_path": "order-service/src/test/java/com/minimall/order/web/OrderControllerTest.java",
+              "title_path": "com.minimall.order.web.OrderControllerTest > OrderControllerTest > createOrderReplayReturnsExistingOrderWithoutDeductingAgain"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "e203c3eb-d092-4412-a2c4-47fd0a73f0d9",
+              "rel_path": "order-service/src/test/java/com/minimall/order/service/OrderCommandServiceTest.java",
+              "title_path": "com.minimall.order.service.OrderCommandServiceTest > OrderCommandServiceTest > createReplaysExistingOrderWhenDatabaseUniqueKeyWinsRace"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "7ddd7685-8bb0-48d2-a933-6d58d8ff250e",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 10.4 - Create order orchestration and persistence"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "77412f5c-4be9-4c0a-8e29-66aec5c1bd5a",
+              "rel_path": "order-service/src/test/java/com/minimall/order/web/OrderControllerTest.java",
+              "title_path": "com.minimall.order.web.OrderControllerTest > OrderControllerTest > createOrderInFlightDuplicateReturnsRetryableConflict"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "b3d19b07-1b1b-47f3-968a-b2e031627e24",
+              "rel_path": "docs/phase1-frontend-acceptance.md",
+              "title_path": "Phase 1 — Customer Frontend Acceptance > 6. Idempotency contract"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "20bd8a67-6cd7-47b4-9378-c83205752ad4",
+              "rel_path": "order-service/src/test/java/com/minimall/order/service/OrderCommandServiceTest.java",
+              "title_path": "com.minimall.order.service.OrderCommandServiceTest > OrderCommandServiceTest > createReplaysExistingOrderWhenDatabaseUniqueKeyWinsRace"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "b0b5c3e3-9a57-40e9-a945-0bceab37b2ec",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Phase 1 Task 7 - Implement checkout and idempotent order creation"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "40f5f226-7e5c-4041-a99e-a4b229ecd6f1",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > 2026-05-24 · B3 — Checkout page rewrite"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q02",
+        "question": "库存扣减的幂等键是什么？同一订单重复扣减会发生什么？",
+        "group": "natural-language",
+        "relevant": [
+          {
+            "rel_path": "docs/dev-log.md",
+            "anchor": "Task 8.3 - Inventory deduct/release records and idempotency"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": null
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "042a387d-9d76-414d-9de8-ab5c89433c35",
+              "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+              "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第三部分：核心业务链路审查 > 不变量保护核对表"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "7d631707-f1d4-492c-9cee-70b4242184f4",
+              "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+              "title_path": "minimall 代码架构体检报告 > 9. 数据一致性与事务专项审查"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "71b1886d-3bce-4fe0-9b2c-45c284bdd78f",
+              "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+              "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-2：下单先远程扣库存、后本地插订单（已登记的 M2，确认仍存在）"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "5bf3a362-4b0d-4962-b353-b53798d40c97",
+              "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+              "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B2（P2-3）：库存调整幂等检查按 productId 区分"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "9298c3cd-9045-4399-a61f-018853634fe7",
+              "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+              "title_path": "minimall 代码架构体检报告 > 11. 测试覆盖专项审查"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "cd6ea319-b84b-4e54-8e26-3eae359cb11a",
+              "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+              "title_path": "minimall 代码架构体检报告 > 5. P2 级问题 > P2-3：库存调整幂等检查未按 productId 区分，requestId 复用会静默吞掉合法调整"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "20bd8a67-6cd7-47b4-9378-c83205752ad4",
+              "rel_path": "order-service/src/test/java/com/minimall/order/service/OrderCommandServiceTest.java",
+              "title_path": "com.minimall.order.service.OrderCommandServiceTest > OrderCommandServiceTest > createReplaysExistingOrderWhenDatabaseUniqueKeyWinsRace"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "99d505d4-7fa0-4e7d-832f-5ce0276b9eaf",
+              "rel_path": "order-service/src/test/java/com/minimall/order/web/OrderControllerTest.java",
+              "title_path": "com.minimall.order.web.OrderControllerTest > OrderControllerTest > createOrderReplayReturnsExistingOrderWithoutDeductingAgain"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "ffe87796-b795-4185-813e-a06469647cf4",
+              "rel_path": "inventory-service/src/test/java/com/minimall/inventory/web/InternalInventoryControllerTest.java",
+              "title_path": "com.minimall.inventory.web.InternalInventoryControllerTest > InternalInventoryControllerTest > duplicateDeductRequestIsIdempotent"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "dcdc6c22-ce54-44e7-ae52-1aa4bbc3e7d8",
+              "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+              "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B6（决策门，默认跳过）：M2 —— 下单 saga 缺口"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q03",
+        "question": "订单状态机允许哪些状态流转？",
+        "group": "natural-language",
+        "relevant": [
+          {
+            "rel_path": "docs/dev-log.md",
+            "anchor": "Task 9.2 - OrderStateMachine status transitions"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": 4
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "386f6d6c-b440-4051-85cd-598c1efa61c7",
+              "rel_path": "order-service/src/main/java/com/minimall/order/domain/OrderStateMachine.java",
+              "title_path": "com.minimall.order.domain.OrderStateMachine > OrderStateMachine"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "6ff3b500-3aa1-4166-8821-7732b05510ee",
+              "rel_path": "order-service/src/test/java/com/minimall/order/domain/OrderStateMachineTest.java",
+              "title_path": "com.minimall.order.domain.OrderStateMachineTest > OrderStateMachineTest > fields"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "b94ba32c-922a-42f3-b689-8269b29b8bf2",
+              "rel_path": "order-service/src/test/java/com/minimall/order/domain/OrderStateMachineTest.java",
+              "title_path": "com.minimall.order.domain.OrderStateMachineTest > OrderStateMachineTest"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "1bccdc3e-ff0b-4c57-aa50-8e025e0389d8",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 9.2 - OrderStateMachine status transitions"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "015fefe3-685d-4266-9996-ac8d2bec95ed",
+              "rel_path": "order-service/src/test/java/com/minimall/order/domain/OrderStateMachineTest.java",
+              "title_path": "com.minimall.order.domain.OrderStateMachineTest > OrderStateMachineTest > exposesTransitionChecks"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "dbd6efcf-1323-4cad-a2da-7d6a97513054",
+              "rel_path": "order-service/src/main/java/com/minimall/order/domain/OrderStateMachine.java",
+              "title_path": "com.minimall.order.domain.OrderStateMachine > OrderStateMachine > fields"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "2f3d8459-2eca-4666-a8c8-68257dfdfdb9",
+              "rel_path": "order-service/src/test/java/com/minimall/order/domain/OrderStateMachineTest.java",
+              "title_path": "com.minimall.order.domain.OrderStateMachineTest > OrderStateMachineTest > transitionsPaidToClosed"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "5f1bd923-092f-4444-a854-1ed3781915fd",
+              "rel_path": "payment-service/src/main/java/com/minimall/payment/domain/OrderStatus.java",
+              "title_path": "com.minimall.payment.domain.OrderStatus > OrderStatus"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "6a157aa1-7aa0-4261-9d47-fa675a408377",
+              "rel_path": "order-service/src/main/java/com/minimall/order/domain/OrderStatus.java",
+              "title_path": "com.minimall.order.domain.OrderStatus > OrderStatus"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "4fd12ff2-056c-49a5-87dd-2323325d346e",
+              "rel_path": "inventory-service/src/main/java/com/minimall/inventory/domain/InboundOrderStatus.java",
+              "title_path": "com.minimall.inventory.domain.InboundOrderStatus > InboundOrderStatus"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q04",
+        "question": "网关会剥掉浏览器传来的哪些请求头？为什么要剥？",
+        "group": "natural-language",
+        "relevant": [
+          {
+            "rel_path": "docs/api-gateway-contract.md",
+            "anchor": "2. Authentication And Trust Boundary"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": null
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "b67d70e5-2536-4729-969e-093d91baa45d",
+              "rel_path": "api-gateway/src/main/java/com/minimall/gateway/security/GatewayAuthenticationFilter.java",
+              "title_path": "com.minimall.gateway.security.GatewayAuthenticationFilter > GatewayAuthenticationFilter > sanitizePropagationHeaders"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "301e00c8-2321-4327-8ecb-13f6781c91c7",
+              "rel_path": "api-gateway/src/test/java/com/minimall/gateway/GatewayAuthenticationFilterTest.java",
+              "title_path": "com.minimall.gateway.GatewayAuthenticationFilterTest > GatewayAuthenticationFilterTest > TestDownstreamController > headers"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "bbdce9e2-dde6-444e-940c-ccd74cfa91f7",
+              "rel_path": "common-auth/src/test/java/com/minimall/common/auth/web/UserContextFilterTest.java",
+              "title_path": "com.minimall.common.auth.web.UserContextFilterTest > UserContextFilterTest > legacyHeaderTrustDoesNotMarkTrustedGatewayRequest"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "b6d6bf71-1b27-45ca-9793-18f7ad89637a",
+              "rel_path": "docs/history/phase2-admin-api-contract.md",
+              "title_path": "Phase 2 Admin API Contract > 3. Role And Authentication Contract > 3.3 Trusted Headers"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "0707c3b4-41f0-4a24-9216-fe872808a315",
+              "rel_path": "common-auth/src/main/java/com/minimall/common/auth/constants/AuthHeaders.java",
+              "title_path": "com.minimall.common.auth.constants.AuthHeaders > AuthHeaders > fields"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "fc8d441d-c024-4924-9c68-48bccc1cea9e",
+              "rel_path": "docs/frontend-integration.md",
+              "title_path": "Frontend Integration Guide > Browser Acceptance Checklist"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "df58f77d-236d-4344-9b11-744130ec3e2b",
+              "rel_path": "api-gateway/src/main/java/com/minimall/gateway/web/GatewayCorsWebFilter.java",
+              "title_path": "com.minimall.gateway.web.GatewayCorsWebFilter > GatewayCorsWebFilter > addVaryHeaders"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "fde1d7b9-5b51-4b36-9e7d-e3026e28ef9e",
+              "rel_path": "api-gateway/src/test/java/com/minimall/gateway/GatewayRequestLoggingFilterTest.java",
+              "title_path": "com.minimall.gateway.GatewayRequestLoggingFilterTest > GatewayRequestLoggingFilterTest > logsRequestSummaryWithoutSensitiveHeaders"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "23a7afb0-5ddb-4844-b7f1-8ca7e6253a75",
+              "rel_path": "docs/history/project-acceptance-report.md",
+              "title_path": "MiniMall Order Project Acceptance Report > Stable Gateway Contracts"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "b57c060d-70cc-471f-9e36-4c290259c692",
+              "rel_path": "docs/audit/full-repo-audit.md",
+              "title_path": "全仓库审计报告 > 总结"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q05",
+        "question": "哪些接口是公开的、不需要带 JWT？",
+        "group": "natural-language",
+        "relevant": [
+          {
+            "rel_path": "docs/api-gateway-contract.md",
+            "anchor": "2. Authentication And Trust Boundary"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": 7
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "a7642c54-5396-4e3d-86a7-4e4fcc18926f",
+              "rel_path": "docs/api-gateway-contract.md",
+              "title_path": "API Gateway Contract > 4. Current Endpoint Index"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "6f213264-f875-466d-993e-3a8f1b8916a6",
+              "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+              "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第六部分：安全风险分级"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "506d1770-979c-4b3d-9ffc-59142c291cca",
+              "rel_path": "docs/frontend-integration.md",
+              "title_path": "Frontend Integration Guide > Authentication Flow"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "0887d25e-0a72-4b55-b1b6-3957ad2728d4",
+              "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+              "title_path": "minimall 代码架构体检报告 > 10. 权限与安全专项审查"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "46f430fc-399a-4aed-8876-62a390c2a55b",
+              "rel_path": "docs/history/phase2-admin-api-contract.md",
+              "title_path": "Phase 2 Admin API Contract > 4. Gateway Contract > 4.1 Public And Customer Routes"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "e3b9feb9-b8b9-44a7-8798-fb0629997615",
+              "rel_path": "api-gateway/src/test/java/com/minimall/gateway/GatewayAuthenticationFilterTest.java",
+              "title_path": "com.minimall.gateway.GatewayAuthenticationFilterTest > GatewayAuthenticationFilterTest > publicInventoryReadBypassesJwt"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "b9b6f8cf-5506-4045-8faa-17a3d3ab9cc8",
+              "rel_path": "docs/api-gateway-contract.md",
+              "title_path": "API Gateway Contract > 2. Authentication And Trust Boundary"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "3bbde583-5922-4657-b46f-3012f831c59d",
+              "rel_path": "api-gateway/src/test/java/com/minimall/gateway/GatewayIntegrationRegressionTest.java",
+              "title_path": "com.minimall.gateway.GatewayIntegrationRegressionTest > GatewayIntegrationRegressionTest > protectedApiRequiresJwtBeforeRateLimiting"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "c120d9c1-8065-4cb9-98d7-6c42ae305580",
+              "rel_path": "api-gateway/src/test/java/com/minimall/gateway/GatewayAuthenticationFilterTest.java",
+              "title_path": "com.minimall.gateway.GatewayAuthenticationFilterTest > GatewayAuthenticationFilterTest > publicLoginPathBypassesJwtAndStripsSpoofedHeaders"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "80d7a299-ea8f-4213-a1d9-c44695f7e9af",
+              "rel_path": "common-auth/src/test/java/com/minimall/common/auth/web/UserContextFilterTest.java",
+              "title_path": "com.minimall.common.auth.web.UserContextFilterTest > UserContextFilterTest > prefersPropagationHeadersOverJwt"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q06",
+        "question": "支付成功事件用的 exchange、routing key 和两个消费队列分别是什么？",
+        "group": "token",
+        "relevant": [
+          {
+            "rel_path": "docs/architecture.md",
+            "anchor": "Event Flow"
+          },
+          {
+            "rel_path": "docs/deployment.md",
+            "anchor": "RabbitMQ Operations"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": 1
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "a0624d3d-4f52-462f-981c-eaede785c8cc",
+              "rel_path": "docs/architecture.md",
+              "title_path": "Architecture > Event Flow"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "b6e774db-f8bf-42fd-b0ad-065e97d3a866",
+              "rel_path": "docs/deployment.md",
+              "title_path": "Deployment And Operations > RabbitMQ Operations"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "c088b98b-be65-403d-97d4-83e4a2f91152",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 12.3 - Document payment event contract and topology"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "38d4dee6-61e5-4fb7-a4c7-4187bb95196e",
+              "rel_path": "docs/messaging/payment-success-event.md",
+              "title_path": "Payment Success Event Contract > RabbitMQ Topology"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "460e1f54-ef58-4ef8-b8c0-85383202a2b4",
+              "rel_path": "docs/history/project-acceptance-report.md",
+              "title_path": "MiniMall Order Project Acceptance Report > Data And Event Contracts"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "1145b0f8-706b-4260-8a91-ce4536125d9e",
+              "rel_path": "docs/messaging/payment-success-event.md",
+              "title_path": "Payment Success Event Contract > Scope"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "7232ca16-b1e6-42fe-9107-cf8703d16c50",
+              "rel_path": "common-core/src/main/java/com/minimall/common/core/event/payment/PaymentEventNames.java",
+              "title_path": "com.minimall.common.core.event.payment.PaymentEventNames > PaymentEventNames > fields"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "779fcd29-b69c-4398-b4df-c869fe9eff4a",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 12.1 - Define shared payment success event contract"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "545d0ac9-51a1-459c-a91e-f2102cf6972b",
+              "rel_path": "docs/messaging/payment-success-event.md",
+              "title_path": "Payment Success Event Contract > Producer Rules"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "f945368b-510c-414e-b9d5-dfc2e6350dc4",
+              "rel_path": "common-core/src/test/java/com/minimall/common/core/event/payment/PaymentEventNamesTest.java",
+              "title_path": "com.minimall.common.core.event.payment.PaymentEventNamesTest > PaymentEventNamesTest > exposesStablePaymentSuccessTopologyNames"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q07",
+        "question": "消费支付事件为什么必须按 eventId 去重？",
+        "group": "token",
+        "relevant": [
+          {
+            "rel_path": "docs/architecture.md",
+            "anchor": "Event Flow"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": null
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "f7040203-c061-47ee-9355-a473c4c26fbe",
+              "rel_path": "order-service/src/test/java/com/minimall/order/messaging/PaymentSuccessEventConsumerTest.java",
+              "title_path": "com.minimall.order.messaging.PaymentSuccessEventConsumerTest > PaymentSuccessEventConsumerTest > duplicateEventIdDoesNotProcessAgain"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "c1551b74-686a-4f07-9102-32028ab917c9",
+              "rel_path": "order-service/src/test/java/com/minimall/order/repository/OrderEventRepositoryTest.java",
+              "title_path": "com.minimall.order.repository.OrderEventRepositoryTest > OrderEventRepositoryTest > rejectsDuplicateEventIdForIdempotency"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "010416ae-f351-42ce-a4f5-c4b96196d8a5",
+              "rel_path": "notification-service/src/test/java/com/minimall/notification/messaging/PaymentSuccessEventConsumerTest.java",
+              "title_path": "com.minimall.notification.messaging.PaymentSuccessEventConsumerTest > PaymentSuccessEventConsumerTest > duplicateEventIdIsIgnoredWithoutAdditionalRows"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "ffccb3bc-50f3-480f-9f21-e94952e13720",
+              "rel_path": "docs/messaging/payment-success-event.md",
+              "title_path": "Payment Success Event Contract > Consumer Rules"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "75b4ae3a-35c4-4004-bd39-1a3df69befdc",
+              "rel_path": "order-service/src/test/java/com/minimall/order/web/AdminOrderControllerTest.java",
+              "title_path": "com.minimall.order.web.AdminOrderControllerTest > AdminOrderControllerTest > adminOrderEventsUsesRecordedEventsForPaidOrder"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "5062c5d0-92c5-44e5-93bb-0290db9664ca",
+              "rel_path": "common-core/src/test/java/com/minimall/common/core/event/payment/PaymentSuccessEventTest.java",
+              "title_path": "com.minimall.common.core.event.payment.PaymentSuccessEventTest > PaymentSuccessEventTest > constructorRequiresEventId"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "05a83aee-630d-4c02-94fb-d5278f23013a",
+              "rel_path": "notification-service/src/test/java/com/minimall/notification/repository/NotificationLogRepositoryTest.java",
+              "title_path": "com.minimall.notification.repository.NotificationLogRepositoryTest > NotificationLogRepositoryTest > rejectsDuplicateEventIdForIdempotency"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "460e1f54-ef58-4ef8-b8c0-85383202a2b4",
+              "rel_path": "docs/history/project-acceptance-report.md",
+              "title_path": "MiniMall Order Project Acceptance Report > Data And Event Contracts"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "f13519d4-6c5c-46d8-b652-580878913b3e",
+              "rel_path": "common-core/src/test/java/com/minimall/common/core/event/payment/PaymentSuccessEventTest.java",
+              "title_path": "com.minimall.common.core.event.payment.PaymentSuccessEventTest > PaymentSuccessEventTest > deserializationRequiresEventId"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "63b01eb8-cd8e-4d6f-861f-9c55b80879cd",
+              "rel_path": "common-core/src/main/java/com/minimall/common/core/event/payment/PaymentSuccessEvent.java",
+              "title_path": "com.minimall.common.core.event.payment.PaymentSuccessEvent > PaymentSuccessEvent > fields"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q08",
+        "question": "对一个已支付成功的订单再次调支付接口，会返回什么？",
+        "group": "natural-language",
+        "relevant": [
+          {
+            "rel_path": "docs/api-gateway-contract.md",
+            "anchor": "3. Response And Pagination Rules"
+          },
+          {
+            "rel_path": "docs/api-gateway-contract.md",
+            "anchor": "4.1 Customer And Public APIs"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": null
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "6f185db1-3cf1-4d14-b66c-6a71511fa070",
+              "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+              "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B3（P2-4）：重复支付幂等重放"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "26a8784a-cbd8-425c-bf68-fad63514e252",
+              "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+              "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B3（P2-4）：重复支付幂等重放"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "98fe6ace-1fda-438a-a5d1-000ccec7b98a",
+              "rel_path": "payment-service/src/test/java/com/minimall/payment/web/PaymentControllerTest.java",
+              "title_path": "com.minimall.payment.web.PaymentControllerTest > PaymentControllerTest > payReplayReturnsOriginalPaymentAndRepublishesWhenOrderStillPending"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "7bbd996d-31e0-4abc-9932-3cedc77f16c4",
+              "rel_path": "payment-service/src/test/java/com/minimall/payment/web/PaymentControllerTest.java",
+              "title_path": "com.minimall.payment.web.PaymentControllerTest > PaymentControllerTest > payReplayOnPaidOrderReturnsOriginalPaymentWithoutRepublishingEvent"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "91ac15ec-9575-45cb-844a-567bf4761a74",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Maintenance - Architecture review Phase B B3 payment replay idempotency"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "9577527d-1ccb-44ab-8dac-ca9f7de47ddf",
+              "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+              "title_path": "minimall 代码架构体检报告 > 5. P2 级问题 > P2-4：重复支付返回 409 而非幂等重放，idempotencyKey 存而不用"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "5d8fdf2f-6144-4a3c-a1ce-1372ed3cd0d1",
+              "rel_path": "payment-service/src/main/java/com/minimall/payment/service/PaymentCommandService.java",
+              "title_path": "com.minimall.payment.service.PaymentCommandService > PaymentCommandService > replaySuccessfulPayment"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "a2debd05-477a-4d38-be85-260c7a7fa830",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > 2026-05-24 · B6 — Payment page rewrite"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "89bed083-3abd-48bf-9882-91c689e7d9e5",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > 2026-05-24 · B6 — Payment page rewrite"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "c09a83c6-437f-4b50-b865-96794eb2cd9b",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > 2026-05-24 · B6 — Payment page rewrite"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q09",
+        "question": "服务启动的依赖顺序是什么？order-service 要等哪些依赖健康才能起？",
+        "group": "token",
+        "relevant": [
+          {
+            "rel_path": "docs/deployment.md",
+            "anchor": "Startup Order"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": 1
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "fb92982a-cd16-4306-bd37-8ad29ff4472a",
+              "rel_path": "docs/deployment.md",
+              "title_path": "Deployment And Operations > Startup Order"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "ecafdb05-9965-4a0d-ab02-f681a40ca125",
+              "rel_path": "docs/deployment.md",
+              "title_path": "Deployment And Operations"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "a272855f-7f6a-4599-a29d-2593d6120b85",
+              "rel_path": "docker-compose.yml",
+              "title_path": ""
+            },
+            {
+              "rank": 4,
+              "chunk_id": "54078344-61b6-4b0e-9ddb-b9f9bb109016",
+              "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+              "title_path": "Phase A 修复规划 —— 消除订单取消/支付并发竞争 > 3. 任务分解 > 任务 A4：测试（对应体检报告 §11 测试清单 1、2）"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "0c06ead9-40cb-47ac-9b75-e06abfeaebf1",
+              "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+              "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 最终结论 > 未能确认，需要进一步检查"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "dbe94496-fd7c-41c9-a1b5-e3b4f951881d",
+              "rel_path": "inventory-service/src/test/resources/application-test.yml",
+              "title_path": ""
+            },
+            {
+              "rank": 7,
+              "chunk_id": "901a065b-2995-4f05-b6a0-df1f720ee819",
+              "rel_path": "order-service/src/main/java/com/minimall/order/OrderServiceApplication.java",
+              "title_path": "com.minimall.order.OrderServiceApplication > OrderServiceApplication"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "bcac7798-e788-4403-b29e-f4c693562037",
+              "rel_path": "docs/audit/fix-plans/phase-a-plan.md",
+              "title_path": "Phase A 修复规划 —— 消除订单取消/支付并发竞争 > 5. 验证与验收标准（DoD）"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "3dfcc127-329f-4f61-81e9-f5b8058d5f29",
+              "rel_path": "order-service/src/main/java/com/minimall/order/service/OrderCommandService.java",
+              "title_path": "com.minimall.order.service.OrderCommandService > OrderCommandService"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "fa9a0c41-379d-4be3-ba24-93e32ad34366",
+              "rel_path": "order-service/src/test/java/com/minimall/order/service/OrderCommandServiceTest.java",
+              "title_path": "com.minimall.order.service.OrderCommandServiceTest > OrderCommandServiceTest"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q10",
+        "question": "数据库初始 schema 的迁移文件在哪？怎么应用到本地库？",
+        "group": "token",
+        "relevant": [
+          {
+            "rel_path": "docs/deployment.md",
+            "anchor": "Database Operations"
+          },
+          {
+            "rel_path": "docs/architecture.md",
+            "anchor": "Data Model"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": 1
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "a31ecda6-a545-413f-a509-93743f1188bf",
+              "rel_path": "docs/deployment.md",
+              "title_path": "Deployment And Operations > Database Operations"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "3078fc31-9178-4b9a-bb5c-92a5d12cd3a6",
+              "rel_path": "docs/sql/README.md",
+              "title_path": "Database Schema > Layout"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "aee3e836-57d9-4527-89e5-46521c4a8e1f",
+              "rel_path": "docs/sql/migrations/README.md",
+              "title_path": "SQL Migrations"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "9da2405d-7515-4dce-b9a1-20dae6b8b2b1",
+              "rel_path": "docs/architecture.md",
+              "title_path": "Architecture > Data Model"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "764693ce-bfd0-4319-8f7e-32f9ca792b51",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 3.1 - Create migration directory and schema documentation"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "ff4c5492-2086-462a-899b-d1c2926d9ed1",
+              "rel_path": "docs/sql/README.md",
+              "title_path": "Database Schema > Naming"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "5b892d59-d342-446a-b15e-0af4a9d51c02",
+              "rel_path": "docs/sql/README.md",
+              "title_path": "Database Schema"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "a3c5a6b1-16d2-4f4c-8c3f-b97c17815210",
+              "rel_path": "docs/audit/full-repo-audit.md",
+              "title_path": "全仓库审计报告 > P1 问题 > P1-02：Compose 配置有效，但空库冷启动不是一条命令可复现（已提供 demo bootstrap 路径）"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "db4bf461-e8d3-44e7-91c9-33e51665df5e",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 3.2 - Create initial schema migration SQL"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "6736ccef-48f6-400b-b859-21ed230c41d6",
+              "rel_path": "docs/history/phase2-admin-api-contract.md",
+              "title_path": "Phase 2 Admin API Contract > 8. Database And Migration Boundary"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q11",
+        "question": "这个项目一共有哪些核心数据表？",
+        "group": "natural-language",
+        "relevant": [
+          {
+            "rel_path": "docs/architecture.md",
+            "anchor": "Data Model"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": 2
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "bd4d1d24-d254-4882-9627-5f06318e22c0",
+              "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+              "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第一部分：事实盘点（不含结论） > 项目结构"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "9da2405d-7515-4dce-b9a1-20dae6b8b2b1",
+              "rel_path": "docs/architecture.md",
+              "title_path": "Architecture > Data Model"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "fbc1fb35-6575-4cb8-ae46-422a88d5474b",
+              "rel_path": "docs/sql/README.md",
+              "title_path": "Database Schema > Scope"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "0cb0a0a3-bc8d-4612-8eed-4e14ca94af1d",
+              "rel_path": "docs/api-gateway-contract.md",
+              "title_path": "API Gateway Contract > 4. Current Endpoint Index > 4.3 Admin Core APIs"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "5b892d59-d342-446a-b15e-0af4a9d51c02",
+              "rel_path": "docs/sql/README.md",
+              "title_path": "Database Schema"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "09919d3e-1731-40c8-9a0e-794a59ed62ac",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 4.3 - Implement reusable admin audit writer"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "024632d6-5f7b-483e-b1dc-82b05d62046c",
+              "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+              "title_path": "minimall 代码架构体检报告 > 2. 项目结构理解"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "9b2ba395-726b-4a5f-a1a6-edd3b588893f",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 4.1 - Define AI-ready audit source taxonomy"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "57a193ad-714b-4b6b-ba31-834cf2c43649",
+              "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+              "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第三部分：核心业务链路审查"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "518abd3d-2007-4923-9968-d9215b6d4e7e",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Maintenance - Phase 3 contract/documentation alignment"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q12",
+        "question": "取消订单时库存释放会不会被重复执行？已取消的订单再取消一次会怎样？",
+        "group": "natural-language",
+        "relevant": [
+          {
+            "rel_path": "docs/dev-log.md",
+            "anchor": "Task 11.2 - Order cancellation command"
+          },
+          {
+            "rel_path": "docs/dev-log.md",
+            "anchor": "Task 11.4 - Cancellation chain regression tests"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": 6
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "ee72da80-4b86-4f14-a12e-4c1b3fe9975d",
+              "rel_path": "order-service/src/test/java/com/minimall/order/web/OrderControllerTest.java",
+              "title_path": "com.minimall.order.web.OrderControllerTest > OrderControllerTest > cancelSameOrderTwiceReleasesInventoryOnlyOnce"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "8f971c6d-e5a4-4794-9d28-f937fd0e4b43",
+              "rel_path": "order-service/src/test/java/com/minimall/order/service/OrderTimeoutCancellationServiceTest.java",
+              "title_path": "com.minimall.order.service.OrderTimeoutCancellationServiceTest > OrderTimeoutCancellationServiceTest > repeatedExecutionDoesNotReleaseInventoryTwice"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "6f185db1-3cf1-4d14-b66c-6a71511fa070",
+              "rel_path": "docs/audit/fix-plans/phase-b-plan.md",
+              "title_path": "Phase B 修复规划 —— 增强稳定性（一致性语义补齐、测试补盲） > 2. 任务分解 > 任务 B3（P2-4）：重复支付幂等重放"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "08268e1b-02c6-4e76-9da2-2194c23e1f8d",
+              "rel_path": "order-service/src/test/java/com/minimall/order/scheduling/OrderTimeoutSchedulerRegressionTest.java",
+              "title_path": "com.minimall.order.scheduling.OrderTimeoutSchedulerRegressionTest > OrderTimeoutSchedulerRegressionTest > repeatedSchedulerScanDoesNotReleaseInventoryTwice"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "44c774e1-8aac-4710-a765-4e0fb73dd33b",
+              "rel_path": "order-service/src/test/java/com/minimall/order/web/OrderControllerTest.java",
+              "title_path": "com.minimall.order.web.OrderControllerTest > OrderControllerTest > cancelAlreadyCancelledOrderReturnsSuccessWithoutReleasingInventoryAgain"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "a0534710-ae9f-4d06-8091-c68d8979d697",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 11.4 - Cancellation chain regression tests"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "a0cd76e6-acc2-4b63-9d02-8fb3eccee4bd",
+              "rel_path": "order-service/src/test/java/com/minimall/order/service/OrderCommandServiceTest.java",
+              "title_path": "com.minimall.order.service.OrderCommandServiceTest > OrderCommandServiceTest > cancelAlreadyCancelledOrderReturnsIdempotentResponseWithoutReleasingInventory"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "042a387d-9d76-414d-9de8-ab5c89433c35",
+              "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+              "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第三部分：核心业务链路审查 > 不变量保护核对表"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "55dc214e-22f6-44cf-8578-7b2c46c543f5",
+              "rel_path": "order-service/src/test/java/com/minimall/order/service/OrderCommandServiceTest.java",
+              "title_path": "com.minimall.order.service.OrderCommandServiceTest > OrderCommandServiceTest > cancelPendingPaymentOrderReleasesInventoryAndMarksCancelled"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "967a300b-d23c-4cd9-b230-ba97e6a46b0b",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 11.1 - Inventory release client for order cancellation"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q13",
+        "question": "网关限流是什么算法？按什么维度限流？被限后返回什么？",
+        "group": "natural-language",
+        "relevant": [
+          {
+            "rel_path": "docs/api-gateway-contract.md",
+            "anchor": "6. Browser Support, Rate Limiting, And Logging"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": null
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "fbde8765-38ac-4c29-ac34-a248240e05f4",
+              "rel_path": "api-gateway/src/main/java/com/minimall/gateway/ratelimit/GatewayRateLimiter.java",
+              "title_path": "com.minimall.gateway.ratelimit.GatewayRateLimiter > GatewayRateLimiter"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "6f213264-f875-466d-993e-3a8f1b8916a6",
+              "rel_path": "docs/architecture-ai-review-2026-06-10.md",
+              "title_path": "MiniMall 全仓架构体检 + AI 库存助手中期审查报告 > 第六部分：安全风险分级"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "99ae052b-c78f-406e-a5ae-251c7279845b",
+              "rel_path": "api-gateway/src/test/java/com/minimall/gateway/GatewayAuthenticationFilterTest.java",
+              "title_path": "com.minimall.gateway.GatewayAuthenticationFilterTest > GatewayAuthenticationFilterTest > TestDownstreamConfiguration > allowAllGatewayRateLimiter"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "51c16128-79b6-40e9-951c-ba4f9680afcd",
+              "rel_path": "api-gateway/src/main/java/com/minimall/gateway/ratelimit/GatewayRateLimitResult.java",
+              "title_path": "com.minimall.gateway.ratelimit.GatewayRateLimitResult > package/imports"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "3ca64702-afc2-4e94-ae1a-7d0f6c5585fd",
+              "rel_path": "api-gateway/src/main/java/com/minimall/gateway/ratelimit/GatewayRateLimitFilter.java",
+              "title_path": "com.minimall.gateway.ratelimit.GatewayRateLimitFilter > GatewayRateLimitFilter"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "3be345a1-b7e1-4502-b53b-1c6b13ef5ab6",
+              "rel_path": "api-gateway/src/main/java/com/minimall/gateway/ratelimit/GatewayRateLimitResult.java",
+              "title_path": "com.minimall.gateway.ratelimit.GatewayRateLimitResult > GatewayRateLimitResult"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "a887ebd1-e804-4337-9089-644ac155abd8",
+              "rel_path": "api-gateway/src/main/java/com/minimall/gateway/ratelimit/GatewayRateLimitFilter.java",
+              "title_path": "com.minimall.gateway.ratelimit.GatewayRateLimitFilter > package/imports"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "5dd1ffb9-e255-4ac8-a9b9-46d339535f4a",
+              "rel_path": "api-gateway/src/test/java/com/minimall/gateway/GatewayIntegrationRegressionTest.java",
+              "title_path": "com.minimall.gateway.GatewayIntegrationRegressionTest > GatewayIntegrationRegressionTest > TestGatewayRateLimiter"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "df1d5052-ac37-4a8b-af29-b770f5922cc1",
+              "rel_path": "api-gateway/src/test/java/com/minimall/gateway/GatewayRateLimitFilterTest.java",
+              "title_path": "com.minimall.gateway.GatewayRateLimitFilterTest > GatewayRateLimitFilterTest > TestGatewayRateLimiter"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "5e7a4c4f-5862-4fb4-bab0-5be16c061d47",
+              "rel_path": "api-gateway/src/main/java/com/minimall/gateway/ratelimit/RedisGatewayRateLimiter.java",
+              "title_path": "com.minimall.gateway.ratelimit.RedisGatewayRateLimiter > RedisGatewayRateLimiter > toResult"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q14",
+        "question": "Prometheus 是怎么抓到各个 Java 服务的？在 WSL 环境下用 host.docker.internal 有什么坑？",
+        "group": "token",
+        "relevant": [
+          {
+            "rel_path": "docs/observability.md",
+            "anchor": "Docker Desktop And WSL"
+          },
+          {
+            "rel_path": "docs/observability.md",
+            "anchor": "Service Metrics"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": 1
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "01fb14df-0b19-4e01-ab18-7a02266ccb7b",
+              "rel_path": "docs/observability.md",
+              "title_path": "Observability > Docker Desktop And WSL"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "d60e83df-f0d1-4181-956b-33bff99a5c7a",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 18.2 follow-up - Docker runtime verification"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "339783b2-f524-4896-9a23-04552cd93e7c",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 19.3 follow-up - Live gateway pressure rerun"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "9dd2135d-7885-4ef3-a10d-9bd90c796e98",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 18.2 follow-up - Docker runtime verification"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "45256779-03c4-4f07-b42f-1ff0e1f08f97",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 18.2 follow-up - Docker runtime verification"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "433b1e45-e27a-4f4c-8bdb-cfd22942f210",
+              "rel_path": "docs/deployment.md",
+              "title_path": "Deployment And Operations > Observability"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "ee0fb85d-3135-4e76-83f1-9658fe4179ba",
+              "rel_path": "docs/observability.md",
+              "title_path": "Observability > Service Metrics"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "7ca2cb94-eb5b-4daf-bc0c-74405da89007",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 1.3 - 补齐服务启动类、基础配置与构建验证"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "c93ca3e1-4134-44d9-ad1b-062bc9f1e73c",
+              "rel_path": "docs/final-acceptance.md",
+              "title_path": "Final Acceptance Record > Notes"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "10f318e0-d9a2-4935-b6fb-2e37bacc1a38",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 20.2 - Containerize Java services for Compose runtime"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q15",
+        "question": "正式增加库存的唯一入口是哪个接口？管理员手动调整接口谁可以调？",
+        "group": "natural-language",
+        "relevant": [
+          {
+            "rel_path": "docs/api-gateway-contract.md",
+            "anchor": "4.3 Admin Core APIs"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": null
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "a6a79c5d-021a-4a09-9928-4d415a8f701d",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 13.3 - 库存初始化与调整（幂等写）"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "f5c4ebe0-3ed2-4efc-8720-925c6db09f9c",
+              "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+              "title_path": "minimall 代码架构体检报告 > 5. P2 级问题 > P2-2：AI 反幻觉文本校验只覆盖英文，中文库存变更声明可穿透"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "aa1c00cf-b14d-4de8-a658-6b98c17a59c2",
+              "rel_path": "docs/audit/fix-plans/phase-c-plan.md",
+              "title_path": "Phase C 修复规划 —— 提升展示价值（AI 助手增强、演示可信度） > 2. 任务分解 > 任务 C2：建议 → 入库 → 审计 的链路追溯视图（前端为主）"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "7b12f518-83e1-4fc7-a8e2-2afd769f612f",
+              "rel_path": "docs/history/phase2-admin-api-contract.md",
+              "title_path": "Phase 2 Admin API Contract > 6. Admin API Surface > 6.3 Inventories"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "a8b2bb7b-74d0-4113-842f-ff01d203f1f2",
+              "rel_path": "docs/api-gateway-contract.md",
+              "title_path": "API Gateway Contract > 4. Current Endpoint Index > 4.4 Admin AI Inventory Assistant APIs"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "538e7035-4f75-439b-a0af-d38ac57e650a",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 6.3 - Implement admin inventory initialize / adjust / records APIs"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "07ad8c1f-17cf-4fbc-a597-ef6e2c606ae2",
+              "rel_path": "docs/history/phase1-frontend-prereview.md",
+              "title_path": "Phase 1 前端接手前置审查（只读） > 三、风险点（按优先级） > R10（低）`/api/products/**` 写接口与 on-shelf/off-shelf 存在但禁用"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "b8ad85fb-9090-4014-84e4-ef60270376e7",
+              "rel_path": "docs/history/phase2-5-ai-inventory-contract.md",
+              "title_path": "Phase 2.5 AI Inventory Integration Contract > 4. Forbidden Behavior"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "fe72cfe9-8d6e-4862-b6e9-967e35a29049",
+              "rel_path": "docs/phase3-ai-inventory-contract.md",
+              "title_path": "Phase 3 AI Inventory Assistant Contract > 6. Existing APIs To Reuse"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "02826be9-ae8c-41e4-8cb7-7d2a534deb1c",
+              "rel_path": "README.zh-CN.md",
+              "title_path": "MiniMall Order > AI 库存助手"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q21",
+        "question": "订单超时未支付是怎么被自动取消的？库存在什么时机释放？",
+        "group": "natural-language",
+        "relevant": [
+          {
+            "rel_path": "docs/dev-log.md",
+            "anchor": "Task 17.1 - Order timeout cancellation service foundation"
+          },
+          {
+            "rel_path": "docs/dev-log.md",
+            "anchor": "Task 17.2 - Order timeout scheduler wiring"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": 2
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "d76382c3-1a87-482d-8e9a-51326b71faaa",
+              "rel_path": "docs/history/phase1-frontend-prereview.md",
+              "title_path": "Phase 1 前端接手前置审查（只读） > 三、风险点（按优先级） > R9（低）订单超时会变 CLOSED"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "4211531d-e1b7-4014-bdab-ea3109695d0f",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 17.1 - Order timeout cancellation service foundation"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "7e507a7a-aacf-4ab0-a5fa-5f11eea73e7d",
+              "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+              "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-1：订单取消与支付成功存在双向并发竞争，且无补偿路径"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "25f807f3-0f0c-45b5-8a8d-062988489db5",
+              "rel_path": "order-service/src/test/java/com/minimall/order/service/OrderTimeoutCancellationServiceTest.java",
+              "title_path": "com.minimall.order.service.OrderTimeoutCancellationServiceTest > OrderTimeoutCancellationServiceTest > cancelsExpiredPendingOrderAndReleasesInventoryAfterConditionalUpdate"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "6bfd855e-50aa-4584-b1ba-8475c94836c6",
+              "rel_path": "order-service/src/test/java/com/minimall/order/scheduling/OrderTimeoutSchedulerRegressionTest.java",
+              "title_path": "com.minimall.order.scheduling.OrderTimeoutSchedulerRegressionTest > OrderTimeoutSchedulerRegressionTest > schedulerCancelsOnlyExpiredPendingOrdersAndReleasesInventory"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "961dc323-946b-4aac-a37b-2a4756cae699",
+              "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+              "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-1：订单取消与支付成功存在双向并发竞争，且无补偿路径"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "9415526e-65bc-4c3c-a5a3-68d01e54979d",
+              "rel_path": "order-service/src/main/java/com/minimall/order/scheduling/OrderTimeoutScheduler.java",
+              "title_path": "com.minimall.order.scheduling.OrderTimeoutScheduler > OrderTimeoutScheduler > cancelExpiredPendingOrders"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "55dc214e-22f6-44cf-8578-7b2c46c543f5",
+              "rel_path": "order-service/src/test/java/com/minimall/order/service/OrderCommandServiceTest.java",
+              "title_path": "com.minimall.order.service.OrderCommandServiceTest > OrderCommandServiceTest > cancelPendingPaymentOrderReleasesInventoryAndMarksCancelled"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "3813b906-1bb7-45c6-b767-a2d6e46b2da8",
+              "rel_path": "README.md",
+              "title_path": "MiniMall Order > Known Limitations"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "a003fdf6-162f-4bf7-910e-4b3667ecfa5d",
+              "rel_path": "docs/audit/architecture-review-2026-07-03.md",
+              "title_path": "minimall 代码架构体检报告 > 4. P1 级问题 > P1-1：订单取消与支付成功存在双向并发竞争，且无补偿路径"
+            }
+          ]
+        }
+      },
+      {
+        "id": "q22",
+        "question": "notification-service 负责什么？浏览器能通过网关直接访问它吗？",
+        "group": "token",
+        "relevant": [
+          {
+            "rel_path": "docs/architecture.md",
+            "anchor": "Runtime Topology"
+          },
+          {
+            "rel_path": "docs/architecture.md",
+            "anchor": "Module Responsibilities"
+          }
+        ],
+        "ranks": {
+          "vector-hnsw": null
+        },
+        "results": {
+          "vector-hnsw": [
+            {
+              "rank": 1,
+              "chunk_id": "987d66b7-6c89-4cca-8429-2bf22292ddd2",
+              "rel_path": "notification-service/src/main/java/com/minimall/notification/web/AdminNotificationController.java",
+              "title_path": "com.minimall.notification.web.AdminNotificationController > AdminNotificationController > fields"
+            },
+            {
+              "rank": 2,
+              "chunk_id": "dc084468-2280-4910-b50b-06f2acb73ef4",
+              "rel_path": "notification-service/src/main/java/com/minimall/notification/service/NotificationQueryService.java",
+              "title_path": "com.minimall.notification.service.NotificationQueryService > NotificationQueryService"
+            },
+            {
+              "rank": 3,
+              "chunk_id": "f2eb59f5-f6c4-4821-a8b0-abbd2695aef2",
+              "rel_path": "docs/api-gateway-contract.md",
+              "title_path": "API Gateway Contract > 1. Gateway Route Ownership"
+            },
+            {
+              "rank": 4,
+              "chunk_id": "f9540dae-8ac4-4f97-adbe-4c4c075c6fce",
+              "rel_path": "notification-service/src/main/java/com/minimall/notification/web/AdminNotificationController.java",
+              "title_path": "com.minimall.notification.web.AdminNotificationController > AdminNotificationController > AdminNotificationController"
+            },
+            {
+              "rank": 5,
+              "chunk_id": "df26f827-edef-47cb-8183-a3eb3e8b5ac2",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 9 - Implement Notification admin log query API"
+            },
+            {
+              "rank": 6,
+              "chunk_id": "18edafe6-bf22-40d9-9034-4ba11ab3b566",
+              "rel_path": "docs/history/phase2-admin-api-contract.md",
+              "title_path": "Phase 2 Admin API Contract > 6. Admin API Surface > 6.6 Notifications"
+            },
+            {
+              "rank": 7,
+              "chunk_id": "08bfc197-87b0-4894-9bfc-dc1d01c279a2",
+              "rel_path": "docs/api-gateway-contract.md",
+              "title_path": "API Gateway Contract > 5. Non-Browser Contracts"
+            },
+            {
+              "rank": 8,
+              "chunk_id": "a0e802de-232a-49d2-89ba-bef78f2760c3",
+              "rel_path": "docs/dev-log.md",
+              "title_path": "Development Log > Task 14.2 - Build notification and audit operations pages"
+            },
+            {
+              "rank": 9,
+              "chunk_id": "330f7a15-31b1-4383-92f4-349296147bb8",
+              "rel_path": "notification-service/src/main/java/com/minimall/notification/NotificationServiceApplication.java",
+              "title_path": "com.minimall.notification.NotificationServiceApplication > NotificationServiceApplication"
+            },
+            {
+              "rank": 10,
+              "chunk_id": "80701b9d-3103-4889-8cd3-87997d6fbe19",
+              "rel_path": "docker-compose.yml",
+              "title_path": ""
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "gates": {
+    "retrieval": {
+      "note": "§5.1 第 1–3 条为记录义务（T15.4 裁决），仅第 4 条 overlap 硬 Gate",
+      "record_recall_delta": null,
+      "record_mrr_delta": null,
+      "record_token_question_improved": null,
+      "hnsw_overlap_mean": null,
+      "hnsw_overlap_gate": null,
+      "gate_passed": null
+    }
+  }
+}

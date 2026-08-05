@@ -1283,3 +1283,16 @@ harness 本身不难：读 Answer JSON + run trace + 预登记行，过七组确
 同族的收紧也做了两处，都立刻有回报：编辑脚本一律先 `assert count(anchor) == 1`、写完读回校验；变形脚本对 pytest 退出码 4/5 判 `NO_TESTS_RAN` 不再当作转红——后者当场发现 B8 那组因为我重命名了用例、**一个测试都没跑**，旧脚本却因非零退出码把它报成了「转红 ✓」。
 
 做对的地方也记一笔：`assemble_row` 抽出来由生产 runner 与 U10 接线矩阵共用，杜绝了「测试直接覆盖已评分 row 中间字段」这条首版 M3 变形赖以存活的路径（审查者判 ACCEPTED）；`GATE_KEYS` 改由 `SECTION_GATE_KEYS` 展平派生，键脱离 section 在结构上不再可能，代价是 U14 的 Counter 恒等式对「键消失」自证——这一点我主动交给审查者裁决，最终由 U12 的逐字元组承担「消失」、U14 承担「重复归属」。14 项变形全部转红，`make verify-full` PASS。
+
+## 2026-08-05 · T31.2：真实数据一上来就打在 Fake 层照不到的地方
+
+跑本身是机械的：`make ci` / `make eval-ci` 先绿 → 提交合同拿到干净 HEAD → mini-mall 上跑 `vector-hnsw` 检索对照 → 真实 DeepSeek 跑 20 题契约评测。20 题全部成功，零 failed，35 分钟。**总判定 FAIL，三个键红，全在 `final_consistency`。**
+
+- **唯一提前想对的一件事**：`score_retrieval_reference` 的六项合取要求对照报告的 `devkb_commit` 等于契约运行的 commit、且 `devkb_worktree_dirty is False`。这两条合起来意味着**两次运行之间不能有任何提交**，而检索报告自己落进 `evalsets/reports/` 就会把工作区弄脏、让随后的契约报告自述 dirty。所以检索报告先落仓库外临时目录、跑完再复制回来。因为开跑前读了这个函数，两份报告第一次就 `comparable=True`，R@10 与 P1 冻结基线**逐位相同**。
+- **`zero_absence_assertion_on_known_paths` 判了 13 条违规，逐条打开后一条真的都没有。** 10 条的命中短语是 `未覆盖`——而 `prompts.py:78` 里我们**自己指示** generate「用条件式措辞（如"当前证据未覆盖…"）」，`security.py:55` / `config_layers.py:92` / `nodes.py:560` / `answer.py:63` 四处确定性诚实尾注**逐字**含这个词，且同一段里就列着已交付的引用路径。共现规则于是必然命中。剩下 3 条：1 条 `未包含` 同理，2 条是语义误配——「在**缺失**时抛 BusinessException」「在知识库**不存在**时抛 BusinessException」被判成"把 `BusinessException.java` 说成不存在"。**结论是这个 Gate 在当前措辞规则下结构性不可通过**：越是按规格诚实声明覆盖缺口，越必然触发它。
+  - 更值得记的是**为什么九轮前审加一次代码审查都没看见**。T31.1 packet 的 F16 确实注意到了 `verified_scope_note` 同段含交付引用路径，也确实去查了词表——但只查了「未经本次证据核验」这一个短语，得出「不在 F15 表内，故不会误触发」，**没有查同一个模板里的另一个短语**。而 `config_layers.py:90` 的注释更刺眼：T26.3 当初是**刻意**挑「未覆盖…其余」来避开 T26.1 的全称词表。两处冻结决定各自都对，撞在一起才炸。Fake 层的用例是人手写的短句，从来没让确定性尾注和已知路径出现在同一段里——**只有真实语料上的长答案才会把这两条冻结决定同时激活**。
+- **c05/c08 是真的假拒答，而且是带自述的**：正文写着「用户要求的必需证据**已在本次证据集中**，但未被任何断言直接引用……**最高 partial**」，终态却是 `refusal`，`claims=[]`、`citations=[]`。B5 的十条结构规则全 True——它们只检查 `refusal ⟹ claims==[]` 这种**形状**，抓不到"文案自述 partial、终态是 refusal"这种**口径**矛盾。§5.1 第 4 条后半句「≥1 aspect 有直接证据的题 0 次全量 refusal」是 T31.1 里唯一因为「refusal 下 citations 恒空」而被改过前件的 Gate（改成按 `evidence_paths` 命中判），今天正是这一改让它抓到了 c05/c08。
+- **c11 是数据集自己打架**：`expected_mode_p15 = "partial"`，同一行的冻结散文却写着「若 PROGRESS/plans 未召回则 refusal-with-boundary 亦可接受」。本轮 PROGRESS.md `never_retrieved`，系统给了 refusal——**符合散文、不符合机器字段**。U3.1 的判据写死「dev 一旦运行即锁标签」，所以我一个字都没改，写进偏差记录等裁决。
+- **必需证据命中 6/35、点名行段命中 2/24**，20 题零 `full`。所以 `zero_full_without_required_evidence` 这次是**空真**通过的——没有一道题给它施压。这条我在清单里显式标了「诚实标注」，否则一个 PASS 会被读成"必需证据硬门经受住了真实检验"。
+
+四份报告落盘零覆盖，既有报告 `git diff` 为空；运行后复跑 `make ci` / `make eval-ci` 仍全绿（新报告同时过了 `p1-eval-v1.2` 与 `p1.5-contract-v1` 两套 schema 断言）。T31.2 **不勾选**，两条需要动冻结文本的冲突写进偏差记录待裁决，行为侧的 c05/c08 假拒答按 Gate 失败处理，不在 dev 上调参。
