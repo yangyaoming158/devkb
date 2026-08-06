@@ -48,6 +48,12 @@ from devkb.agent.nodes import (
     verified_scope_note,
 )
 from devkb.agent.not_found import CorpusProfile
+from devkb.agent.prompts import (
+    EVALUATE_SYSTEM,
+    GENERATE_SYSTEM,
+    PLAN_SYSTEM,
+    REFINE_SYSTEM,
+)
 from devkb.agent.state import (
     AgentInput,
     ClaimOutput,
@@ -61,7 +67,7 @@ from devkb.agent.trace import TraceRecorder
 from devkb.agent.verification import l0_errors, verify_draft
 from devkb.embedding import FakeEmbedder
 from devkb.errors import LLMError, LLMTimeoutError
-from devkb.llm import FakeLLM
+from devkb.llm import FakeLLM, LLMResult
 from devkb.retrieval import HNSW_EF_SEARCH, RetrievedChunk
 
 PLAN = '{"intent":"knowledge_qa","queries":["库存扣减"]}'
@@ -3167,3 +3173,66 @@ async def test_u12_structured_call_warning_suffixes_stay_in_the_frozen_set() -> 
             seen.add(match.group("suffix"))
     assert seen, "本用例必须真的产出 _structured_call 的 warning，否则断言为空真"
     assert seen <= FROZEN_STRUCTURED_SUFFIXES, seen - FROZEN_STRUCTURED_SUFFIXES
+
+
+# ---------------------------------------------------------------------------
+# T312Ra-CR-01（定向修复）：`json_mode=True` 的**接线**本身必须被冻结
+#
+# 修复前实测：把 `nodes.py:683` 的 `json_mode=True` 删掉，
+# `uv run pytest tests/unit/test_agent_graph.py tests/unit/test_llm_client.py`
+# 仍 **145 passed**。原因是这一环两头都没人看——U1 直接对
+# `OpenAICompatLLM.complete` 传参（证明客户端会发 response_format），图级替身
+# 走 `FakeLLM`（`del json_mode`，把值丢掉）；两者之间"agent 到底传没传"无人断言。
+# 下面这条 spy 只补这一环，不改生产代码。
+# ---------------------------------------------------------------------------
+
+_CALL_POINT_BY_SYSTEM = {
+    PLAN_SYSTEM: "plan",
+    EVALUATE_SYSTEM: "evaluate",
+    REFINE_SYSTEM: "refine",
+    GENERATE_SYSTEM: "generate",
+}
+
+
+class _JsonModeSpy:
+    """记录每次 `complete` 收到的 `json_mode`，并按 system prompt 归属调用点。
+
+    签名与 `LLMClient` Protocol 逐字一致，`json_mode` 的默认值**必须**是 `False`：
+    若替身自己默认成 `True`，接线被删时它会把值补回来，断言就成了空转——正是
+    `FakeLLM` 之外还要单独写这个替身的原因。
+    """
+
+    def __init__(self, script: list[str | Exception]) -> None:
+        self._inner = FakeLLM(script)
+        self.seen: list[tuple[str, bool]] = []
+
+    async def complete(self, *, system: str, user: str, json_mode: bool = False) -> LLMResult:
+        self.seen.append((_CALL_POINT_BY_SYSTEM.get(system, "unknown"), json_mode))
+        # 不转发 `json_mode`：FakeLLM 本就丢弃它，转发与否对脚本行为零影响，
+        # 而不转发能让"被观测的值"只可能来自 `_structured_call`。
+        return await self._inner.complete(system=system, user=user)
+
+
+async def test_cr01_every_structured_call_point_actually_asks_for_json_mode() -> None:
+    """CR-01：一次 run 内四个结构化调用点全部到达，且每次都 `json_mode is True`。
+
+    走 refine 路径（§5.3 第 2 类）是因为它是唯一一条能在**单次 run** 内同时经过
+    plan/evaluate/refine/generate 的成功路径。
+    """
+    retrievals: list[tuple[str, ...]] = []
+
+    async def retriever(_project_id: uuid.UUID, queries: tuple[str, ...]) -> list[Evidence]:
+        retrievals.append(queries)
+        return [_evidence(len(retrievals))]
+
+    spy = _JsonModeSpy([PLAN, EVAL_NO, REFINE, EVAL_OK, GENERATE])
+    result = await run_agent(AgentRuntime(llm=spy, retriever=retriever), _input())
+
+    observed = [call_point for call_point, _ in spy.seen]
+    # ① 覆盖面：四个调用点确实都发生了，否则下面的全称断言可能空真
+    assert observed == ["plan", "evaluate", "refine", "evaluate", "generate"], observed
+    assert set(observed) == set(_CALL_POINT_BY_SYSTEM.values())
+    # ② 每一次都真的要了 JSON 模式（删掉 nodes.py 的接线即在此转红）
+    assert all(json_mode is True for _, json_mode in spy.seen), spy.seen
+    # ③ spy 没有把这条路径改坏：终态与 §5.3 第 2 类基线一致
+    assert result["final_mode"] == "full" and result["llm_calls"] == 5
