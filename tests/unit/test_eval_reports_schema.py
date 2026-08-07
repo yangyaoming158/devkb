@@ -117,7 +117,11 @@ HOLDOUT_PREFIXES = ("p1-holdout", "p1.5-holdout")
 LEGACY_MODE_COUNT_KEYS = frozenset({"full", "partial", "refusal"})
 V1_2_MODE_COUNT_KEYS = LEGACY_MODE_COUNT_KEYS | {"policy_refusal"}
 
-# --- p1.5-contract-v1（T31.1 契约 harness）：五分节 + 12 具名硬键 ---
+# --- p1.5-contract-v*（T31.1 契约 harness）：五分节 + 具名硬键 ---
+#
+# 键集合**按版本分派**：v1 是 13 键的历史快照（已落盘报告永不重写），v2 起
+# `zero_absence_assertion_on_known_paths` 降为报告项（T31.2R-b）故为 12 键。
+# 同一版本号不能同时表示两种键集合——这正是当时必须升版本的原因。
 P15_SECTION_KEYS = frozenset(
     {
         "retrieval",
@@ -132,11 +136,38 @@ P15_FORBIDDEN_AGGREGATE_KEYS = frozenset(
 )
 
 
+P15_V1_GATE_KEYS = frozenset(
+    {
+        "retrieval_no_regression",
+        "zero_full_without_required_evidence",
+        "l0_l1_all_pass",
+        "contract_expectations_met",
+        "extended_expectations_met",
+        # v1 独有：T31.2R-b 起降为报告项，不再是硬键
+        "zero_absence_assertion_on_known_paths",
+        "consistency_all_true",
+        "zero_full_refusal_with_direct_evidence",
+        "global_negation_honest",
+        "uningested_disclosed",
+        "policy_terminal_correct",
+        "budget_and_terminal",
+        "fail_fast_isolation_ok",
+    }
+)
+P15_GATE_KEYS_BY_SCHEMA: dict[str, frozenset[str]] = {
+    "p1.5-contract-v1": P15_V1_GATE_KEYS,
+    "p1.5-contract-v2": frozenset(CONTRACT_GATE_KEYS),
+}
+
+
 def _assert_p15_contract_shape(path: Path, report: dict[str, Any]) -> None:
-    """五节齐备、13 键齐备、零跨节总分——报告落盘后依旧成立。"""
+    """五节齐备、该版本的具名键齐备、零跨节总分——报告落盘后依旧成立。"""
     aggregates = report["aggregates"]
+    schema = report["schema_version"]
+    # 未登记的 v* 版本**当场失败**，不得静默跳过校验
+    assert schema in P15_GATE_KEYS_BY_SCHEMA, f"{path.name} 的 {schema} 未登记键集合"
     assert set(aggregates["sections"]) == P15_SECTION_KEYS, path.name
-    assert set(aggregates["gate_summary"]) == set(CONTRACT_GATE_KEYS), path.name
+    assert set(aggregates["gate_summary"]) == P15_GATE_KEYS_BY_SCHEMA[schema], path.name
     assert isinstance(aggregates["all_hard_gates_passed"], bool), path.name
     assert P15_FORBIDDEN_AGGREGATE_KEYS.isdisjoint(set(aggregates)), path.name
     assert report["config"].get("prompt_version"), path.name
@@ -239,7 +270,13 @@ def test_current_harness_emits_exactly_the_locked_v1_2_shapes() -> None:
     corpus = {"document_count": 445, "chunk_count": 5000}
     assert set(p0_baseline_comparison(empty_retrieval, corpus)) == V1_1_P0_BASELINE_KEYS
     assert set(aggregate_agentic([row], split="dev")["mode_counts"]) == V1_2_MODE_COUNT_KEYS
-    assert CONTRACT_REPORT_SCHEMA_VERSION == "p1.5-contract-v1"
-    # 13 = §5.1 九条（1 拆 1/1'、4 拆 4a/4b）+ §7/§14 的 L0/L1 + §5.2 第 8 条的 fail-fast
-    assert len(CONTRACT_GATE_KEYS) == 13
+    assert CONTRACT_REPORT_SCHEMA_VERSION == "p1.5-contract-v2"
+    # 12 = §5.1 九条（1 拆 1/1'、4 拆 4a/4b，**第 2 条已降为报告项**）落 10 键
+    # + §7/§14 的 L0/L1 + §5.2 第 8 条的 fail-fast
+    assert len(CONTRACT_GATE_KEYS) == 12
     assert "fail_fast_isolation_ok" in CONTRACT_GATE_KEYS
+    assert "zero_absence_assertion_on_known_paths" not in CONTRACT_GATE_KEYS
+    # 已落盘的 v1 报告仍必须可校验：v1 的键集合是历史快照，不随 GATE_KEYS 变
+    assert P15_GATE_KEYS_BY_SCHEMA["p1.5-contract-v1"] - set(CONTRACT_GATE_KEYS) == {
+        "zero_absence_assertion_on_known_paths"
+    }

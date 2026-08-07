@@ -35,7 +35,6 @@ from devkb.agent.evidence_types import (
     path_matches_token,
 )
 from devkb.agent.not_found import (
-    _ABSENCE_MARKERS,
     _REPO_LEVEL_NEGATION,
     MAX_CORPUS_PATHS,
 )
@@ -58,7 +57,9 @@ from devkb.evaluation import (
 from devkb.llm import LLMClient
 from devkb.repositories import ChunkRepo, DocumentRepo, ProjectRepo
 
-CONTRACT_REPORT_SCHEMA_VERSION = "p1.5-contract-v1"
+# v2（T31.2R-b）：`gate_summary` 由 13 键变 12 键（G2 降为报告项）。同一版本号
+# 不能同时表示两种键集合，而已落盘的 v1 报告**永不重写**，故必升版本。
+CONTRACT_REPORT_SCHEMA_VERSION = "p1.5-contract-v2"
 
 # 冻结题量（U3.1 于 2026-07-24 落盘）：contract 13 + extended 8（含 1 条探针）
 EXPECTED_CONTRACT_COUNTS: dict[str, tuple[int, int]] = {"dev": (13, 8)}
@@ -81,7 +82,7 @@ SECTION_KEYS: tuple[str, ...] = (
 # 每个分节权威地拥有哪些具名硬键。**section 是权威结果，`gate_summary` 只是它的投影**：
 # 首版把总判定定成 12 个键的合取，而 fail-fast 探针只进 section gate，于是安全分节
 # False 时总判定仍可为 True（代码审查 T311-CR-01）。现在两者由同一张映射派生，
-# `fail_fast_isolation_ok` 作为第 13 键被显式收进 safety_reliability。
+# `fail_fast_isolation_ok` 作为第 12 键被显式收进 safety_reliability。
 # 展平后每个键**恰好出现一次**——U14 用 Counter 锁死（`x ∧ x = x` 使合取恒等式
 # 检测不了重复归属）。
 SECTION_GATE_KEYS: dict[str, tuple[str, ...]] = {
@@ -92,7 +93,11 @@ SECTION_GATE_KEYS: dict[str, tuple[str, ...]] = {
     "final_consistency": (
         "contract_expectations_met",
         "extended_expectations_met",
-        "zero_absence_assertion_on_known_paths",
+        # `zero_absence_assertion_on_known_paths` 于 T31.2R-b **降为报告项**：
+        # 收窄词表后残余的命中仍可能是语义误配（"知识库不存在时抛
+        # BusinessException" 与同段的 BusinessException.java 共现），共现式扫描
+        # 结构上判不了这个区别，硬 Gate 因此不可通过。扫描结果仍逐条落在
+        # `final_consistency.known_path_absence_*`，只是不参与 Gate 合取。
         "consistency_all_true",
         "zero_full_refusal_with_direct_evidence",
         "global_negation_honest",
@@ -105,17 +110,27 @@ SECTION_GATE_KEYS: dict[str, tuple[str, ...]] = {
         "fail_fast_isolation_ok",
     ),
 }
-# §5.1 九条 → 具名硬键（第 1 条拆 contract/extended、第 4 条拆 4a/4b），
-# 另加 §7/§14 的 L0/L1 与 §5.2 第 8 条的 fail-fast。键集合与 test_eval_contract.U12 互锁。
+# §5.1 第 2 条降为报告项（T31.2R-b），其余条款展开为 10 个具名硬键
+# （第 1 条拆 contract/extended、第 4 条拆 4a/4b），另加 §7/§14 的 L0/L1 与
+# §5.2 第 8 条的 fail-fast 两个非 §5.1 键，共 12 键。
+# 键集合与 test_eval_contract.U12 互锁。
 GATE_KEYS: tuple[str, ...] = tuple(
     key for section in SECTION_KEYS for key in SECTION_GATE_KEYS[section]
 )
 
-# 强否定短语 = not_found 的**两张**封闭表之并（23 条）。`不存在` 只在
-# `_REPO_LEVEL_NEGATION` 里——只取 `_ABSENCE_MARKERS` 会让最典型的形态漏判
-# （计划前审 PG-T311-04）。`_SOFT_NEGATION`（没有/未/无/缺）刻意不并入：
-# 它单独出现时是可由证据支撑的局部结论（"OrderService 中没有事务注解"）。
-NEGATION_PHRASES: tuple[str, ...] = (*_ABSENCE_MARKERS, *_REPO_LEVEL_NEGATION)
+# 强否定短语 = not_found 的**仓库级**封闭表（12 条）。`不存在` 等"某物在仓库里
+# 根本没有"的措辞正是 §5.1 第 2 条要抓的形态。
+#
+# T31.2R-b 收窄：原先并入的 `_ABSENCE_MARKERS`（未找到/未覆盖/未包含/缺失…）
+# 是**覆盖缺口**词表，而 `prompts.py:78` **逐字指示** generate「用条件式措辞
+# （如"当前证据未覆盖…"）」，四处确定性诚实尾注（`security.py:55`、
+# `config_layers.py:92`、`nodes.py:560`、`answer.py:63`）也逐字含 `未覆盖`。
+# 两条冻结决定撞在一起的后果是：越按规格诚实声明覆盖缺口，越必然被判违规。
+# T31.2 首次 dev 运行 13 条"违规"逐条打开后一条真的都没有（10 条 `未覆盖`、
+# 各 1 条 `缺失`/`未包含`，以及 1 条语义误配）。
+# `_SOFT_NEGATION`（没有/未/无/缺）同样不并入：它单独出现时是可由证据支撑的
+# 局部结论（"OrderService 中没有事务注解"）。
+NEGATION_PHRASES: tuple[str, ...] = _REPO_LEVEL_NEGATION
 # 跨句指代封闭表：**必不穷尽**——这正是命中它只判 `undecided` 而非判违规的理由
 ANAPHORA_TOKENS: tuple[str, ...] = (
     "该文件",
@@ -904,7 +919,9 @@ def aggregate_contract(
     *,
     split: str,
 ) -> dict[str, Any]:
-    """五节各自成表 + §5.1 九条落到 12 个具名硬键。**不产出任何跨节总分/平均分。**"""
+    """五节各自成表 + §5.1 九条（第 2 条已降为报告项）落到 10 个具名硬键，另加
+    §7/§14 的 L0/L1 与 §5.2 第 8 条的 fail-fast，共 12 键。
+    **不产出任何跨节总分/平均分。**"""
     succeeded = [row for row in rows if row.get("status") == "succeeded"]
     contract_rows = [row for row in succeeded if row.get("kind") == "contract"]
     extended_rows = [row for row in succeeded if row.get("kind") == "extended"]
@@ -932,9 +949,6 @@ def aggregate_contract(
         ),
         "extended_expectations_met": _all_true(
             [bool(row["mode_matches"]) for row in extended_rows], measured=bool(extended_rows)
-        ),
-        "zero_absence_assertion_on_known_paths": _all_true(
-            [not absence_violations], measured=absence_segments > 0
         ),
         "zero_full_without_required_evidence": _all_true(
             [
@@ -978,7 +992,7 @@ def aggregate_contract(
             measured=bool(rows),
         ),
         "l0_l1_all_pass": _l0_l1_gate(succeeded),
-        # 第 13 键，来自 §5.2 第 8 条。**探针不产出任何计数声明**：三个 run/step/tool
+        # 第 12 键，来自 §5.2 第 8 条。**探针不产出任何计数声明**：三个 run/step/tool
         # 仓储都没有 count 方法，D7 又禁止在本模块构造查询，零持久化副作用唯一由
         # tests/integration/test_eval_contract_harness.py 的 I8 在真实 ASGI 请求上承担。
         "fail_fast_isolation_ok": _all_true(
@@ -1051,6 +1065,9 @@ def aggregate_contract(
             ),
             "known_path_absence_violations": absence_violations,
             "known_path_absence_undecided": absence_undecided,
+            # 分母：可判定语段数。降为报告项后它不再当 `measured=` 用，但正是
+            # 读懂上面两个计数所需的基数（0 段时"命中 0"是空真），故照常报告。
+            "known_path_absence_decidable_segments": absence_segments,
             "consistency_failures": [
                 {"id": row["id"], "rules": row["consistency"]["rules"]}
                 for row in succeeded
@@ -1067,7 +1084,7 @@ def aggregate_contract(
             "note": (
                 "not_found 只统计可判定项（结构/枚举/静态后缀/已知路径措辞）；"
                 "命题级一律进未判定并归 U3.2。已知路径否定扫描只覆盖同语段可判定子集，"
-                "跨句指代进未判定，不进分子分母"
+                "跨句指代进未判定，不进分子分母；该扫描为规则命中计数，非违规判定"
             ),
         },
         "safety_reliability": {
@@ -1119,7 +1136,11 @@ def aggregate_contract(
         "sections": sections,
         "questions": rows,
         "probes": probes,
-        "gate_summary": gates,
+        # **真投影**（T31.2R-b）：此前这里是 `gates` 原样透传，键集合与 `GATE_KEYS`
+        # 相等纯属手写时恰好对齐，上方"只是它的投影"其实并不成立。改成按
+        # `GATE_KEYS` 取值后，多出的键会被丢弃、缺源的键会当场 `KeyError`
+        # （不会悄悄少一项还照常落盘）。
+        "gate_summary": {key: gates[key] for key in GATE_KEYS},
         "all_hard_gates_passed": all(sections[name]["gate"] is True for name in SECTION_KEYS),
     }
 
@@ -1143,10 +1164,11 @@ def render_contract_markdown(report: dict[str, Any]) -> str:
         f"- split：{aggregates['split']}；题数 {aggregates['question_count']}"
         f"（成功 {aggregates['succeeded']}）",
         "",
-        "## Gate 汇总（13 键）",
+        f"## Gate 汇总（{len(GATE_KEYS)} 键）",
         "",
-        "> 来源不同，逐条标注：§5.1 九条 →（第 1 条拆 contract/extended、第 4 条拆 4a/4b）"
-        "共 11 键；`l0_l1_all_pass` 来自 **§7 硬 Gate + §14**；"
+        "> 来源不同，逐条标注：§5.1 九条 →（第 1 条拆 contract/extended、第 4 条拆 4a/4b，"
+        "**第 2 条已降为报告项**，见「4 终态一致性」的已知路径否定计数）"
+        f"共 {len(GATE_KEYS) - 2} 键；`l0_l1_all_pass` 来自 **§7 硬 Gate + §14**；"
         "`fail_fast_isolation_ok` 来自 **§5.2 第 8 条**。§5.1 **没有**十条。",
         "",
         "| 键 | 结果 |",
@@ -1193,8 +1215,10 @@ def render_contract_markdown(report: dict[str, Any]) -> str:
         f"- not_found 可判定项：{consistency['not_found_decidable_ok']}/"
         f"{consistency['not_found_decidable']}（未判定 {consistency['not_found_undecided']}、"
         f"命题级未判定 {consistency['not_found_proposition_undecided']}）",
-        f"- 已知路径否定：违规 {len(consistency['known_path_absence_violations'])}、"
-        f"未判定 {len(consistency['known_path_absence_undecided'])}",
+        f"- 已知路径 × 仓库级否定词表共现：命中 "
+        f"{len(consistency['known_path_absence_violations'])} 段、跨句指代未判定 "
+        f"{len(consistency['known_path_absence_undecided'])} 段"
+        "（规则命中计数，非违规判定）",
         f"- 跨轮覆盖：{consistency['coverage']['note']}",
         f"- {consistency['note']}",
         "",
@@ -1206,7 +1230,10 @@ def render_contract_markdown(report: dict[str, Any]) -> str:
         f"- fail-fast 探针：{safety['fail_fast']['probes']}",
         "",
     ]
-    return "\n".join(lines) + "\n"
+    # `lines` 末元素已是 ""，再 `+ "\n"` 会让文件以 `\n\n` 结尾，任何提交契约
+    # 报告的 commit 都过不了 `git diff --check`（`T312-P2-01`，实测挡住过
+    # T31.2 的 `make verify-full`）。与 v1 的 `evaluation.py:915` 同写法。
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

@@ -1327,3 +1327,19 @@ harness 本身不难：读 Answer JSON + run trace + 预登记行，过七组确
 **定向修复追记（GPT 限定代码审查 `TARGETED_FIX`，2 条 P2）**：`T312Ra-CR-01` 指出**接线本身没被冻结**——我把 `json_mode=True` 从 `nodes.py:683` 删掉，`test_agent_graph.py` + `test_llm_client.py` 仍 **145 passed**。这条我一开始没看出来，因为两头都有测试：U1 证明客户端**会**发 `response_format`，图级路径证明 agent **能跑通**，中间"agent 到底传没传"那一环恰好被 `FakeLLM` 的 `del json_mode` 吞掉了。**一个参数被丢弃，就等于它没被测过**——替身为了"接住"新参数而丢弃它，同时也让它隐形了。补的 `_JsonModeSpy` 按 system prompt 反查调用点（`prompts.py` 四个常量），单次 refine 路径 run 内断言 `plan/evaluate/refine/evaluate/generate` 五次调用**每次** `json_mode is True`；替身的默认值必须写 `False` 而不是 `True`，否则接线被删时它会自己把值补回来、断言空转。复跑同一变异：**1 failed, 145 passed**，红在 `[('plan', False), ('evaluate', False), ('refine', False), ('evaluate', False), ('generate', False)]`。`T312Ra-CR-02` 是本文件与任务清单的记账错——两处都把 `verify-task` 的 `10 / 10` 写成 `8/10`（8 是 `size_exception` 批准**前**的上限，扩到 10 之后我只改了 packet metadata，没回头改叙事），且缺 SHA 与上面两项取舍。两条都不涉及生产代码。
 
 **复审 `PASS`（2026-08-06），T31.2R-a 关闭**。定向修复后门禁（exact HEAD `ff3c972`，工作区干净）：`make verify-full` PASS、`make ci` **1304 passed**、`make eval-ci` **569 + 65 passed**、`make verify-task` PASS（10 / 10，文件数不变——定向修复只碰已在 `allowed_paths` 内的 3 个文件，`src/` 零改动）。packet `status = "accepted"`、`## 验收标准` 12 项逐条回填到具体测试函数名（这一栏在 2026-07-31 查出过"5 份 packet 满栏未勾"的漏项，`workflow_guard.py` 只校验标题在不在、不看里面勾没勾，所以只能靠人盯），已按《P1.5任务清单》第 7 行快进合回 `p1.5`——后半句"验收后快进合回"正是 `WF-P3-02` 那次只执行了前半句的地方。**T31.2 依旧不勾选**：还差 T31.2R-b，两个修复任务都验收完才重跑一次 dev。
+
+## 2026-08-06 · T31.2R-b：把"结构性不可通过的 Gate"降成诚实的计数
+
+三件事一个任务：G2 词表收窄 + 降为报告项、c11 标签改条件式、`T312-P2-01` 末尾空行。核心源文件**只有一个**（`src/devkb/eval_contract.py`），`src/devkb/agent/` 全目录零改动。
+
+**最有说服力的一条不是论证出来的，是算出来的**。裁决"B+C"（收窄 + 降级）时我并不知道两半各自能解决多少。开工前拿已落盘那份报告的 13 条违规重算：只保留 `_REPO_LEVEL_NEGATION` 后**恰好剩 1 条**——而那条是「ensureKbOwner 在**知识库不存在**时抛 BusinessException」，说的是运行期对象不存在，`BusinessException.java` 只是碰巧在同一段里。共现式扫描**结构上**判不了这个区别。所以收窄能解决 12/13，剩下的 1/13 靠收窄永远解决不了——这就是"降级"不可省的机器证据，而不是我觉得该降。
+
+**降级捅出的连锁比预想深**。`gate_summary` 从 13 键变 12 键，而 `test_eval_reports_schema` 的 shape 断言按 `startswith("p1.5-contract-v")` 分派、断言键集合**全等**；已落盘的 v1 报告又永不重写。于是 `CONTRACT_REPORT_SCHEMA_VERSION` 必须升 v2 并按版本分派——同一个版本号不能同时表示两种键集合。这条在前审第一轮就被我自己查出来了，但**没查出来的**是：`gate_summary` 当时根本不是投影，`:1122` 写的是 `"gate_summary": gates` **原样透传**，而 `:81`/`:83`/`:1112` 三处注释白纸黑字声称它是投影。键集合相等纯属手写时恰好对齐。只删 `SECTION_GATE_KEYS` 会得到「section 按 6 键合取、gate_summary 仍 13 键」的自相矛盾报告——前审 PG-T312Rb-01 抓的就是这个。改成 `{k: gates[k] for k in GATE_KEYS}` 之后，那三句注释**同时变真**，且缺源会 `KeyError` 响亮失败而不是悄悄少一项照常落盘。所以这三处**一个字都没改**：它们不是失实的键数，是代码欠着的债。
+
+**c11 比预想小得多**：`parse_expected_modes` 早就支持 `X_or_Y`，`refusal` 也早是合法原子，改一行数据即可。但前审 PG-T312Rb-03 指出的点很准——条件性其实由 `contract_expectations_met` 的**第二个合取项** `not retrieved_not_cited` 默默兜住，这一点**完全不体现在数据行里**。将来谁放宽那个合取项，c11 就悄悄变成真的无条件枚举。所以拆了 U8a/b/c 三条配对锁死，其中 U8b（已召回未引用**仍判失败**）是关键的那条。
+
+**前审七轮，第四到第七轮全是我自己的记账**。技术实质第三轮后没再被质疑过；后面四轮抓的是计数没同步、编号引错（修⑤写成修④该指的地方）、计数与紧邻枚举不符、轮次标注错。四次同型复发，原因就一个：**同一事实在 packet 里有多份手写副本，而散文没有机器检查**。这恰恰是本任务要在代码里根除的形态——键数散在 8 个地方（前审指 3 处、我自查 2 处、前审再指 1 处，从 2 处一路涨到 8 处）。所以代码侧改成 `len(GATE_KEYS)` 派生、并用 `len(GATE_KEYS) - 2` 断言锁住那段来源说明的散文：将来谁再降一个 §5.1 键忘了改文字，测试当场转红。验收标准也据此从"数个数"改成**可机器核对的边界**（`git diff` 里注释行改动必须恰好落在八处内），并逐条核了 A–E 五类"不该动"共 10 项零删除行。
+
+**实现期停过一次**：schema 升 v2 后 `tests/integration/test_eval_contract_harness.py` 的版本与键数断言必然失败，而该文件不在 `allowed_paths`。这次漏查的形态和前面一模一样——F8 我记了"版本常量被字面锁"，但 grep 的是**符号名** `CONTRACT_REPORT_SCHEMA_VERSION` 且限定在两个文件里，**从没全仓 grep 过字面量 `"p1.5-contract-v1"`**。按合同停止上报，用户批准加文件 + `max_changed_files` 9→10 后继续（改动是 `v1`→`v2` 与 `13`→`12` 两个字面量）。
+
+门禁：`make ci` **1318 passed**（基线 1304）、`make eval-ci` **583 + 65 passed**。先红证据：实现前 `pytest -k t312rb` = **12 failed / 6 passed**，6 条绿是回归锁不是空转——U8a/b/c 三条绿恰好机器证实了"条件性机制本就存在"这个判断。**T31.2 依旧不勾选**：两个修复任务都完成了，接下来重跑一次 dev 才有不被污染的基线。

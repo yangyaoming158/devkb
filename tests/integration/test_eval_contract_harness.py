@@ -253,7 +253,8 @@ async def test_i1_full_pipeline_writes_paired_reports_with_five_sections(
     assert json_path.is_file() and md_path.is_file()
     report = json.loads(json_path.read_text(encoding="utf-8"))
 
-    assert report["schema_version"] == "p1.5-contract-v1"
+    # v2：T31.2R-b 把 G2 降为报告项，gate_summary 由 13 键变 12 键
+    assert report["schema_version"] == "p1.5-contract-v2"
     assert len(report["run"]["devkb_commit"]) == 40
     assert report["run"]["command"].startswith("devkb eval contract")
     assert report["corpus"]["sha256"] and report["config"]["prompt_version"]
@@ -266,7 +267,7 @@ async def test_i1_full_pipeline_writes_paired_reports_with_five_sections(
         "final_consistency",
         "safety_reliability",
     ]
-    assert len(aggregates["gate_summary"]) == 13
+    assert len(aggregates["gate_summary"]) == 12
     # 未传 --retrieval-report → 该 Gate 未测量，总判定必 False（fail-closed）
     assert aggregates["gate_summary"]["retrieval_no_regression"] is None
     assert aggregates["all_hard_gates_passed"] is False
@@ -363,7 +364,7 @@ async def test_i3_cross_project_probe_isolates_and_leaves_persistence_untouched(
     # D7 又禁止在 eval_contract 里构造查询。该断言唯一由 I8 在真实 ASGI 请求上承担。
     assert "counts_unchanged" not in probes[0]
     assert probes[0]["measured_in"] == "deterministic_layer"
-    # 探针失败时第 13 键与安全分节同时转红（不靠人读）
+    # 探针失败时第 12 键与安全分节同时转红（不靠人读）
     from devkb.eval_contract import aggregate_contract, score_retrieval_reference
 
     broken = aggregate_contract(

@@ -230,10 +230,10 @@ def _agg(rows: list[dict[str, Any]] | None = None, **kw: Any) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
-def test_u1_all_green_gives_thirteen_true_gate_keys_and_no_cross_section_score() -> None:
+def test_u1_all_green_gives_twelve_true_gate_keys_and_no_cross_section_score() -> None:
     report = _agg_rows(_green_rows())
     assert set(report["gate_summary"]) == set(GATE_KEYS)
-    assert len(GATE_KEYS) == 13
+    assert len(GATE_KEYS) == 12
     assert all(v is True for v in report["gate_summary"].values()), report["gate_summary"]
     assert all(report["sections"][name]["gate"] is True for name in SECTION_KEYS)
     assert report["all_hard_gates_passed"] is True
@@ -441,7 +441,7 @@ def _agg_rows(rows: list[dict[str, Any]], **kw: Any) -> dict[str, Any]:
     )
 
 
-def test_u10_baseline_is_all_green_thirteen_keys() -> None:
+def test_u10_baseline_is_all_green_twelve_keys() -> None:
     report = _agg_rows(_green_rows())
     assert report["gate_summary"] == dict.fromkeys(GATE_KEYS, True), report["gate_summary"]
     assert report["all_hard_gates_passed"] is True
@@ -453,11 +453,6 @@ _L1: dict[str, tuple[str, dict[str, Any]]] = {
     # contract 题 mode 不在 expected 内
     "contract_expectations_met": ("final_consistency", {"row": ("c01", {"answer": "refusal"})}),
     "extended_expectations_met": ("final_consistency", {"row": ("e01", {"answer": "refusal"})}),
-    # 已索引路径在断言面上被写成不存在
-    "zero_absence_assertion_on_known_paths": (
-        "final_consistency",
-        {"row": ("c01", {"absence": True})},
-    ),
     # full 但预登记必需项未被引用（该路径从未召回，故不同时触发 retrieved_not_cited）
     "zero_full_without_required_evidence": (
         "evidence_selection",
@@ -683,8 +678,6 @@ def _l2_cases() -> dict[str, tuple[str, dict[str, Any]]]:
             "final_consistency",
             {"rows": [r for r in green if r["kind"] == "contract"]},
         ),
-        # 有成功 row，但可判定语段为 0
-        "zero_absence_assertion_on_known_paths": ("final_consistency", {"rows": no_absence}),
         # 全部成功题的被引 chunk 都取不到 → B10 可判定性前置
         "l0_l1_all_pass": ("claim_support", {"rows": undecidable}),
     }
@@ -704,13 +697,13 @@ def test_u10_l2_independently_constructible_none(key: str) -> None:
     assert others == {k: v for k, v in baseline["gate_summary"].items() if k != key}
 
 
-# ---- L3：空 rows ⟹ 11 键联动 None，另 2 键逐字不变 --------------------------
+# ---- L3：空 rows ⟹ 10 键联动 None，另 2 键逐字不变 --------------------------
 
 
-def test_u10_l3_empty_rows_make_eleven_keys_none_together() -> None:
+def test_u10_l3_empty_rows_make_ten_keys_none_together() -> None:
     """必须用**空 rows**：非空 failed rows 下 `budget_and_terminal` 是 False 不是 None。
 
-    这 11 键里，6 个子集依赖键与 `l0_l1_all_pass` 已在 L2 单独构造过；
+    这 10 键里，6 个子集依赖键与 `l0_l1_all_pass` 已在 L2 单独构造过；
     其余 4 键（consistency / G4b / zero_full_without / budget）的 None
     **在源端不可单独构造**——如实登记，改由 U10r 覆盖 reducer 行为。
     """
@@ -723,12 +716,11 @@ def test_u10_l3_empty_rows_make_eleven_keys_none_together() -> None:
         "l0_l1_all_pass",
         "contract_expectations_met",
         "extended_expectations_met",
-        "zero_absence_assertion_on_known_paths",
         "policy_terminal_correct",
         "global_negation_honest",
         "uningested_disclosed",
     }
-    assert len(linked) == 11
+    assert len(linked) == 10
     assert {k for k, v in report["gate_summary"].items() if v is None} == linked
     # 来自独立源的两键逐字不变
     assert report["gate_summary"]["retrieval_no_regression"] is True
@@ -809,7 +801,6 @@ def test_u14_flattened_mapping_counts_each_key_exactly_once() -> None:
         "l0_l1_all_pass",
         "contract_expectations_met",
         "extended_expectations_met",
-        "zero_absence_assertion_on_known_paths",
         "consistency_all_true",
         "zero_full_refusal_with_direct_evidence",
         "global_negation_honest",
@@ -824,10 +815,8 @@ def test_u14_flattened_mapping_counts_each_key_exactly_once() -> None:
 
 @pytest.mark.parametrize("key", sorted(GATE_KEYS))
 @pytest.mark.parametrize("bad", [False, None])
-def test_u14_section_conjunction_matches_thirteen_key_conjunction(
-    key: str, bad: bool | None
-) -> None:
-    """对每个键确定性地跑单 False / 单 None，验证「section 合取 ⟺ 13 键合取」。"""
+def test_u14_section_conjunction_matches_twelve_key_conjunction(key: str, bad: bool | None) -> None:
+    """对每个键确定性地跑单 False / 单 None，验证「section 合取 ⟺ 12 键合取」。"""
     gates: dict[str, bool | None] = dict.fromkeys(GATE_KEYS, True)
     gates[key] = bad
     per_section = {
@@ -927,15 +916,15 @@ def test_u12_section_and_gate_key_sets_are_locked_verbatim() -> None:
         "final_consistency",
         "safety_reliability",
     )
-    # 13 键 = §5.1 九条（第 1 条拆 1/1'、第 4 条拆 4a/4b）+ §7/§14 的 L0/L1
-    # + §5.2 第 8 条的 fail-fast。GATE_KEYS 由 SECTION_GATE_KEYS 展平派生。
+    # 12 键 = §5.1 九条（第 1 条拆 1/1'、第 4 条拆 4a/4b，**第 2 条 T31.2R-b 起
+    # 降为报告项**）落 10 键 + §7/§14 的 L0/L1 + §5.2 第 8 条的 fail-fast。
+    # GATE_KEYS 由 SECTION_GATE_KEYS 展平派生。
     assert GATE_KEYS == (
         "retrieval_no_regression",
         "zero_full_without_required_evidence",
         "l0_l1_all_pass",
         "contract_expectations_met",
         "extended_expectations_met",
-        "zero_absence_assertion_on_known_paths",
         "consistency_all_true",
         "zero_full_refusal_with_direct_evidence",
         "global_negation_honest",
@@ -944,7 +933,7 @@ def test_u12_section_and_gate_key_sets_are_locked_verbatim() -> None:
         "budget_and_terminal",
         "fail_fast_isolation_ok",
     )
-    assert len(GATE_KEYS) == 13
+    assert len(GATE_KEYS) == 12
 
 
 _BANNED = (
@@ -1307,8 +1296,11 @@ def test_u_b4e_absence_assertion_outside_not_found_is_still_caught(field: str) -
     scan = score_known_path_absence(answer, evidence_paths=(), indexed_paths=("PROGRESS.md",))
     assert len(scan["violations"]) == 1, scan
     assert scan["violations"][0]["field"] == field
-    # 「不存在」在 _REPO_LEVEL_NEGATION 而非 _ABSENCE_MARKERS：两表必须取并（F15）
-    assert "不存在" in NEGATION_PHRASES and "未找到" in NEGATION_PHRASES
+    # T31.2R-b 收窄后词表**只取** `_REPO_LEVEL_NEGATION`：`不存在` 这类"仓库里
+    # 根本没有"的措辞仍抓，`未找到` 这类**覆盖缺口**措辞不再抓——后者正是
+    # `prompts.py:78` 指示 generate 使用的诚实措辞。
+    assert "不存在" in NEGATION_PHRASES
+    assert "未找到" not in NEGATION_PHRASES
 
 
 def test_u_b4f_deterministic_scope_note_must_not_be_flagged() -> None:
@@ -1346,10 +1338,13 @@ def test_u_b4g_cross_sentence_anaphora_is_undecided_not_a_silent_pass() -> None:
     # 进了未判定桶就**不计入分母**：首版把"含已知路径"就计入，于是纯跨句指代形态
     # 得到 violations=[] ∧ decidable=1 → G2 判 True，把冻结要求的 None 变成了通过
     assert scan["decidable_segments"] == 0
+    # T31.2R-b 起该扫描**降为报告项**：未判定明细照样逐条落进 section，
+    # 但不再投影成硬 Gate（键已不在 `gate_summary` 内）。
     report = _agg_rows([_scored("c01", answer=answer, indexed=("PROGRESS.md",))])
-    assert report["gate_summary"]["zero_absence_assertion_on_known_paths"] is None
-    assert report["sections"]["final_consistency"]["gate"] is None
-    assert report["all_hard_gates_passed"] is False
+    assert "zero_absence_assertion_on_known_paths" not in report["gate_summary"]
+    consistency = report["sections"]["final_consistency"]
+    assert len(consistency["known_path_absence_undecided"]) == 1
+    assert consistency["known_path_absence_violations"] == []
 
     # 表外指代：封闭表未命中即如实计 0，不夸大（边界⑤）
     other = _answer(answer_text="本次检索命中 PROGRESS.md。那玩意不存在。")
@@ -1646,7 +1641,7 @@ def test_evidence_paths_from_trace_is_order_preserving_and_deduplicated() -> Non
 
 
 def test_schema_version_is_frozen() -> None:
-    assert CONTRACT_REPORT_SCHEMA_VERSION == "p1.5-contract-v1"
+    assert CONTRACT_REPORT_SCHEMA_VERSION == "p1.5-contract-v2"
 
 
 def test_u9_frozen_counts_match_the_committed_evalsets() -> None:
@@ -1871,15 +1866,257 @@ def test_u_b6d_full_mode_without_disclosure_still_fails_global_negation() -> Non
 def test_u13b_markdown_gate_heading_labels_the_three_different_sources() -> None:
     """报告不得让读者以为 §5.1 有十条。
 
-    第 13 键来自 §5.2 第 8 条、L0/L1 来自 §7+§14，两者都**不属** §5.1 九条；
+    第 12 键来自 §5.2 第 8 条、L0/L1 来自 §7+§14，两者都**不属** §5.1 九条；
     packet 要求逐字标注这一区别（限定审查 T311-RR-04）。
     """
     markdown = render_contract_markdown({"aggregates": _agg_rows(_green_rows())})
     # **正向**断言完整标题：只写旧标题的反向断言时，把整个标题删掉照样绿
     # （限定复审 T311-RR-04 实测）
-    assert "## Gate 汇总（13 键）" in markdown
+    assert f"## Gate 汇总（{len(GATE_KEYS)} 键）" in markdown
     # 三处来源逐字断言，**不得用 or 放宽**——`or "§7 硬 Gate"` 会让 §14 变成可选
     assert "`l0_l1_all_pass` 来自 **§7 硬 Gate + §14**" in markdown
     assert "`fail_fast_isolation_ok` 来自 **§5.2 第 8 条**" in markdown
     assert "§5.1 **没有**十条" in markdown
     assert "## Gate 汇总（§5.1 九条 + L0/L1）" not in markdown
+
+
+# ===========================================================================
+# T31.2R-b：G2 词表收窄 + 降为报告项 / c11 条件式标签 / Markdown 末尾空行
+#
+# 背景（packet F2–F5）：`prompts.py:78` **逐字指示** generate「用条件式措辞
+# （如"当前证据未覆盖…"）」，四处确定性诚实尾注也逐字含该词，而 `_ABSENCE_MARKERS`
+# 恰好收着 `未覆盖`/`未包含`/`缺失`——越按规格诚实声明覆盖缺口，越必然触发 G2。
+# T31.2 首次 dev 运行 13 条"违规"逐条打开后**一条真的都没有**。
+# ===========================================================================
+
+# 本轮已落盘报告里 13 条违规的命中短语与其原文形态（packet F2 实测）。
+# 收窄到 `_REPO_LEVEL_NEGATION` 后只剩最后一条，且它是**语义误配**（F4）。
+_T312RB_LANDED_VIOLATIONS: tuple[tuple[str, str], ...] = (
+    *(("未覆盖", "当前证据未覆盖 README.md 的其余章节。") for _ in range(10)),
+    ("缺失", "在缺失时抛 BusinessException，见 README.md。"),
+    ("未包含", "本次证据未包含 README.md 的部署段落。"),
+    # 唯一在收窄后仍命中的一条：说的是**知识库**这个运行期对象不存在，
+    # 不是说 README.md 这个文件不存在。共现式扫描结构上判不了这个区别。
+    ("不存在", "ensureKbOwner 在知识库不存在时抛 BusinessException，见 README.md。"),
+)
+
+
+def _t312rb_scan(text: str) -> dict[str, Any]:
+    return score_known_path_absence(
+        _answer(answer_text=text), evidence_paths=(), indexed_paths=("README.md",)
+    )
+
+
+def test_t312rb_u1_repo_level_negation_on_a_known_path_is_still_recorded() -> None:
+    """U1：仓库级否定词表仍然照常命中——收窄不是"把 G2 关掉"。"""
+    scan = _t312rb_scan("README.md 不存在于本仓库。")
+
+    assert len(scan["violations"]) == 1, scan
+    assert scan["violations"][0]["phrase"] == "不存在"
+    assert scan["violations"][0]["path"] == "README.md"
+
+
+@pytest.mark.parametrize("phrase", ["未覆盖", "未包含", "缺失"])
+def test_t312rb_u2_coverage_gap_wording_no_longer_counts(phrase: str) -> None:
+    """U2：规格**自己要求**的覆盖缺口措辞不得再被记为违规。
+
+    这三个词属 `_ABSENCE_MARKERS`；`prompts.py:78` 与四处确定性尾注逐字使用
+    `未覆盖`，旧词表下"诚实声明缺口"与"通过 G2"互斥。
+    """
+    scan = _t312rb_scan(f"当前证据{phrase} README.md 的其余章节。")
+
+    assert scan["violations"] == [], scan["violations"]
+    assert phrase not in NEGATION_PHRASES
+
+
+def test_t312rb_u3_recomputing_the_landed_thirteen_leaves_exactly_one() -> None:
+    """U3：对**本轮已落盘的这批文本**重算 = 恰好 1 条，且是那条语义误配。
+
+    只断言"同一批文本重算"这一可复现事实；**推不出**未来运行的命中率
+    （packet「尚未证实的假设」）。
+    """
+    hits = [
+        (phrase, seg)
+        for phrase, seg in _T312RB_LANDED_VIOLATIONS
+        if _t312rb_scan(seg)["violations"]
+    ]
+
+    assert len(_T312RB_LANDED_VIOLATIONS) == 13, "这批构造必须与已落盘的 13 条同量"
+    assert len(hits) == 1, hits
+    assert hits[0][0] == "不存在"
+    assert "知识库不存在" in hits[0][1], "残余的是语义误配，不是真违规"
+
+
+def test_t312rb_u4_demoted_key_leaves_gate_summary_but_details_stay() -> None:
+    """U4：G2 不再是硬 Gate，但**计算与报告一条都不少**。"""
+    report = _agg_rows(_green_rows())
+
+    assert "zero_absence_assertion_on_known_paths" not in report["gate_summary"]
+    assert "zero_absence_assertion_on_known_paths" not in GATE_KEYS
+    assert len(GATE_KEYS) == 12
+    # 明细仍在 final_consistency 内逐条可见——"降为报告项"不是"删掉"
+    consistency = report["sections"]["final_consistency"]
+    assert "known_path_absence_violations" in consistency
+    assert "known_path_absence_undecided" in consistency
+    # 该节的 gate 现由 6 键而非 7 键合取
+    assert len(SECTION_GATE_KEYS["final_consistency"]) == 6
+
+
+def test_t312rb_u5_contract_markdown_ends_with_exactly_one_newline() -> None:
+    """U5（`T312-P2-01`）：末尾多一个空行会让任何提交契约报告的 commit 过不了
+    `git diff --check`（实测挡住过 T31.2 的 `make verify-full`）。"""
+    markdown = render_contract_markdown({"aggregates": _agg_rows(_green_rows())})
+
+    assert markdown.endswith("\n")
+    assert not markdown.endswith("\n\n"), "末尾空行会触发 new blank line at EOF"
+
+
+def test_t312rb_u7_gate_summary_is_a_real_projection_not_a_passthrough() -> None:
+    """U7（fail-closed 负例）：`gate_summary` 必须是 `GATE_KEYS` 的**投影**。
+
+    改动前 `:1122` 是 `"gate_summary": gates` 原样透传，键集合相等纯属手写时
+    恰好对齐；`:81`/`:83`/`:1112` 三处注释声称的"投影"当时并不成立。往权威
+    dict 里塞一个游离键，若它能出现在 `gate_summary`，说明投影没建立。
+    """
+    assert set(_agg_rows(_green_rows())["gate_summary"]) == set(GATE_KEYS)
+
+
+def test_t312rb_u7b_projection_fails_loud_when_a_gate_key_has_no_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """U7b：投影读的必须是 `GATE_KEYS`，且缺源时**响亮失败**。
+
+    透传实现下，`GATE_KEYS` 多出一个无源键只会让 `gate_summary` 悄悄少一项，
+    报告照样落盘；真投影会 `KeyError`。这条同时证明"确实在读 GATE_KEYS"——
+    否则 monkeypatch 不会有任何影响。
+    """
+    import devkb.eval_contract as ec
+
+    monkeypatch.setattr(ec, "GATE_KEYS", (*GATE_KEYS, "phantom_key_without_a_source"))
+    with pytest.raises(KeyError):
+        _agg_rows(_green_rows())
+
+
+def test_t312rb_u9_illegal_expected_mode_atom_still_raises() -> None:
+    """U9：条件式语法不得顺带放宽原子集校验。"""
+    assert parse_expected_modes("partial_or_refusal", question_id="c11") == ("partial", "refusal")
+    with pytest.raises(InvalidInputError):
+        parse_expected_modes("partial_or_bogus", question_id="c11")
+
+
+def test_t312rb_u10a_markdown_key_count_and_provenance_are_derived() -> None:
+    """U10a：标题键数与来源说明的 §5.1 键数都不得再是硬编码字面量。
+
+    `len(GATE_KEYS) - 2` 是对来源说明**自己陈述的事实**（恰好 2 键非 §5.1）
+    的机器锁：将来任何人再降/再加一个 §5.1 键而忘了改这段散文，本条立刻转红。
+    """
+    markdown = render_contract_markdown({"aggregates": _agg_rows(_green_rows())})
+
+    assert f"## Gate 汇总（{len(GATE_KEYS)} 键）" in markdown
+    assert "## Gate 汇总（13 键）" not in markdown
+    assert f"共 {len(GATE_KEYS) - 2} 键" in markdown
+    # 两个非 §5.1 键的来源标注逐字保留（T311-RR-04 冻结）
+    assert "`l0_l1_all_pass` 来自 **§7 硬 Gate + §14**" in markdown
+    assert "`fail_fast_isolation_ok` 来自 **§5.2 第 8 条**" in markdown
+
+
+_T312RB_G2_DECLARATION = "规则命中计数，非违规判定"
+# 裸词 `违规` **刻意不入表**：要求出现的那句自身含「非违规判定」，
+# 列进去会让断言自相矛盾。禁的是"下合规/违规结论"，不是这两个字。
+_T312RB_G2_BANNED = ("零违规", "无违规", "合规", "不合规", "通过", "未通过")
+
+
+def _t312rb_g2_surfaces() -> dict[str, str]:
+    report = _agg_rows(_green_rows())
+    markdown = render_contract_markdown({"aggregates": report})
+    # 用行首锚定：来源说明里也含"已知路径否定计数"这四个字，只按子串取会选错行
+    g2_line = next(line for line in markdown.splitlines() if line.startswith("- 已知路径 ×"))
+    return {"markdown": g2_line, "json_note": report["sections"]["final_consistency"]["note"]}
+
+
+@pytest.mark.parametrize("surface", ["markdown", "json_note"])
+def test_t312rb_u10b_g2_is_reported_as_a_count_not_a_verdict(surface: str) -> None:
+    """U10b（诚实边界，两个面各跑一次）：G2 已被证明会误报（F4），报告里
+    只能给**计数**，不得给合规/违规结论。"""
+    text = _t312rb_g2_surfaces()[surface]
+
+    assert _T312RB_G2_DECLARATION in text, text
+    for banned in _T312RB_G2_BANNED:
+        assert banned not in text, f"{surface} 的 G2 表述含禁用措辞 {banned}：{text}"
+
+
+def test_t312rb_u11_narrowed_scan_cannot_prove_the_absence_of_false_claims() -> None:
+    """U11（fail-closed 负例）：收窄后的 G2 **推不出**「系统从未把已知文件说成
+    不存在」——换个表外说法就能绕过共现扫描。这正是它只能当报告项的理由。"""
+    evasive = _t312rb_scan("README.md 这个文件在本仓库里是找不到的。")
+
+    assert evasive["violations"] == [], "本用例的前提就是它绕过了词表"
+    # 绕过了扫描，但**不得**因此产生任何"零违规/合规"结论——G2 已不在硬 Gate 内
+    report = _agg_rows(_green_rows())
+    assert "zero_absence_assertion_on_known_paths" not in report["gate_summary"]
+
+
+# --- U8a/b/c：c11 的"条件式"不是无条件枚举 ---------------------------------
+#
+# packet F10b：条件性由 `contract_expectations_met` 的**第二个合取项**
+# `not retrieved_not_cited` 承担，标签本身只放宽 mode 枚举。这一点完全不体现
+# 在数据行里，故必须由配对用例锁死——否则将来任何人放宽那个合取项，c11 就
+# 悄悄变成真的无条件枚举。
+
+_T312RB_C11_REQUIRED = [{"type": "progress", "path": "PROGRESS.md", "symbol": "PROGRESS.md:20"}]
+
+
+def _t312rb_c11_row(*, mode: str, progress_retrieved: bool) -> dict[str, Any]:
+    steps = [_retrieve_step(["PROGRESS.md"] if progress_retrieved else [])]
+    return _scored(
+        "c11",
+        answer=_answer(answer_text=f"关于 Phase 6。{DISCLOSURE}", mode=mode, citations=[]),
+        trace=_trace(steps),
+        required=_T312RB_C11_REQUIRED,
+        indexed=("README.md", "PROGRESS.md"),
+        expected=("partial", "refusal"),
+    )
+
+
+def test_t312rb_u8a_refusal_is_accepted_when_progress_was_never_retrieved() -> None:
+    """U8a：PROGRESS 未召回 + refusal → 达标（这正是本轮 dev 的实际形态）。"""
+    row = _t312rb_c11_row(mode="refusal", progress_retrieved=False)
+
+    assert row["mode_matches"] is True
+    assert row["evidence_selection"]["retrieved_not_cited"] == []
+    assert _agg_rows([row])["gate_summary"]["contract_expectations_met"] is True
+
+
+def test_t312rb_u8b_refusal_still_fails_when_progress_was_retrieved_but_not_cited() -> None:
+    """U8b（三条里最关键的）：放宽的是 mode 枚举，**不是**"召回了也可以不引用"。"""
+    row = _t312rb_c11_row(mode="refusal", progress_retrieved=True)
+
+    assert row["mode_matches"] is True, "mode 侧确实被放宽了"
+    assert row["evidence_selection"]["retrieved_not_cited"] == ["PROGRESS.md"]
+    assert _agg_rows([row])["gate_summary"]["contract_expectations_met"] is False
+
+
+def test_t312rb_u8c_full_still_fails_because_it_is_not_in_the_atom_set() -> None:
+    """U8c：`full` 不在 `partial_or_refusal` 内，仍判失败。"""
+    row = _t312rb_c11_row(mode="full", progress_retrieved=False)
+
+    assert row["mode_matches"] is False
+    assert _agg_rows([row])["gate_summary"]["contract_expectations_met"] is False
+
+
+def test_t312rb_u12_c11_relaxation_is_marked_and_does_not_lower_the_p16_target() -> None:
+    """U12（fail-closed 负例）：`partial_or_refusal` **推不出**"c11 合格"。
+
+    它是一次**放宽**，故①数据行必须显著标记；②`p16_target` 仍要求三态闭合，
+    不因本次放宽而降低 P1.6 目标。只读 dev 分片，holdout 全程不打开。
+    """
+    dev = Path("evalsets/v1.5/contract_dev.jsonl")
+    rows = [json.loads(line) for line in dev.read_text(encoding="utf-8").splitlines() if line]
+    c11 = next(row for row in rows if row["id"] == "c11")
+    c02 = next(row for row in rows if row["id"] == "c02")
+
+    assert c11["expected_mode_p15"] == "partial_or_refusal"
+    assert "放宽" in c11["notes"], "放宽必须在数据行里显著标记，不能只写在 packet 里"
+    assert "inventory" in c11["p16_target"] or "三态" in c11["p16_target"]
+    # c02 是用户 2026-08-05 裁决的"判真失败"，不得借本任务一并放宽
+    assert c02["expected_mode_p15"] == "partial"
