@@ -334,6 +334,87 @@ def _overlaps(a: tuple[int, int], b: tuple[int, int]) -> bool:
     return a[0] <= b[1] and b[0] <= a[1]
 
 
+def score_never_retrieved_refs(
+    items: Sequence[dict[str, Any]], not_found_details: Sequence[dict[str, Any]]
+) -> dict[str, Any]:
+    """《Evaluation-v1.5》§2 条件式规则**后半句**的结构层判定（T31.2R-c）。
+
+    条款是「X 未被召回则以 `missing_from_current_evidence` 呈现且最高 partial」。
+    前半句（召回了必须成为直接引用）由 `retrieved_not_cited` 承担，后半句此前
+    **没有任何硬键在守**——于是「必需证据一条都没召回」的题，`contract_expectations_met`
+    的第二个合取项**空真成立**，整题只剩 `mode_matches` 在判（T31.2 第二次 dev
+    运行的 c02：3 项必需证据全 `never_retrieved`、`cited_count=0`，却被计入达标）。
+
+    只对 `never_retrieved` 项判，逐项三态：
+
+    - ``referenced``——存在一条**合法 category** 的明细，其 `refs` 结构性引用了该路径；
+    - ``unattributable``——没匹配上，但存在 `refs` 为空的明细，**归不了属**；
+    - ``unreferenced``——明细全带 refs 且无一匹配（**含明细列表为空**），确定失败。
+
+    **命名纪律**：`referenced` 只证明"合法类别的 refs 里有这个路径"，
+    **不证明**这句话在说这一项、不证明该路径真实存在、不证明合同命题成立
+    （计划前审第二轮明确批准该收窄）。故每个 `referenced` 项都强制带上
+    `proposition_undecided=True` 并路由 U3.2——命题真伪**逐项**未判定，不是拿
+    `not_found.proposition_level_undecided` 那个 `len(details)` 通用计数搪塞。
+
+    `unattributable` 判 `None` 而不是 `True`：判不了不算通过（`PG-T312Rc-01`，
+    用户 2026-08-07 在两方案间裁定采用硬 Gate 三态）。
+    """
+    verdicts: list[dict[str, Any]] = []
+    for item in items:
+        if item["status"] != "never_retrieved":
+            continue
+        pattern = item["path"]
+        suffix = "." + pattern.rsplit(".", 1)[-1].lower() if "." in pattern else ""
+        referenced = False
+        unattributable = False
+        for detail in not_found_details:
+            category = detail.get("category")
+            if category in _UNPRODUCIBLE:
+                # P1.5 不得由代码产出的两类，即使 refs 匹配也不算数（另一套账由
+                # `score_not_found` 的 r3_forbidden_category 独立记，互不掩盖）
+                continue
+            refs = detail.get("refs") or []
+            if not refs:
+                unattributable = True
+                continue
+            if category == "missing_from_current_evidence" and any(
+                match_required_path(ref, pattern) for ref in refs
+            ):
+                referenced = True
+                break
+            # c10 的 `.sql`、c03 的 `.vue/.ts`：未摄取后缀由后缀本身承载引用
+            if (
+                category == "unsupported_or_not_ingested"
+                and suffix
+                and suffix not in _INGESTED_SUFFIXES
+                and any(ref.lower() == suffix for ref in refs)
+            ):
+                referenced = True
+                break
+        status = (
+            "referenced" if referenced else "unattributable" if unattributable else "unreferenced"
+        )
+        verdicts.append(
+            {"path": pattern, "ref_status": status, "proposition_undecided": referenced}
+        )
+
+    tri: dict[str, bool | None] = {
+        "referenced": True,
+        "unattributable": None,
+        "unreferenced": False,
+    }
+    return {
+        "items": verdicts,
+        "referenced": [v["path"] for v in verdicts if v["ref_status"] == "referenced"],
+        "unreferenced": [v["path"] for v in verdicts if v["ref_status"] == "unreferenced"],
+        "unattributable": [v["path"] for v in verdicts if v["ref_status"] == "unattributable"],
+        "proposition_undecided": [v["path"] for v in verdicts if v["proposition_undecided"]],
+        # 空列表 → `_conjunction` 返回 True：该行本就不受本条款约束
+        "gate": _conjunction([tri[v["ref_status"]] for v in verdicts]),
+    }
+
+
 def score_evidence_selection(
     row: dict[str, Any], answer: dict[str, Any], *, evidence_paths: Sequence[str]
 ) -> dict[str, Any]:
@@ -384,6 +465,16 @@ def score_evidence_selection(
     cited_types = {classify_path(citation["rel_path"]) for citation in citations}
     forbidden_types_cited = sorted(cited_types & forbidden)
     unmet = [item for item in items if item["status"] != "cited"]
+    # T31.2R-c：未召回项的结构性引用三态。**生产与 U7a 共用这一份规则**
+    # （`PG-T312Rc-03`：测试里不得存在规则副本）。
+    refs_verdict = score_never_retrieved_refs(items, answer.get("not_found_details") or [])
+    # 按**顺序**回填而不是按 path 建索引：两个必需项可以登记同一 pattern
+    # （如 c12 的通配），按 path 归并会让它们互相顶替。
+    pending = iter(refs_verdict["items"])
+    for item in items:
+        verdict = next(pending) if item["status"] == "never_retrieved" else None
+        item["ref_status"] = verdict["ref_status"] if verdict else None
+        item["proposition_undecided"] = bool(verdict and verdict["proposition_undecided"])
     return {
         "required_total": len(items),
         "items": items,
@@ -391,6 +482,13 @@ def score_evidence_selection(
         "retrieved_not_cited": [
             item["path"] for item in items if item["status"] == "retrieved_not_cited"
         ],
+        # T31.2R-c：条件式规则后半句的逐题结果。`never_retrieved` 此前只存在于
+        # `items[].status` 里，聚合层看不见，于是空真通过完全静默。
+        "never_retrieved": [item["path"] for item in items if item["status"] == "never_retrieved"],
+        "never_retrieved_unreferenced": refs_verdict["unreferenced"],
+        "never_retrieved_unattributable": refs_verdict["unattributable"],
+        "never_retrieved_ref_proposition_undecided": len(refs_verdict["proposition_undecided"]),
+        "never_retrieved_ref_gate": refs_verdict["gate"],
         "span_decidable": sum(1 for item in items if item["span_hit"] is not None),
         "span_hit": sum(1 for item in items if item["span_hit"] is True),
         "span_undecided": sum(1 for item in items if item["span_hit"] is None),
@@ -940,12 +1038,26 @@ def aggregate_contract(
     absence_violations = [v for row in succeeded for v in row["known_path_absence"]["violations"]]
     absence_undecided = [u for row in succeeded for u in row["known_path_absence"]["undecided"]]
     gates: dict[str, bool | None] = {
-        "contract_expectations_met": _all_true(
-            [
-                bool(row["mode_matches"]) and not row["evidence_selection"]["retrieved_not_cited"]
-                for row in contract_rows
-            ],
-            measured=bool(contract_rows),
+        # 三合取项，逐题**三态**（T31.2R-c，用户 2026-08-07 裁定方案①）：
+        # ①mode 匹配 ②召回了的必需项都成了直接引用 ③没召回的都被结构性引用。
+        # 第三项 `None`（归不了属）时整题 `None`——**判不了不算通过**。首版只查
+        # 确定失败，于是「全未召回 + 结构关联全不可判定 + mode 匹配」仍得 True，
+        # 消除了静默却没消除假绿（计划前审 `PG-T312Rc-01`）。
+        "contract_expectations_met": (
+            _conjunction(
+                [
+                    _conjunction(
+                        [
+                            bool(row["mode_matches"])
+                            and not row["evidence_selection"]["retrieved_not_cited"],
+                            row["evidence_selection"]["never_retrieved_ref_gate"],
+                        ]
+                    )
+                    for row in contract_rows
+                ]
+            )
+            if contract_rows
+            else None
         ),
         "extended_expectations_met": _all_true(
             [bool(row["mode_matches"]) for row in extended_rows], measured=bool(extended_rows)
@@ -1018,6 +1130,32 @@ def aggregate_contract(
                 for row in succeeded
                 if row["evidence_selection"]["retrieved_not_cited"]
             ],
+            "never_retrieved": [
+                {"id": row["id"], "paths": row["evidence_selection"]["never_retrieved"]}
+                for row in succeeded
+                if row["evidence_selection"]["never_retrieved"]
+            ],
+            "never_retrieved_unreferenced": [
+                {
+                    "id": row["id"],
+                    "paths": row["evidence_selection"]["never_retrieved_unreferenced"],
+                }
+                for row in succeeded
+                if row["evidence_selection"]["never_retrieved_unreferenced"]
+            ],
+            "never_retrieved_unattributable": [
+                {
+                    "id": row["id"],
+                    "paths": row["evidence_selection"]["never_retrieved_unattributable"],
+                }
+                for row in succeeded
+                if row["evidence_selection"]["never_retrieved_unattributable"]
+            ],
+            # 结构性引用**推不出**该缺口陈述为真：逐项登记，路由 U3.2
+            "never_retrieved_ref_proposition_undecided": sum(
+                row["evidence_selection"]["never_retrieved_ref_proposition_undecided"]
+                for row in succeeded
+            ),
             "span_decidable": span_decidable,
             "span_hit": span_hit,
             "span_hit_rate": _rate(span_hit, span_decidable),
@@ -1055,6 +1193,18 @@ def aggregate_contract(
             },
         },
         "final_consistency": {
+            # T31.2R-c：**旧二合取谓词的空真候选**——`mode` 对上、`retrieved_not_cited`
+            # 为空纯粹因为一条必需证据都没召回。谓词冻结在此，不靠人眼归纳：
+            # contract 题 ∧ mode 匹配 ∧ 有必需项 ∧ 全部必需项 `never_retrieved`。
+            # **它不表示"新 Gate 已放行"**，第三合取项另判（见 gate_summary）。
+            "contract_vacuous_pass": [
+                {"id": row["id"], "paths": row["evidence_selection"]["never_retrieved"]}
+                for row in contract_rows
+                if row["mode_matches"]
+                and row["evidence_selection"]["required_total"] > 0
+                and len(row["evidence_selection"]["never_retrieved"])
+                == row["evidence_selection"]["required_total"]
+            ],
             "not_found_entries": sum(row["not_found"]["entries_total"] for row in succeeded),
             "not_found_decidable": nf_decidable,
             "not_found_decidable_ok": nf_ok,
@@ -1202,6 +1352,9 @@ def render_contract_markdown(report: dict[str, Any]) -> str:
         f"- 必需证据命中：{evidence['required_cited']}/{evidence['required_total']}",
         f"- 点名行段命中：{evidence['span_hit']}/{evidence['span_decidable']}"
         f"（未判定 {evidence['span_undecided']}）",
+        f"- 未召回项的结构性引用：确定缺引用 {len(evidence['never_retrieved_unreferenced'])} 题、"
+        f"归不了属 {len(evidence['never_retrieved_unattributable'])} 题；"
+        f"命题级逐项未判定 {evidence['never_retrieved_ref_proposition_undecided']} 项（归 U3.2）",
         f"- {evidence['note']}",
         "",
         "### 3 引用支持",
@@ -1212,6 +1365,16 @@ def render_contract_markdown(report: dict[str, Any]) -> str:
         "",
         "### 4 最终一致性",
         "",
+        # 措辞受 U8 约束：这一行禁止读起来像"通过"——它列的是**空真候选**，
+        # 即旧二合取谓词只因"必需证据一条都没召回"而成立的题。
+        "- 契约预期空真候选（必需证据全部未召回，第二合取项空真成立）："
+        + (
+            "、".join(
+                f"{item['id']}（未召回 {len(item['paths'])} 项）"
+                for item in consistency["contract_vacuous_pass"]
+            )
+            or "无"
+        ),
         f"- not_found 可判定项：{consistency['not_found_decidable_ok']}/"
         f"{consistency['not_found_decidable']}（未判定 {consistency['not_found_undecided']}、"
         f"命题级未判定 {consistency['not_found_proposition_undecided']}）",

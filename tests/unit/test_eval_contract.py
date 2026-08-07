@@ -43,6 +43,7 @@ from devkb.eval_contract import (
     score_coverage_monotonicity,
     score_evidence_selection,
     score_known_path_absence,
+    score_never_retrieved_refs,
     score_not_found,
     score_policy,
     score_retrieval_reference,
@@ -133,6 +134,13 @@ def _row(qid: str = "c01", **overrides: Any) -> dict[str, Any]:
             "items": [],
             "cited_count": 0,
             "retrieved_not_cited": [],
+            # T31.2R-c 的第三合取项按 R-b 口径直接下标取值、缺源即 KeyError，
+            # 故手写行也必须给全（无必需项时 gate 为 True：本就不受该条款约束）
+            "never_retrieved": [],
+            "never_retrieved_unreferenced": [],
+            "never_retrieved_unattributable": [],
+            "never_retrieved_ref_proposition_undecided": 0,
+            "never_retrieved_ref_gate": True,
             "span_decidable": 0,
             "span_hit": 0,
             "span_undecided": 0,
@@ -455,10 +463,15 @@ _L1: dict[str, tuple[str, dict[str, Any]]] = {
     # contract 题 mode 不在 expected 内
     "contract_expectations_met": ("final_consistency", {"row": ("c01", {"answer": "refusal"})}),
     "extended_expectations_met": ("final_consistency", {"row": ("e01", {"answer": "refusal"})}),
-    # full 但预登记必需项未被引用（该路径从未召回，故不同时触发 retrieved_not_cited）
+    # full 但预登记必需项未被引用（该路径从未召回，故不同时触发 retrieved_not_cited）。
+    # **T31.2R-c 起改用 extended 行**：本键遍历全部 succeeded 行，而
+    # `contract_expectations_met` 只遍历 contract 行。新增的第三合取项会把
+    # "未召回且无任何 not_found 明细"也判红，contract 侧于是两键同红、隔离性
+    # 不成立。这不是把断言放松——两键确实**同时**被违反，该重叠由
+    # `..._u11_full_unmet_trips_both_named_keys_on_a_contract_row` 正面锁死。
     "zero_full_without_required_evidence": (
         "evidence_selection",
-        {"row": ("c01", {"full_unmet": True})},
+        {"row": ("e01", {"full_unmet": True})},
     ),
     # full ∧ not_found 非空 → R1 False
     "consistency_all_true": ("final_consistency", {"row": ("c01", {"r1": True})}),
@@ -2124,11 +2137,21 @@ def test_t312rb_u11_narrowed_scan_cannot_prove_the_absence_of_false_claims() -> 
 _T312RB_C11_REQUIRED = [{"type": "progress", "path": "PROGRESS.md", "symbol": "PROGRESS.md:20"}]
 
 
-def _t312rb_c11_row(*, mode: str, progress_retrieved: bool) -> dict[str, Any]:
+def _t312rb_c11_row(
+    *, mode: str, progress_retrieved: bool, details: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    """`details` 由 T31.2R-c 增补：第三合取项的输入是 `not_found_details`。"""
     steps = [_retrieve_step(["PROGRESS.md"] if progress_retrieved else [])]
+    details = details if details is not None else []
     return _scored(
         "c11",
-        answer=_answer(answer_text=f"关于 Phase 6。{DISCLOSURE}", mode=mode, citations=[]),
+        answer=_answer(
+            answer_text=f"关于 Phase 6。{DISCLOSURE}",
+            mode=mode,
+            citations=[],
+            not_found=[detail["text"] for detail in details],
+            not_found_details=details,
+        ),
         trace=_trace(steps),
         required=_T312RB_C11_REQUIRED,
         indexed=("README.md", "PROGRESS.md"),
@@ -2136,13 +2159,53 @@ def _t312rb_c11_row(*, mode: str, progress_retrieved: bool) -> dict[str, Any]:
     )
 
 
-def test_t312rb_u8a_refusal_is_accepted_when_progress_was_never_retrieved() -> None:
-    """U8a：PROGRESS 未召回 + refusal → 达标（这正是本轮 dev 的实际形态）。"""
-    row = _t312rb_c11_row(mode="refusal", progress_retrieved=False)
+def test_t312rb_u8a_refusal_passes_when_progress_gap_is_referenced() -> None:
+    """U8a（c11 五态矩阵第 1 行；T31.2R-c 改写，原断言见下方 U8a2）。
+
+    改写理由：原用例的输入是"未召回 + refusal + **空明细**"，冻结的结论是
+    `contract_expectations_met is True`。T31.2R-c 给该键补了第三个合取项
+    「未召回必需项必须被 not_found 明细结构性引用」，空明细在新规则下是
+    **确定失败**。原态的新结论移到 `..._u8a2_...`；本用例改为它的通过态——
+    带一条 refs 含 `PROGRESS.md` 的明细。断言强度未降低：仍然断言键值。
+    """
+    row = _t312rb_c11_row(
+        mode="refusal", progress_retrieved=False, details=[_t312rc_detail(["PROGRESS.md"])]
+    )
 
     assert row["mode_matches"] is True
     assert row["evidence_selection"]["retrieved_not_cited"] == []
+    assert row["evidence_selection"]["never_retrieved_ref_gate"] is True
     assert _agg_rows([row])["gate_summary"]["contract_expectations_met"] is True
+
+
+def test_t312rc_u8a2_refusal_with_no_details_is_a_decidable_failure() -> None:
+    """c11 五态矩阵第 2 行：未召回 + refusal + **明细为空** → 确定失败。
+
+    这是 T31.2R-c **推翻 T31.2R-b 既有冻结断言的唯一一处**（原 U8a 判 True）。
+    依据：一条 not_found 明细都没有，就没有任何东西声明这个缺口。
+    """
+    row = _t312rb_c11_row(mode="refusal", progress_retrieved=False)
+    selection = row["evidence_selection"]
+
+    assert row["mode_matches"] is True
+    assert selection["retrieved_not_cited"] == []
+    assert selection["never_retrieved_unreferenced"] == ["PROGRESS.md"]
+    assert selection["never_retrieved_ref_gate"] is False
+    assert _agg_rows([row])["gate_summary"]["contract_expectations_met"] is False
+
+
+def test_t312rc_u8a3_refusal_with_unattributable_details_is_undecided() -> None:
+    """c11 五态矩阵第 3 行：有明细但 refs 全空 → 归不了属，判 `None`。"""
+    row = _t312rb_c11_row(mode="refusal", progress_retrieved=False, details=[_t312rc_detail([])])
+    selection = row["evidence_selection"]
+
+    assert selection["never_retrieved_unattributable"] == ["PROGRESS.md"]
+    assert selection["never_retrieved_unreferenced"] == []
+    assert selection["never_retrieved_ref_gate"] is None
+
+    report = _agg_rows([row])
+    assert report["gate_summary"]["contract_expectations_met"] is None
+    assert report["all_hard_gates_passed"] is False
 
 
 def test_t312rb_u8b_refusal_still_fails_when_progress_was_retrieved_but_not_cited() -> None:
@@ -2178,3 +2241,396 @@ def test_t312rb_u12_c11_relaxation_is_marked_and_does_not_lower_the_p16_target()
     assert "inventory" in c11["p16_target"] or "三态" in c11["p16_target"]
     # c02 是用户 2026-08-05 裁决的"判真失败"，不得借本任务一并放宽
     assert c02["expected_mode_p15"] == "partial"
+
+
+# --------------------------------------------------------------------------
+# T31.2R-c：`contract_expectations_met` 的空真通过洞（packet 冻结测试 U1–U10）
+#
+# 输入来源统一为两份**已落盘真实报告**：必需项的 type/path/symbol 与
+# not_found_details 都从里面取，不手编（backlog `WF-P3-05`）。
+# --------------------------------------------------------------------------
+
+_T312RC_LANDED_0805 = Path("evalsets/reports/p1.5-dev-contract-20260805T174422+0800.json")
+_T312RC_LANDED_0807 = Path("evalsets/reports/p1.5-dev-contract-20260807T175724+0800.json")
+# `score_never_retrieved_refs` 的**冻结输出键集合**（U9b 用它锁死"不声称路径存在"）
+_T312RC_HELPER_KEYS = frozenset(
+    {"items", "referenced", "unreferenced", "unattributable", "proposition_undecided", "gate"}
+)
+
+
+def _t312rc_landed(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _t312rc_landed_row(path: Path, qid: str) -> dict[str, Any]:
+    rows = [row for row in _t312rc_landed(path)["aggregates"]["questions"] if row["id"] == qid]
+    assert len(rows) == 1, (path.name, qid)
+    return rows[0]
+
+
+def _t312rc_required_of(path: Path, qid: str) -> list[dict[str, Any]]:
+    """把已落盘行的 `evidence_selection.items` 还原成 `required_evidence` 输入。"""
+    return [
+        {"type": item["type"], "path": item["path"], "symbol": item["symbol"]}
+        for item in _t312rc_landed_row(path, qid)["evidence_selection"]["items"]
+    ]
+
+
+def _t312rc_details_of(path: Path, qid: str) -> list[dict[str, Any]]:
+    return list(_t312rc_landed_row(path, qid)["answer"]["not_found_details"])
+
+
+def _t312rc_detail(
+    refs: list[str],
+    *,
+    category: str = "missing_from_current_evidence",
+    text: str = "当前证据未覆盖该项。",
+) -> dict[str, Any]:
+    basis = (
+        "static_suffix_rule" if category == "unsupported_or_not_ingested" else "evidence_history"
+    )
+    return {
+        "text": text,
+        "category": category,
+        "source": "generate_draft",
+        "basis": basis,
+        "refs": refs,
+        "original_text": None,
+    }
+
+
+def _t312rc_row(
+    qid: str,
+    details: list[dict[str, Any]],
+    *,
+    required: list[dict[str, Any]] | None = None,
+    landed: Path = _T312RC_LANDED_0807,
+    mode: str = "partial",
+) -> dict[str, Any]:
+    """走真实 `assemble_row`：空 retrieve 轨迹 → 全部必需项 `never_retrieved`。"""
+    return _scored(
+        qid,
+        answer=_answer(
+            answer_text=f"已依据现有证据说明。{DISCLOSURE}",
+            mode=mode,
+            citations=[],
+            not_found=[detail["text"] for detail in details],
+            not_found_details=details,
+        ),
+        trace=_trace([_retrieve_step([])]),
+        required=required if required is not None else _t312rc_required_of(landed, qid),
+        expected=("partial", "refusal"),
+    )
+
+
+def _t312rc_recompute(landed: dict[str, Any]) -> tuple[dict[str, Any], Counter[str]]:
+    """把已落盘行经**生产 helper** 复算后重新聚合。
+
+    落盘行没有本任务新增的键（第三合取项按 R-b 口径直接下标取值、缺源即
+    `KeyError`），故必须先补齐；补齐用的是生产函数 `score_never_retrieved_refs`
+    本身——`PG-T312Rc-03` 要求生产与测试共用同一份规则，测试里不得有规则副本。
+    """
+    rows = [dict(row) for row in landed["aggregates"]["questions"]]
+    tally: Counter[str] = Counter()
+    for row in rows:
+        selection = dict(row["evidence_selection"])
+        details = (row.get("answer") or {}).get("not_found_details") or []
+        verdict = score_never_retrieved_refs(selection["items"], details)
+        tally.update(item["ref_status"] for item in verdict["items"])
+        # `items` 原样保留（落盘的 status/type/symbol 还要给 U10 用）；
+        # 只补聚合层读取的那几个字段。
+        selection["never_retrieved"] = [item["path"] for item in verdict["items"]]
+        selection["never_retrieved_unreferenced"] = verdict["unreferenced"]
+        selection["never_retrieved_unattributable"] = verdict["unattributable"]
+        selection["never_retrieved_ref_proposition_undecided"] = len(
+            verdict["proposition_undecided"]
+        )
+        selection["never_retrieved_ref_gate"] = verdict["gate"]
+        row["evidence_selection"] = selection
+    report = aggregate_contract(rows, landed["aggregates"]["probes"], _retrieval_ok(), split="dev")
+    return report, tally
+
+
+def _t312rc_c02_paths() -> list[str]:
+    return [item["path"] for item in _t312rc_required_of(_T312RC_LANDED_0807, "c02")]
+
+
+def test_t312rc_u1_all_never_retrieved_but_fully_referenced_still_gets_named() -> None:
+    """U1：三项全未召回、但三条明细逐一结构性引用 → 该行 gate 为 True。
+
+    **可判定通过 ≠ 不用点名**：该题仍须出现在 `contract_vacuous_pass` 里。
+    """
+    paths = _t312rc_c02_paths()
+    row = _t312rc_row("c02", [_t312rc_detail([path]) for path in paths])
+    selection = row["evidence_selection"]
+
+    assert [item["status"] for item in selection["items"]] == ["never_retrieved"] * 3
+    assert [item["ref_status"] for item in selection["items"]] == ["referenced"] * 3
+    assert selection["never_retrieved"] == paths
+    assert selection["never_retrieved_unreferenced"] == []
+    assert selection["never_retrieved_unattributable"] == []
+    assert selection["never_retrieved_ref_gate"] is True
+
+    report = _agg_rows([row])
+    assert report["gate_summary"]["contract_expectations_met"] is True
+    vacuous = report["sections"]["final_consistency"]["contract_vacuous_pass"]
+    assert vacuous == [{"id": "c02", "paths": paths}], "全可判定通过也必须被点名"
+
+
+def test_t312rc_u2_unsupported_suffix_branch_covers_only_the_matching_suffix() -> None:
+    """U2（边界）：c10 的 `.sql` 走 `unsupported_or_not_ingested` + refs `['.sql']`。
+
+    输入是已落盘 c10 行的**原始明细**，一字未改。
+    """
+    required = _t312rc_required_of(_T312RC_LANDED_0807, "c10")
+    row = _t312rc_row("c10", _t312rc_details_of(_T312RC_LANDED_0807, "c10"), required=required)
+    selection = row["evidence_selection"]
+    by_path = {item["path"]: item["ref_status"] for item in selection["items"]}
+
+    sql = "backend/src/main/resources/db/migration/V1__init_schema.sql"
+    dto = "backend/src/main/java/com/ragdocs/dto/CitationDto.java"
+    assert by_path[sql] == "referenced", "后缀支必须认得 refs=['.sql']"
+    assert by_path[dto] != "referenced", "`.sql` 明细不得把同题的 .java 必需项也判成已引用"
+    assert dto in selection["never_retrieved_unattributable"]
+
+
+def test_t312rc_u3_all_refs_present_and_none_matching_turns_the_key_red() -> None:
+    """U3（失败）：明细全带 refs 且无一匹配 → 确定失败。
+
+    这是**唯一由新增第三合取项单独把键转红**的路径：前两个合取项都为真。
+    错包名取自已落盘 c09（`…/rag/…` vs 预登记 `…/service/…`）。
+    """
+    details = [
+        _t312rc_detail(["backend/src/main/java/com/ragdocs/rag/RagService.java"]),
+        _t312rc_detail(["backend/src/main/java/com/ragdocs/rag/RagSupport.java"]),
+        _t312rc_detail(["backend/src/main/java/com/ragdocs/rag/CitationParser.java"]),
+    ]
+    row = _t312rc_row("c02", details)
+    selection = row["evidence_selection"]
+
+    assert row["mode_matches"] is True, "第一合取项为真"
+    assert selection["retrieved_not_cited"] == [], "第二合取项为真（空真）"
+    assert selection["never_retrieved_unreferenced"] == _t312rc_c02_paths()
+    assert selection["never_retrieved_ref_gate"] is False
+
+    assert _agg_rows([row])["gate_summary"]["contract_expectations_met"] is False
+
+
+def test_t312rc_u4_unattributable_lands_in_none_and_blocks_the_gate() -> None:
+    """U4（fail-closed 负例，对应「推不出①」）：refs 为空 → 判不了，**不算通过**。
+
+    直接断言三处：键 `None`、所属分节 gate `None`、`all_hard_gates_passed is False`。
+    """
+    paths = _t312rc_c02_paths()
+    details = [_t312rc_detail([paths[0]]), _t312rc_detail([])]
+    row = _t312rc_row("c02", details)
+    selection = row["evidence_selection"]
+
+    assert selection["never_retrieved_unattributable"] == paths[1:]
+    assert selection["never_retrieved_unreferenced"] == [], "判不了不等于判失败"
+    assert selection["never_retrieved_ref_gate"] is None
+
+    report = _agg_rows([row])
+    assert report["gate_summary"]["contract_expectations_met"] is None
+    assert report["sections"]["final_consistency"]["gate"] is None
+    assert report["all_hard_gates_passed"] is False
+
+
+def test_t312rc_u5_duplicate_references_count_once_and_the_helper_is_pure() -> None:
+    """U5（重复/重试）：同一路径被 4 条明细重复引用只计一次；helper 是纯函数。"""
+    paths = _t312rc_c02_paths()
+    details = [_t312rc_detail([paths[0]]) for _ in range(4)] + [
+        _t312rc_detail([paths[1]]),
+        _t312rc_detail([paths[2]]),
+    ]
+    row = _t312rc_row("c02", details)
+    selection = row["evidence_selection"]
+
+    assert selection["never_retrieved"] == paths
+    assert [item["ref_status"] for item in selection["items"]] == ["referenced"] * 3
+    assert len(selection["never_retrieved_unreferenced"]) == 0
+    assert len(paths) == 3, "重复引用不得把项数撑大"
+
+    first = score_never_retrieved_refs(selection["items"], details)
+    second = score_never_retrieved_refs(selection["items"], details)
+    assert first == second
+
+
+def test_t312rc_u6_unproducible_category_never_counts_as_a_reference() -> None:
+    """U6（越权/非法状态）：`confirmed_undocumented` 在 P1.5 不得由代码产出。
+
+    refs 匹配也不算结构性引用；`score_not_found` 的 `r3_forbidden_category`
+    独立仍为 False——两套记账互不掩盖。
+    """
+    paths = _t312rc_c02_paths()
+    details = [
+        _t312rc_detail(
+            [path],
+            category="confirmed_undocumented" if index == 0 else "missing_from_current_evidence",
+        )
+        for index, path in enumerate(paths)
+    ]
+    row = _t312rc_row("c02", details)
+    selection = row["evidence_selection"]
+
+    assert selection["items"][0]["ref_status"] == "unreferenced"
+    assert paths[0] in selection["never_retrieved_unreferenced"]
+    assert row["not_found"]["rules"]["r3_forbidden_category"] is False, "另一套账必须照样红"
+
+
+def test_t312rc_u7a_landed_run_recomputed_through_the_production_helper() -> None:
+    """U7a（组合不变量）：已落盘 20 行经**生产 helper** 复算，键值与落盘逐字相同。
+
+    测试里不重写规则——只调 `score_never_retrieved_refs`，这正是 `PG-T312Rc-03`
+    要求的「生产与测试共用一份规则」。
+    """
+    landed = _t312rc_landed(_T312RC_LANDED_0807)
+    report, tally = _t312rc_recompute(landed)
+
+    assert set(report["gate_summary"]) == set(GATE_KEYS)
+    assert len(GATE_KEYS) == 12
+    assert CONTRACT_REPORT_SCHEMA_VERSION == "p1.5-contract-v2"
+    assert dict(tally) == {"referenced": 8, "unattributable": 15}, "可判定失败必须为 0"
+    assert report["gate_summary"]["contract_expectations_met"] is False, "与落盘值逐字相同"
+    assert landed["aggregates"]["gate_summary"]["contract_expectations_met"] is False
+    ids = [item["id"] for item in report["sections"]["final_consistency"]["contract_vacuous_pass"]]
+    assert ids == ["c02", "c03", "c09", "c10", "c11"]
+
+
+def test_t312rc_u7b_third_conjunct_can_only_tighten_never_loosen() -> None:
+    """U7b（单调性）：第三合取项**不能**把 `False` 抬成 `True`。
+
+    夹具是既有的 `_t312rb_c11_row(progress_retrieved=True)`：PROGRESS 已召回未引用，
+    第二合取项为假；第三合取项无 `never_retrieved` 项故为真。最终必须仍是 False。
+    """
+    row = _t312rb_c11_row(mode="refusal", progress_retrieved=True)
+    selection = row["evidence_selection"]
+
+    assert row["mode_matches"] is True, "第一合取项：真"
+    assert selection["retrieved_not_cited"] == ["PROGRESS.md"], "第二合取项：假"
+    assert selection["never_retrieved_ref_gate"] is True, "第三合取项：真（无未召回项）"
+
+    assert _agg_rows([row])["gate_summary"]["contract_expectations_met"] is False
+
+
+def test_t312rc_u8_vacuous_candidate_line_never_reads_as_a_pass() -> None:
+    """U8（诚实边界）：Markdown 里那一行不得读起来像"通过"。"""
+    paths = _t312rc_c02_paths()
+    row = _t312rc_row("c02", [_t312rc_detail([path]) for path in paths])
+    markdown = render_contract_markdown({"aggregates": _agg_rows([row])})
+
+    line = [text for text in markdown.splitlines() if "空真候选" in text]
+    assert len(line) == 1, markdown
+    assert "未召回" in line[0]
+    assert "c02" in line[0]
+    for forbidden in ("通过", "达标", "合格", "无问题"):
+        assert forbidden not in line[0], forbidden
+
+
+def test_t312rc_u9a_structural_reference_binds_a_per_item_proposition_undecided() -> None:
+    """U9a（fail-closed 负例，对应「推不出②」）：结构关联 ≠ 这句话在说这一项。
+
+    refs 精确匹配但 text 与本题完全无关 → 结构层仍判 `referenced`，
+    **同时**该项逐项带 `proposition_undecided=True`（绑定到具体必需项，
+    不是拿 `len(details)` 的通用计数搪塞）。
+    """
+    paths = _t312rc_c02_paths()
+    details = [
+        _t312rc_detail([path], text="关于本项目的吉祥物颜色，当前证据未覆盖。") for path in paths
+    ]
+    row = _t312rc_row("c02", details)
+    selection = row["evidence_selection"]
+
+    assert [item["ref_status"] for item in selection["items"]] == ["referenced"] * 3
+    assert all(item["proposition_undecided"] is True for item in selection["items"])
+    assert selection["never_retrieved_ref_proposition_undecided"] == 3
+
+    report = _agg_rows([row])
+    assert (
+        report["sections"]["evidence_selection"]["never_retrieved_ref_proposition_undecided"] == 3
+    )
+
+
+def test_t312rc_u9b_reference_makes_no_claim_about_path_existence() -> None:
+    """U9b（fail-closed 负例，对应「推不出③」）：不校验 refs 里的路径是否真实存在。
+
+    用 c12 的通配 pattern，refs 给一个匹配通配但不在索引内的路径 → 仍判
+    `referenced`；输出键集合被冻结锁死，其中没有任何断言路径存在性的字段。
+    """
+    required = _t312rc_required_of(_T312RC_LANDED_0807, "c12")
+    ghost = "backend/src/main/java/com/ragdocs/web/GhostController.java"
+    verdict = score_never_retrieved_refs(
+        [{**required[0], "status": "never_retrieved", "span_hit": None}],
+        [_t312rc_detail([ghost])],
+    )
+
+    assert verdict["referenced"] == [required[0]["path"]]
+    assert verdict["gate"] is True
+    assert set(verdict) == _T312RC_HELPER_KEYS, "输出键集合冻结：不得混入存在性断言"
+    assert set(verdict["items"][0]) == {"path", "ref_status", "proposition_undecided"}
+
+
+def test_t312rc_u11_full_unmet_trips_both_named_keys_on_a_contract_row() -> None:
+    """U11：`full` + 必需项全未召回 + 零 not_found 明细，**两个键同时红**。
+
+    这条锁住上面 `_L1` 把 `zero_full_without_required_evidence` 的夹具由 c01
+    改到 e01 之后留下的空隙：换夹具是为了让 L1 隔离性成立，不是掩盖重叠——
+    重叠真实存在（该答案确实同时违反两条条款），在这里正面断言。
+    """
+    row = _scored(
+        "c01",
+        expected=("full",),
+        required=[{"path": "OrderService.java", "type": "production_source", "symbol": None}],
+        answer=_answer(
+            answer_text=f"已依据 README.md 说明。[E1]{DISCLOSURE}",
+            mode="full",
+            citations=[_citation("README.md")],
+            claims=[{"text": "c", "evidence_ids": ["E1"], "quotes": []}],
+        ),
+    )
+
+    assert row["evidence_selection"]["never_retrieved_unreferenced"] == ["OrderService.java"]
+    summary = _agg_rows([row])["gate_summary"]
+    assert summary["zero_full_without_required_evidence"] is False
+    assert summary["contract_expectations_met"] is False
+
+
+@pytest.mark.parametrize(
+    ("landed", "expected"),
+    [
+        (_T312RC_LANDED_0805, ["c03", "c09", "c10"]),
+        (_T312RC_LANDED_0807, ["c02", "c03", "c09", "c10", "c11"]),
+    ],
+)
+def test_t312rc_u10_vacuous_predicate_excludes_mixed_unmatched_and_zero_required(
+    landed: Path, expected: list[str]
+) -> None:
+    """U10（排除负例，`PG-T312Rc-05`）：空真候选谓词不得过度点名。
+
+    三类排除项在两轮都有真实实例：混合状态、mode 不匹配、零必需项。
+    被测的是**生产产出**的 `contract_vacuous_pass`，不是测试里重算的谓词。
+    """
+    raw = _t312rc_landed(landed)
+    recomputed, _ = _t312rc_recompute(raw)
+    contract = [
+        row
+        for row in raw["aggregates"]["questions"]
+        if row.get("kind") == "contract" and row.get("status") == "succeeded"
+    ]
+    picked = {
+        item["id"] for item in recomputed["sections"]["final_consistency"]["contract_vacuous_pass"]
+    }
+    assert sorted(picked) == expected
+
+    mixed = {
+        row["id"]
+        for row in contract
+        if any(item["status"] == "never_retrieved" for item in row["evidence_selection"]["items"])
+        and not all(
+            item["status"] == "never_retrieved" for item in row["evidence_selection"]["items"]
+        )
+    }
+    unmatched = {row["id"] for row in contract if not row["mode_matches"]}
+    zero = {row["id"] for row in contract if row["evidence_selection"]["required_total"] == 0}
+    assert mixed and zero, "两类排除项必须在这份报告里真实存在"
+    assert picked.isdisjoint(mixed | unmatched | zero)
