@@ -1375,9 +1375,13 @@ harness 本身不难：读 Answer JSON + run trace + 预登记行，过七组确
 
 两个修复轮关掉之后重跑。总判定还是 `False`，但这次的失败**读得懂**——这正是重跑的目的，不是为了拿绿。
 
-**先说预告被打脸的那条。** 运行前我在 packet 里写了「没有任何修复轮碰过检索侧，故 c02 与 c06 预期仍会 FAIL」。**c02 实测转成了 `partial`、`retrieved_not_cited` 为空、`mode_matches` 为 True。** 我把 c02 归成"纯检索失败"是错的——它在第一次运行里 3 项必需证据全 `never_retrieved`，但那轮 evaluate 节点被结构化输出缺陷打成退化路径，检索轮次本身就没跑完。修好 LLM 之后证据召回了。教训和这个任务里反复出现的是同一个：**在被污染的数据上做归因，归出来的因可能整个是假的**。
+**先说预告被打脸的那条——而我对它的第一版解释又错了一遍。** 运行前我在 packet 里写了「没有任何修复轮碰过检索侧，故 c02 与 c06 预期仍会 FAIL」。c02 实测 `mode` 转成 `partial`、`mode_matches` 为 True、`retrieved_not_cited` 为空，就 `contract_expectations_met` 这个谓词而言，预告确实被推翻了。我当时顺手写下的解释是「那轮 evaluate 退化导致检索轮次没跑完，修好 LLM 之后证据召回了」——**这句是假的**。限定审查 `T312R2-CR-01` 让我回去看逐项状态：c02 的 3 项预登记必需证据（`README.md:7`、`application.yml:37-46`、`AppConfiguration.java:37-51`）**本次仍然全部 `never_retrieved`**、`cited_count=0`。`retrieved_not_cited` 为空是**空真**——一条都没召回，自然不存在「召回却未引用」。
 
-**R-a 的效果是机制级的。** `invalid_structured_output` 从 **29 次降到 6 次**，而且降的位置很说明问题——第一次运行里 evaluate 节点占 26 次（`evaluate:1` 12 + `evaluate:2` 14），这一轮 **evaluate 节点 0 次**，剩下的 6 次全在 generate。第一次那条"重问吃掉生成预算 → `generate` 一次没跑 → finalize 无 draft → 假 refusal"的链条不再出现，`zero_full_refusal_with_direct_evidence` 从 False 转 True，c02/c05/c08/c11 四题一起从 `refusal` 变回 `partial`。`coverage_mismatch` 从 20/20 掉到 4。
+所以我在同一段里写下「在被污染的数据上做归因，归出来的因可能整个是假的」这个教训的时候，**正在犯的就是它本身**：我没打开逐项状态就把一个谓词变化解释成了检索改善。
+
+顺带暴露出一件更值得记的事：`contract_expectations_met` 的谓词是 `mode_matches ∧ not retrieved_not_cited`，而一道**必需证据一条都没召回**的题，第二个合取项**空真成立**。c02 就这样被记成「达标」。这不是本轮该修的东西，已写进清单偏差记录等裁决。
+
+**evaluate 那一类失败这次没了。** `invalid_structured_output` 从 **29 次降到 6 次**，而且降的位置很说明问题——第一次运行里 evaluate 节点占 26 次（`evaluate:1` 12 + `evaluate:2` 14），这一轮 **evaluate 节点 0 次**，剩下的 6 次全在 generate。第一次那条"重问吃掉生成预算 → `generate` 一次没跑 → finalize 无 draft → 假 refusal"的链条本次未出现，`zero_full_refusal_with_direct_evidence` 从 False 转 True，c02/c05/c08/c11 四题一起从 `refusal` 变回 `partial`。**方向与 R-a 一致，但两次各一个样本，我不写因果。**`coverage_mismatch` 从 20/20 掉到 4。
 
 **R-b 的效果是结构性的。** G2 不再进硬 Gate 合取；收窄后的词表在真实文本上跑出**命中 0 段 / 可判定 68 段**——第一次那 13 条误报一条都没了。而且 `git diff --check` 这次直接通过，`T312-P2-01` 在真实报告上得到验证，报告落盘不再需要人工绕过。
 
@@ -1390,5 +1394,7 @@ harness 本身不难：读 Answer JSON + run trace + 预登记行，过七组确
 后两项在第一次运行里**都是 True**。诱人的说法是"R-a 修好了 evaluate，模型的真实行为才暴露出来"——听着很顺，但两次运行各只有一个样本，LLM 又是非确定性的，**这个因果我推不出来**，只能记成"第一次为 True、第二次为 False，成因待查"。同理，`required_cited` 从 6/35 掉到 3/35、`span_hit` 从 2/24 掉到 1/24，我也**没有**写成"引用能力变差"——n=1 对 n=1 分不出趋势和噪声，只登记数字。这一条比什么都重要：这个任务前前后后十几轮，栽跟头最多的就是"手上有正确材料，概括时换成了更好说的东西"。
 
 另外新出现 `generate:1:request_failed:LLMError` **3 次**（第一次为 0），是请求本身失败而非输出不合 schema，与 json_mode 接线有没有关系没查——不在本任务范围。
+
+**两个非零未判定桶（初稿漏了，`T312R2-CR-01` 指出后补）**：`span_undecided` **11**（预登记项无行段信息，行段命中判不了）、`not_found_proposition_undecided` **89**（命题级可判定性不足，只作计数）。两者都**不进分子分母**，已路由 U3.2 人工复核。其余桶为零。这两个数不是「通过」，是「判不了」——packet 判据原文写的就是「如实记为 `undecided` 并路由 U3.2，不得凑成通过」。
 
 按 packet「风险和停止条件」第 1 条停止：**T31.2 不勾选，未修一行代码、未调一个参数、未回改任何预登记标签**。三条失败已写入清单偏差记录等裁决，修复须另立任务重新走前审。
