@@ -14,7 +14,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-from devkb.eval_contract import CONTRACT_REPORT_SCHEMA_VERSION
+import pytest
+
+from devkb.eval_contract import CONTRACT_REPORT_SCHEMA_VERSION, aggregate_contract
 from devkb.eval_contract import GATE_KEYS as CONTRACT_GATE_KEYS
 from devkb.evaluation import (
     P0_HOLDOUT_BASELINE,
@@ -280,3 +282,33 @@ def test_current_harness_emits_exactly_the_locked_v1_2_shapes() -> None:
     assert P15_GATE_KEYS_BY_SCHEMA["p1.5-contract-v1"] - set(CONTRACT_GATE_KEYS) == {
         "zero_absence_assertion_on_known_paths"
     }
+
+
+def test_freshly_generated_v2_report_passes_its_own_version_shape() -> None:
+    """U6：**现场生成**的 v2 aggregates 必须真的走一遍 `_assert_p15_contract_shape`。
+
+    首审 `T312Rb-CR-01`ⓓ：该 helper 原本只被 `_load_reports()` 的遍历调用，仓库里
+    又只有已提交的 v1 报告，于是"两者各按自己的版本通过 shape 断言"里的 v2 那一半
+    从未被执行——分派分支写了，但没有任何输入走过它。
+
+    分派负例证明"按版本分派"确实在**判别**，而不是两个分支恰好都放行。
+    """
+    aggregates = aggregate_contract(
+        [], [], {"metrics": {}, "overlap_exact_hnsw": None, "questions": []}, split="dev"
+    )
+    generated = Path("<freshly-generated-v2>")
+    payload: dict[str, Any] = {
+        "schema_version": CONTRACT_REPORT_SCHEMA_VERSION,
+        "aggregates": aggregates,
+        "config": {"prompt_version": "p1.5-generated"},
+        "corpus": {"sha256": "0" * 64},
+    }
+
+    _assert_p15_contract_shape(generated, payload)
+
+    # 同一份 v2 aggregates 谎标成 v1（13 键）必须当场失败
+    with pytest.raises(AssertionError):
+        _assert_p15_contract_shape(generated, {**payload, "schema_version": "p1.5-contract-v1"})
+    # 未登记的 v* 版本同样不得静默放行（`_assert_p15_contract_shape` 第一条断言）
+    with pytest.raises(AssertionError):
+        _assert_p15_contract_shape(generated, {**payload, "schema_version": "p1.5-contract-v9"})

@@ -1,6 +1,8 @@
 """T31.1 契约 harness 纯函数层（《Evaluation-v1.5》§4/§5.1；packet 冻结测试矩阵）。
 
-全部离线：不连库、不调模型、不读 evalsets 真实文件（除显式标注的 U9 校验用例）。
+全部离线：不连库、不调模型。三处显式标注的用例读仓库内已落盘的真实文件——
+U9 的校验用例、U12 读 `evalsets/v1.5/contract_dev.jsonl`、U3 读那份已落盘 dev 报告
+（T31.2R-b 首审 `T312Rb-CR-01`：判据写"对已落盘文本重算"，就必须真的读它）。
 命名对应 packet「冻结测试」表的 U* / U-B* 行，逐行可回溯。
 """
 
@@ -1889,16 +1891,16 @@ def test_u13b_markdown_gate_heading_labels_the_three_different_sources() -> None
 # T31.2 首次 dev 运行 13 条"违规"逐条打开后**一条真的都没有**。
 # ===========================================================================
 
-# 本轮已落盘报告里 13 条违规的命中短语与其原文形态（packet F2 实测）。
-# 收窄到 `_REPO_LEVEL_NEGATION` 后只剩最后一条，且它是**语义误配**（F4）。
-_T312RB_LANDED_VIOLATIONS: tuple[tuple[str, str], ...] = (
-    *(("未覆盖", "当前证据未覆盖 README.md 的其余章节。") for _ in range(10)),
-    ("缺失", "在缺失时抛 BusinessException，见 README.md。"),
-    ("未包含", "本次证据未包含 README.md 的部署段落。"),
-    # 唯一在收窄后仍命中的一条：说的是**知识库**这个运行期对象不存在，
-    # 不是说 README.md 这个文件不存在。共现式扫描结构上判不了这个区别。
-    ("不存在", "ensureKbOwner 在知识库不存在时抛 BusinessException，见 README.md。"),
-)
+# T31.2 首次 dev 运行落盘的那份报告。U3 **直接读它**，不用合成夹具：
+# 首审 `T312Rb-CR-01`ⓐ——原实现拿 10 份重复合成句 + 3 份近似句、路径统一换成
+# README.md 冒充这 13 条，报告文件从未被打开，于是"对已落盘文本重算 = 1 条"
+# 这个判据从来没有被任何测试执行过。
+_T312RB_LANDED_REPORT = Path("evalsets/reports/p1.5-dev-contract-20260805T174422+0800.json")
+
+
+def _t312rb_landed_violations() -> list[dict[str, Any]]:
+    report = json.loads(_T312RB_LANDED_REPORT.read_text(encoding="utf-8"))
+    return report["aggregates"]["sections"]["final_consistency"]["known_path_absence_violations"]
 
 
 def _t312rb_scan(text: str) -> dict[str, Any]:
@@ -1908,12 +1910,26 @@ def _t312rb_scan(text: str) -> dict[str, Any]:
 
 
 def test_t312rb_u1_repo_level_negation_on_a_known_path_is_still_recorded() -> None:
-    """U1：仓库级否定词表仍然照常命中——收窄不是"把 G2 关掉"。"""
-    scan = _t312rb_scan("README.md 不存在于本仓库。")
+    """U1：仓库级否定词表仍然照常命中，且明细**进得了聚合报告**——收窄不是"把 G2 关掉"。
+
+    首审 `T312Rb-CR-01`ⓔ（本轮自查补入）：冻结行要求的是"出现在
+    `final_consistency.known_path_absence_violations`"，原实现只断言了
+    `score_known_path_absence` 的返回值，"进报告"这一段从未被执行。
+    """
+    text = "README.md 不存在于本仓库。"
+    scan = _t312rb_scan(text)
 
     assert len(scan["violations"]) == 1, scan
     assert scan["violations"][0]["phrase"] == "不存在"
     assert scan["violations"][0]["path"] == "README.md"
+
+    # 同一段文本装进 scored row 走聚合：明细必须逐字落进 section
+    report = _agg_rows([_scored("c01", answer=_answer(answer_text=text))])
+    landed = report["sections"]["final_consistency"]["known_path_absence_violations"]
+
+    assert landed == [
+        {"field": "answer_text", "segment": text, "path": "README.md", "phrase": "不存在"}
+    ], landed
 
 
 @pytest.mark.parametrize("phrase", ["未覆盖", "未包含", "缺失"])
@@ -1930,21 +1946,32 @@ def test_t312rb_u2_coverage_gap_wording_no_longer_counts(phrase: str) -> None:
 
 
 def test_t312rb_u3_recomputing_the_landed_thirteen_leaves_exactly_one() -> None:
-    """U3：对**本轮已落盘的这批文本**重算 = 恰好 1 条，且是那条语义误配。
+    """U3：读**那份已落盘报告**的每一条原文逐条重算 = 恰好 1 条，且是那条语义误配。
 
     只断言"同一批文本重算"这一可复现事实；**推不出**未来运行的命中率
-    （packet「尚未证实的假设」）。
+    （packet「尚未证实的假设」）。重算只喂 `answer_text` 面（13 条里有 1 条原本
+    来自 `claims`）：`assertion_surface` 对两个面用的是同一套分段与共现规则，
+    field 差异不影响本行判据。
     """
+    landed = _t312rb_landed_violations()
+    assert len(landed) == 13, "这份已落盘报告不该被换过——旧口径下恰 13 条"
+
     hits = [
-        (phrase, seg)
-        for phrase, seg in _T312RB_LANDED_VIOLATIONS
-        if _t312rb_scan(seg)["violations"]
+        item
+        for item in landed
+        if score_known_path_absence(
+            _answer(answer_text=item["segment"]),
+            evidence_paths=(),
+            indexed_paths=(item["path"],),
+        )["violations"]
     ]
 
-    assert len(_T312RB_LANDED_VIOLATIONS) == 13, "这批构造必须与已落盘的 13 条同量"
-    assert len(hits) == 1, hits
-    assert hits[0][0] == "不存在"
-    assert "知识库不存在" in hits[0][1], "残余的是语义误配，不是真违规"
+    assert len(hits) == 1, [item["phrase"] for item in hits]
+    assert hits[0]["phrase"] == "不存在"
+    assert hits[0]["path"].endswith("BusinessException.java")
+    # 残余的这条说的是**知识库**这个运行期对象不存在，不是说那个 .java 文件不存在。
+    # 共现式扫描结构上判不了这个区别——这正是收窄必须搭配降级的机器证据（F4）。
+    assert "知识库不存在" in hits[0]["segment"]
 
 
 def test_t312rb_u4_demoted_key_leaves_gate_summary_but_details_stay() -> None:
@@ -1971,14 +1998,30 @@ def test_t312rb_u5_contract_markdown_ends_with_exactly_one_newline() -> None:
     assert not markdown.endswith("\n\n"), "末尾空行会触发 new blank line at EOF"
 
 
-def test_t312rb_u7_gate_summary_is_a_real_projection_not_a_passthrough() -> None:
+def test_t312rb_u7_gate_summary_is_a_real_projection_not_a_passthrough(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """U7（fail-closed 负例）：`gate_summary` 必须是 `GATE_KEYS` 的**投影**。
 
-    改动前 `:1122` 是 `"gate_summary": gates` 原样透传，键集合相等纯属手写时
-    恰好对齐；`:81`/`:83`/`:1112` 三处注释声称的"投影"当时并不成立。往权威
-    dict 里塞一个游离键，若它能出现在 `gate_summary`，说明投影没建立。
+    改动前是 `"gate_summary": gates` 原样透传，键集合相等纯属手写时恰好对齐；
+    三处注释声称的"投影"当时并不成立。
+
+    首审 `T312Rb-CR-01`ⓑ：原实现只比较正常键集合，而那条断言在旧透传实现下
+    本来就是绿的。`gates` 是 `aggregate_contract` 内的字面 dict、外部塞不进游离
+    键，**等价且可执行的构造是缩短 `GATE_KEYS`**——被摘掉的那一项于是成为
+    "在 `gates` 里、不在 `GATE_KEYS` 里"的游离源键。透传实现下它必然泄漏。
     """
+    import devkb.eval_contract as ec
+
     assert set(_agg_rows(_green_rows())["gate_summary"]) == set(GATE_KEYS)
+
+    stray = "consistency_all_true"
+    shortened = tuple(key for key in GATE_KEYS if key != stray)
+    monkeypatch.setattr(ec, "GATE_KEYS", shortened)
+    summary = _agg_rows(_green_rows())["gate_summary"]
+
+    assert stray not in summary, "游离源键泄漏进 gate_summary = 又变回透传"
+    assert set(summary) == set(shortened)
 
 
 def test_t312rb_u7b_projection_fails_loud_when_a_gate_key_has_no_source(
@@ -2047,12 +2090,27 @@ def test_t312rb_u10b_g2_is_reported_as_a_count_not_a_verdict(surface: str) -> No
 
 def test_t312rb_u11_narrowed_scan_cannot_prove_the_absence_of_false_claims() -> None:
     """U11（fail-closed 负例）：收窄后的 G2 **推不出**「系统从未把已知文件说成
-    不存在」——换个表外说法就能绕过共现扫描。这正是它只能当报告项的理由。"""
-    evasive = _t312rb_scan("README.md 这个文件在本仓库里是找不到的。")
+    不存在」——换个表外说法就能绕过共现扫描。这正是它只能当报告项的理由。
 
-    assert evasive["violations"] == [], "本用例的前提就是它绕过了词表"
-    # 绕过了扫描，但**不得**因此产生任何"零违规/合规"结论——G2 已不在硬 Gate 内
-    report = _agg_rows(_green_rows())
+    首审 `T312Rb-CR-01`ⓒ：原实现的报告由无关的 `_green_rows()` 生成，绕过词表
+    的那段文本从未进入报告，"该文本仍在报告里可见"这半句从未被执行。
+    """
+    text = "README.md 这个文件在本仓库里是找不到的。"
+    assert _t312rb_scan(text)["violations"] == [], "本用例的前提就是它绕过了词表"
+
+    report = _agg_rows([_scored("c01", answer=_answer(answer_text=text))])
+    consistency = report["sections"]["final_consistency"]
+
+    # ①原文逐字在报告里可见：`assemble_row` 保留 `answer`、聚合保留 `questions`
+    assert [row["id"] for row in report["questions"] if text in row["answer"]["answer_text"]] == [
+        "c01"
+    ]
+    # ②它没被记为违规
+    assert consistency["known_path_absence_violations"] == []
+    # ③但**确实被扫过**：可判定语段分母计入了它。"扫过 N 段命中 0"与"根本没扫"
+    #    在报告里必须可区分——这是①的补充证据，不替代①
+    assert consistency["known_path_absence_decidable_segments"] >= 1
+    # ④绕过了扫描，但**不得**因此产生任何"零违规/合规"结论——G2 已不在硬 Gate 内
     assert "zero_absence_assertion_on_known_paths" not in report["gate_summary"]
 
 
