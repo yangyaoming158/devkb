@@ -21,6 +21,10 @@ from devkb.agent.evidence_types import (
 from devkb.agent.graph import run_agent
 from devkb.agent.nodes import AgentRuntime, citation_scope, is_identity_only_gap
 from devkb.agent.not_found import (
+    _ABSENCE_MARKERS,
+    _REPO_LEVEL_NEGATION,
+    _SOFT_NEGATION,
+    NEGATION_MARKERS,
     RECOGNIZED_FILE_EXTS,
     TERM_SUFFIX_HINTS,
     UNINGESTED_EXAMPLES,
@@ -1123,3 +1127,40 @@ def test_t281_u6d_indexed_vue_neither_changes_nor_contradicts_the_disclosure() -
     assert result.details[0].category == "missing_from_current_evidence"
     # 分类说"可能只是没召回"，披露说"管线不自动收 .vue"——两句都成立，不构成矛盾
     assert ".vue" in baseline
+
+
+# --------------------------------------------------------------------------
+# T31.2R-d：NEGATION_MARKERS 的词表纪律（packet 冻结测试 U9）
+# --------------------------------------------------------------------------
+
+
+def test_t312rd_u9_negation_markers_have_exactly_three_production_occurrences() -> None:
+    """U9：并集由三张源表逐字组成，且在生产源码里**只出现三处**。
+
+    白名单口径由前审 `PG-T312Rd-04` 冻结：`not_found.py` 的定义、`nodes.py` 的
+    import、`finalize_consistency` 内的唯一消费点。**只扫 `src/devkb/`**——
+    docs、packet、dev-log 与测试自身必然出现这个名字，扫它们得不到唯一实现。
+
+    这张表**只用于降级、永不用于断言**：白名单把「它没被用在产生 basis/category
+    的分支里」变成可判定的位置约束，而不是靠字符串语义猜。
+    """
+    assert (*_REPO_LEVEL_NEGATION, *_ABSENCE_MARKERS, *_SOFT_NEGATION) == NEGATION_MARKERS
+    assert len(NEGATION_MARKERS) == (
+        len(_REPO_LEVEL_NEGATION) + len(_ABSENCE_MARKERS) + len(_SOFT_NEGATION)
+    ), "并集不得静默去重丢词——降级表要的是覆盖面，不是集合语义"
+
+    hits: list[tuple[str, int]] = []
+    for path in sorted(Path("src/devkb").rglob("*.py")):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if "NEGATION_MARKERS" in line:
+                hits.append((path.as_posix(), number))
+
+    files = [path for path, _ in hits]
+    assert len(hits) == 3, hits
+    assert files.count("src/devkb/agent/not_found.py") == 1, hits
+    assert files.count("src/devkb/agent/nodes.py") == 2, hits
+
+    nodes_source = Path("src/devkb/agent/nodes.py").read_text(encoding="utf-8")
+    consumer = nodes_source[nodes_source.index("def finalize_consistency") :]
+    consumer = consumer[: consumer.index("\ndef ", 1)]
+    assert consumer.count("NEGATION_MARKERS") == 1, "finalize_consistency 内只有唯一消费点"

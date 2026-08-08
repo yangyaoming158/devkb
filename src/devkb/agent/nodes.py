@@ -46,6 +46,7 @@ from devkb.agent.evidence_types import (
     uncovered_items,
 )
 from devkb.agent.not_found import (
+    NEGATION_MARKERS,
     CorpusProfile,
     NotFoundInput,
     NotFoundSource,
@@ -456,6 +457,24 @@ def finalize_consistency(
         resolved = "partial"
     if mode == "full" and not kept:
         warnings.append("finalize: full 终态无结构化 claim，降级 partial")
+        resolved = "partial"
+    # T31.2R-d：`full` 是本项目最强的终态，不该带着任何否定断言交付。
+    #
+    # 起因是 T31.2 第二次 dev 的 e06——正文写「该后端**没有使用**消息队列」
+    # 「**未出现** Kafka/RabbitMQ 等消息队列组件」，两个措辞都不在
+    # `_REPO_LEVEL_NEGATION` 那 12 条表里，于是不产生 not_found，上面第一条规则
+    # 不触发，mode 停在 `full`；而 `full` 分支既不附覆盖披露也不附范围句，
+    # `disclosure_present` 与 `mode_matches` 双双为假。
+    #
+    # 修法不是往那张表加词——加词要求「表是穷尽的」，而它证不出来（T31.2R-b 因此
+    # 把一个硬键降成了报告项）。这里换方向：宽表只用来**否决 full**。误报的代价
+    # 只是「本可 full 的题变 partial」，不产生任何虚假断言；漏报（措辞全在表外）
+    # 由 U3 当场登记为已知边界。两者都不需要那个证不出的前提。
+    #
+    # warning 只陈述两件可证的事：命中了哪些标记、据此保守降级。**不得**写成
+    # 「已判定为仓库级否定断言」——封闭表匹配不是语义判定（U1/U2 有否定断言守着）。
+    if mode == "full" and (hits := [m for m in NEGATION_MARKERS if m in answer_text]):
+        warnings.append(f"finalize: full 正文命中否定标记（{'、'.join(hits)}），保守降级 partial")
         resolved = "partial"
     if mode == "refusal" and kept:
         warnings.append("finalize: refusal 终态残留结构化 claim")

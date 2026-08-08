@@ -25,6 +25,9 @@ import json
 import random
 import re
 import uuid
+from collections import Counter
+from collections.abc import Sequence
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -39,6 +42,7 @@ from devkb.agent.graph import (
     run_agent,
 )
 from devkb.agent.nodes import (
+    _MODE_RANK,
     AgentNodes,
     AgentRuntime,
     finalize_consistency,
@@ -47,7 +51,11 @@ from devkb.agent.nodes import (
     universal_claim_hits,
     verified_scope_note,
 )
-from devkb.agent.not_found import CorpusProfile
+from devkb.agent.not_found import (
+    COVERAGE_DISCLOSURE_PREFIX,
+    NEGATION_MARKERS,
+    CorpusProfile,
+)
 from devkb.agent.prompts import (
     EVALUATE_SYSTEM,
     GENERATE_SYSTEM,
@@ -3236,3 +3244,241 @@ async def test_cr01_every_structured_call_point_actually_asks_for_json_mode() ->
     assert all(json_mode is True for _, json_mode in spy.seen), spy.seen
     # ③ spy 没有把这条路径改坏：终态与 §5.3 第 2 类基线一致
     assert result["final_mode"] == "full" and result["llm_calls"] == 5
+
+
+# --------------------------------------------------------------------------
+# T31.2R-d：命中否定标记的 full 正文降级并附能力边界声明（packet 冻结测试 U1–U10）
+#
+# e06 正文一律从已落盘报告读取，不手编（backlog `WF-P3-05`；T31.2R-c 的
+# `T312Rc-CR-01`ⓐ 就是栽在「声称来自落盘、实际是手编替身」上）。
+# --------------------------------------------------------------------------
+
+_T312RD_LANDED = Path("evalsets/reports/p1.5-dev-contract-20260807T175724+0800.json")
+_T312RD_DATASETS = (
+    Path("evalsets/v1.5/contract_dev.jsonl"),
+    Path("evalsets/v1.5/contract_dev_extended.jsonl"),
+)
+# 过度归因禁用词：warning 只许陈述「命中了哪些标记 + 保守降级」
+_T312RD_FORBIDDEN_WORDING = ("仓库级否定", "虚假断言", "已判定", "不实")
+_T312RD_DOWNGRADE_MARK = "full 正文命中否定标记"
+
+
+def _t312rd_landed() -> dict[str, Any]:
+    return json.loads(_T312RD_LANDED.read_text(encoding="utf-8"))
+
+
+def _t312rd_row(qid: str) -> dict[str, Any]:
+    rows = [row for row in _t312rd_landed()["aggregates"]["questions"] if row["id"] == qid]
+    assert len(rows) == 1, qid
+    return rows[0]
+
+
+def _t312rd_e06_text() -> str:
+    return _t312rd_row("e06")["answer"]["answer_text"]
+
+
+def _t312rd_claim(evidence_id: str = "E2") -> ClaimOutput:
+    return ClaimOutput(text="该后端未使用消息队列", evidence_ids=[evidence_id], quotes=[])
+
+
+def _t312rd_downgrade_warnings(warnings: Sequence[str]) -> list[str]:
+    return [item for item in warnings if _T312RD_DOWNGRADE_MARK in item]
+
+
+def test_t312rd_u1_landed_e06_answer_is_downgraded() -> None:
+    """U1：落盘 e06 的原始正文 + full + 无缺口 + 有 claim → 降级 partial。
+
+    warning 只陈述两件可证的事：命中了哪些标记、据此保守降级。
+    """
+    text = _t312rd_e06_text()
+    resolved, warnings = finalize_consistency("full", [_t312rd_claim()], [], text)
+
+    assert resolved == "partial"
+    downgrade = _t312rd_downgrade_warnings(warnings)
+    assert len(downgrade) == 1, warnings
+    assert downgrade[0].startswith("finalize: full 正文命中否定标记（")
+    assert downgrade[0].endswith("），保守降级 partial")
+    assert "没有" in downgrade[0] and "未" in downgrade[0], "必须列出命中的标记"
+    for forbidden in _T312RD_FORBIDDEN_WORDING:
+        assert forbidden not in downgrade[0], f"过度归因：{forbidden}"
+
+
+def test_t312rd_u2_local_negation_is_conservatively_downgraded() -> None:
+    """U2（负例·fail-closed，对应「推不出③」）：局部否定同样被降级。
+
+    「OrderService 中没有事务注解」是**可由证据支撑的局部结论**，不是仓库级断言
+    （`not_found.py:167-168` 的既有判断）。本判据分不出这个区别，于是**保守误报**。
+    代价只有「本可 full 变 partial」，**不产生任何虚假断言**——所以这个方向可接受。
+    warning 因此绝不能说「已判定为仓库级否定」。
+    """
+    resolved, warnings = finalize_consistency(
+        "full", [_t312rd_claim()], [], "OrderService 中没有事务注解。[E2]"
+    )
+
+    assert resolved == "partial"
+    downgrade = _t312rd_downgrade_warnings(warnings)
+    assert len(downgrade) == 1
+    for forbidden in _T312RD_FORBIDDEN_WORDING:
+        assert forbidden not in downgrade[0], f"过度归因：{forbidden}"
+
+
+def test_t312rd_u3_negation_outside_the_closed_table_still_slips_through() -> None:
+    """U3（负例·**封闭表范围 / 已知 fail-open**，对应「推不出①」）。
+
+    这**不是 bug，是本判据的漏报边界**：三张表的并集仍是封闭表，一个措辞全在表外
+    的否定断言照样以 full 交付。**不得据此宣称《P1.5实现规格》§5 的措辞已全覆盖。**
+    """
+    text = "该后端采用单体架构，消息中间件方面为空白。[E2]"
+    assert not any(marker in text for marker in NEGATION_MARKERS), "前提：正文确实不含表内标记"
+
+    resolved, warnings = finalize_consistency("full", [_t312rd_claim()], [], text)
+
+    assert resolved == "full", "表外措辞漏报——本判据当场承认这一点"
+    assert _t312rd_downgrade_warnings(warnings) == []
+
+
+def test_t312rd_u4_empty_answer_never_downgrades() -> None:
+    """U4：空串与纯空白不命中、不降级、不抛异常。
+
+    **不测 `None`**——`answer_text` 的类型合同是 `str`（`nodes.py:442`），
+    `None` 不在合同内，本任务不承诺处理。
+    """
+    for text in ("", "   ", "\n\t "):
+        resolved, warnings = finalize_consistency("full", [_t312rd_claim()], [], text)
+        assert resolved == "full", text
+        assert _t312rd_downgrade_warnings(warnings) == []
+
+
+@pytest.mark.parametrize("mode", ["full", "partial", "refusal"])
+@pytest.mark.parametrize("hit", [True, False])
+def test_t312rd_u5_rule_can_only_downgrade_never_upgrade(mode: str, hit: bool) -> None:
+    """U5 单调性：**三态** × 命中/未命中共 6 组。终态永不高于入参。
+
+    `policy_refusal` **不在输入域内**——它经独立节点交付，`_MODE_RANK` 只有三键，
+    送进来会 KeyError，这是 `policy_refuse` 的结构性保证（`nodes.py:972-978`）。
+    """
+    text = _t312rd_e06_text() if hit else "结构清晰，全部方面均有证据支撑。[E2]"
+    resolved, _ = finalize_consistency(cast(Any, mode), [_t312rd_claim()], [], text)
+
+    assert _MODE_RANK[resolved] <= _MODE_RANK[cast(Any, mode)], "只降不升"
+    if mode == "full" and hit:
+        assert resolved == "partial", "新规则的唯一产出是 partial"
+
+
+@pytest.mark.parametrize("mode", ["partial", "refusal"])
+def test_t312rd_u6_non_full_modes_are_untouched_and_emit_no_downgrade_warning(mode: str) -> None:
+    """U6：非 full 终态一字不改，**且不发那条降级 warning**。
+
+    只断言终态是不够的——去掉 `mode == "full"` 之后 `min(...)` 仍会保住
+    partial/refusal，终态看不出差别；**多出来的 warning 才是可观察差异**
+    （前审 `PG-T312Rd-01`）。这一条使 M3 必红。
+    """
+    resolved, warnings = finalize_consistency(
+        cast(Any, mode), [_t312rd_claim()], [], _t312rd_e06_text()
+    )
+
+    assert resolved == mode
+    assert _t312rd_downgrade_warnings(warnings) == [], "非 full 不得触发否定降级"
+
+
+def test_t312rd_u7_finalize_consistency_stays_pure() -> None:
+    """U7：同输入连调两次，返回值与 warning 列表逐字段相等。"""
+    args = ("full", [_t312rd_claim()], [], _t312rd_e06_text())
+    first = finalize_consistency(*cast(Any, args))
+    second = finalize_consistency(*cast(Any, args))
+
+    assert first == second
+
+
+async def test_t312rd_u8_downgrade_adds_boundaries_but_does_not_rewrite_the_claim() -> None:
+    """U8（负例·fail-closed，对应「推不出②」）：走**既有夹具**真跑 finalize 节点。
+
+    四条同时成立才通过。第二条（warnings 含否定降级 warning）是关键——没有它，
+    一个本来就会落 partial 的替身状态也能让两段边界文案出现，删掉规则的 M1 就不会
+    转红（前审 `PG-T312Rd-04`）。
+
+    第四条是**反向断言**：本任务只**附上**能力边界声明，**没有**把否定句改写成
+    条件式；原句仍逐字在正文里。不得把本任务描述成「否定断言已被条件化」。
+    """
+    text = _t312rd_e06_text()
+    evidences = [
+        Evidence(
+            evidence_id=eid,
+            chunk_id=uuid.UUID(int=index + 1),
+            rel_path=f"docs/arch{index}.md",
+            title_path="Arch",
+            content="架构采用单体分层，ingestion 异步用 Spring @Async 线程池。",
+            start_line=1,
+            end_line=5,
+            score=0.5,
+        )
+        for index, eid in enumerate(("E2", "E4"))
+    ]
+    result = await _t252_finalize_once(
+        generate_calls=1,
+        first_draft=None,
+        draft=GenerateOutput(answer_text=text, claims=[_t312rd_claim()], not_found=[]),
+        evidences=evidences,
+    )
+
+    assert result["final_mode"] == "partial"
+    assert len(_t312rd_downgrade_warnings(result["warnings"])) == 1, "降级必须由新规则触发"
+    body = result["final_answer"]
+    assert COVERAGE_DISCLOSURE_PREFIX in body, "静态摄取覆盖披露"
+    assert "本回答的结论仅覆盖以下" in body, "已验证范围句"
+    assert "未出现 Kafka/RabbitMQ 等消息队列组件" in body, "原否定句**仍在正文里**，没有被改写"
+
+
+def test_t312rd_u10_blast_radius_on_the_landed_run_is_exactly_e06() -> None:
+    """U10 爆炸半径：报告 + 数据集驱动，调**生产函数**，测试内零标记判定副本。
+
+    **先按 mode 分流**：`policy_refusal` 行一律不送进 `finalize_consistency`——
+    送进去必在 `_MODE_RANK` 查表 KeyError（第二轮前审 `PG-T312Rd-01`）。
+    """
+    rows = [
+        row
+        for row in _t312rd_landed()["aggregates"]["questions"]
+        if row.get("status") == "succeeded"
+    ]
+    by_mode: dict[str, list[str]] = {}
+    for row in rows:
+        by_mode.setdefault(row["mode"], []).append(row["id"])
+
+    # ① policy_refusal 被旁路：既不进调用集合，终态也保持原值
+    assert sorted(by_mode.get("policy_refusal", [])) == ["c13", "e07"]
+    routed = [row for row in rows if row["mode"] in _MODE_RANK]
+    assert {row["id"] for row in routed}.isdisjoint({"c13", "e07"}), "策略行不得进入调用集合"
+    assert len(routed) == len(rows) - 2
+
+    # ② 落盘 full 的 id 集合
+    assert by_mode.get("full") == ["e06"]
+
+    # ③ 三态口径上，终态发生变化的 id 集合
+    changed = []
+    for row in routed:
+        answer = row["answer"]
+        resolved, _ = finalize_consistency(
+            row["mode"], answer["claims"], answer["not_found"], answer["answer_text"] or ""
+        )
+        if resolved != row["mode"]:
+            changed.append(row["id"])
+    assert changed == ["e06"], "爆炸半径恰为一题"
+
+    # ④ e02 落盘就是 partial 且 mode 匹配 —— 唯一允许 full 的题不受影响
+    e02 = _t312rd_row("e02")
+    assert e02["mode"] == "partial" and e02["mode_matches"] is True
+
+    # ⑤ 两份数据集的预登记 mode 分布
+    distribution: Counter[str] = Counter()
+    for path in _T312RD_DATASETS:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                distribution[json.loads(line)["expected_mode_p15"]] += 1
+    assert dict(distribution) == {
+        "partial": 11,
+        "refusal": 4,
+        "partial_or_refusal": 2,
+        "policy_refusal": 2,
+        "partial_or_full": 1,
+        "not_found_404": 1,
+    }, "没有任何一题要求 full"
