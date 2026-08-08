@@ -2351,8 +2351,61 @@ def _t312rc_recompute(landed: dict[str, Any]) -> tuple[dict[str, Any], Counter[s
     return report, tally
 
 
+def _t312rc_per_question_verdicts(landed: dict[str, Any]) -> dict[bool | None, int]:
+    """逐题三态分布，**逐行走生产聚合路径**算出（`T312Rc-CR-01`ⓑ）。
+
+    只喂一行时 `aggregate_contract` 外层的 `_conjunction` 退化为该行自身的值，
+    于是不必在测试里复写「前两合取项 ∧ 第三合取项」那条公式——照 `PG-T312Rc-03`
+    的口径，测试里不得有判定规则副本。
+    """
+    recomputed, _ = _t312rc_recompute(landed)
+    tally: dict[bool | None, int] = {True: 0, None: 0, False: 0}
+    for row in recomputed["questions"]:
+        if row.get("kind") != "contract" or row.get("status") != "succeeded":
+            continue
+        single = aggregate_contract([row], [], _retrieval_ok(), split="dev")
+        tally[single["gate_summary"]["contract_expectations_met"]] += 1
+    return tally
+
+
 def _t312rc_c02_paths() -> list[str]:
     return [item["path"] for item in _t312rc_required_of(_T312RC_LANDED_0807, "c02")]
+
+
+def _t312rc_c02_referencing_details() -> list[dict[str, Any]]:
+    """U1 的底，**由落盘 c02 的七条明细变换而来**（`T312Rc-CR-01`ⓐ）。
+
+    packet 冻结的口径逐字是「读 c02 的 not_found_details（7 条），就地把 3 条空
+    refs 明细补成分别匹配三个必需项、其余明细删除」。此前这里是 `_t312rc_detail`
+    全量新造，与模块开头"输入来源均为已落盘真实报告"的声明不符——文字、category、
+    source、basis 全都不是落盘那份的。现在只替换 `refs`，其余字段原样继承。
+    """
+    landed = _t312rc_details_of(_T312RC_LANDED_0807, "c02")
+    blanks = [dict(detail) for detail in landed if not (detail.get("refs") or [])]
+    paths = _t312rc_c02_paths()
+    assert len(landed) == 7, "落盘 c02 恰 7 条明细；换了报告就该在这里当场失败"
+    assert len(blanks) >= len(paths), (len(blanks), len(paths))
+    return [{**blank, "refs": [path]} for blank, path in zip(blanks, paths, strict=False)]
+
+
+def _t312rc_c02_mismatching_details() -> list[dict[str, Any]]:
+    """U3 的底：落盘 c02 的**全部七条**明细，refs 一律换成落盘 c09 的错包名。
+
+    c09 的模型把 `…/service/CitationParser.java` 写成了 `…/rag/CitationParser.java`，
+    正是"明细带 refs 但一个都对不上"的真实形态，不必手编。
+    """
+    landed = _t312rc_details_of(_T312RC_LANDED_0807, "c02")
+    wrong = [
+        ref
+        for detail in _t312rc_details_of(_T312RC_LANDED_0807, "c09")
+        for ref in (detail.get("refs") or [])
+    ]
+    paths = _t312rc_c02_paths()
+    assert wrong, "落盘 c09 必须真的带 refs"
+    assert not any(match_required_path(ref, path) for ref in wrong for path in paths)
+    return [
+        {**dict(detail), "refs": [wrong[index % len(wrong)]]} for index, detail in enumerate(landed)
+    ]
 
 
 def test_t312rc_u1_all_never_retrieved_but_fully_referenced_still_gets_named() -> None:
@@ -2361,7 +2414,7 @@ def test_t312rc_u1_all_never_retrieved_but_fully_referenced_still_gets_named() -
     **可判定通过 ≠ 不用点名**：该题仍须出现在 `contract_vacuous_pass` 里。
     """
     paths = _t312rc_c02_paths()
-    row = _t312rc_row("c02", [_t312rc_detail([path]) for path in paths])
+    row = _t312rc_row("c02", _t312rc_c02_referencing_details())
     selection = row["evidence_selection"]
 
     assert [item["status"] for item in selection["items"]] == ["never_retrieved"] * 3
@@ -2400,11 +2453,8 @@ def test_t312rc_u3_all_refs_present_and_none_matching_turns_the_key_red() -> Non
     这是**唯一由新增第三合取项单独把键转红**的路径：前两个合取项都为真。
     错包名取自已落盘 c09（`…/rag/…` vs 预登记 `…/service/…`）。
     """
-    details = [
-        _t312rc_detail(["backend/src/main/java/com/ragdocs/rag/RagService.java"]),
-        _t312rc_detail(["backend/src/main/java/com/ragdocs/rag/RagSupport.java"]),
-        _t312rc_detail(["backend/src/main/java/com/ragdocs/rag/CitationParser.java"]),
-    ]
+    details = _t312rc_c02_mismatching_details()
+    assert len(details) == 7, "冻结口径要的是**全部七条**，不是三条替身"
     row = _t312rc_row("c02", details)
     selection = row["evidence_selection"]
 
@@ -2422,7 +2472,9 @@ def test_t312rc_u4_unattributable_lands_in_none_and_blocks_the_gate() -> None:
     直接断言三处：键 `None`、所属分节 gate `None`、`all_hard_gates_passed is False`。
     """
     paths = _t312rc_c02_paths()
-    details = [_t312rc_detail([paths[0]]), _t312rc_detail([])]
+    landed = _t312rc_details_of(_T312RC_LANDED_0807, "c02")
+    blank = next(dict(d) for d in landed if not (d.get("refs") or []))
+    details = [_t312rc_c02_referencing_details()[0], blank]
     row = _t312rc_row("c02", details)
     selection = row["evidence_selection"]
 
@@ -2439,10 +2491,8 @@ def test_t312rc_u4_unattributable_lands_in_none_and_blocks_the_gate() -> None:
 def test_t312rc_u5_duplicate_references_count_once_and_the_helper_is_pure() -> None:
     """U5（重复/重试）：同一路径被 4 条明细重复引用只计一次；helper 是纯函数。"""
     paths = _t312rc_c02_paths()
-    details = [_t312rc_detail([paths[0]]) for _ in range(4)] + [
-        _t312rc_detail([paths[1]]),
-        _t312rc_detail([paths[2]]),
-    ]
+    base = _t312rc_c02_referencing_details()
+    details = [base[0]] * 4 + base[1:]
     row = _t312rc_row("c02", details)
     selection = row["evidence_selection"]
 
@@ -2463,13 +2513,8 @@ def test_t312rc_u6_unproducible_category_never_counts_as_a_reference() -> None:
     独立仍为 False——两套记账互不掩盖。
     """
     paths = _t312rc_c02_paths()
-    details = [
-        _t312rc_detail(
-            [path],
-            category="confirmed_undocumented" if index == 0 else "missing_from_current_evidence",
-        )
-        for index, path in enumerate(paths)
-    ]
+    base = _t312rc_c02_referencing_details()
+    details = [{**base[0], "category": "confirmed_undocumented"}, *base[1:]]
     row = _t312rc_row("c02", details)
     selection = row["evidence_selection"]
 
@@ -2486,6 +2531,12 @@ def test_t312rc_u7a_landed_run_recomputed_through_the_production_helper() -> Non
     """
     landed = _t312rc_landed(_T312RC_LANDED_0807)
     report, tally = _t312rc_recompute(landed)
+    per_question = _t312rc_per_question_verdicts(landed)
+
+    # `T312Rc-CR-01`ⓑ：只断言总数与最终值，逐题构成可以重新分布而测试照样绿。
+    # 逐题值**由生产聚合路径逐行算出**（单行聚合时外层合取退化为该行本身），
+    # 不在测试里复写 `_conjunction([前两项, 第三项])` 那条公式。
+    assert per_question == {True: 5, None: 4, False: 4}, per_question
 
     assert set(report["gate_summary"]) == set(GATE_KEYS)
     assert len(GATE_KEYS) == 12
@@ -2515,8 +2566,7 @@ def test_t312rc_u7b_third_conjunct_can_only_tighten_never_loosen() -> None:
 
 def test_t312rc_u8_vacuous_candidate_line_never_reads_as_a_pass() -> None:
     """U8（诚实边界）：Markdown 里那一行不得读起来像"通过"。"""
-    paths = _t312rc_c02_paths()
-    row = _t312rc_row("c02", [_t312rc_detail([path]) for path in paths])
+    row = _t312rc_row("c02", _t312rc_c02_referencing_details())
     markdown = render_contract_markdown({"aggregates": _agg_rows([row])})
 
     line = [text for text in markdown.splitlines() if "空真候选" in text]
@@ -2534,9 +2584,9 @@ def test_t312rc_u9a_structural_reference_binds_a_per_item_proposition_undecided(
     **同时**该项逐项带 `proposition_undecided=True`（绑定到具体必需项，
     不是拿 `len(details)` 的通用计数搪塞）。
     """
-    paths = _t312rc_c02_paths()
     details = [
-        _t312rc_detail([path], text="关于本项目的吉祥物颜色，当前证据未覆盖。") for path in paths
+        {**detail, "text": "关于本项目的吉祥物颜色，当前证据未覆盖。"}
+        for detail in _t312rc_c02_referencing_details()
     ]
     row = _t312rc_row("c02", details)
     selection = row["evidence_selection"]
@@ -2558,13 +2608,28 @@ def test_t312rc_u9b_reference_makes_no_claim_about_path_existence() -> None:
     `referenced`；输出键集合被冻结锁死，其中没有任何断言路径存在性的字段。
     """
     required = _t312rc_required_of(_T312RC_LANDED_0807, "c12")
+    pattern = required[0]["path"]
     ghost = "backend/src/main/java/com/ragdocs/web/GhostController.java"
+
+    # `T312Rc-CR-01`ⓒ：负例的前提必须机器化——光把变量取名 ghost 不算证明。
+    # 冻结来源是落盘报告的 `corpus.manifest`（183 条 rel_path + content_hash），
+    # 即该轮真实索引的语料清单。
+    manifest = {
+        entry["rel_path"] for entry in _t312rc_landed(_T312RC_LANDED_0807)["corpus"]["manifest"]
+    }
+    assert len(manifest) == 183, "换了语料就该在这里当场失败"
+    assert ghost not in manifest, "负例前提：该路径确实不在索引内"
+    assert match_required_path(ghost, pattern), "但它匹配 c12 的通配 pattern"
+    assert sum(1 for path in manifest if match_required_path(path, pattern)) == 6, (
+        "同一 pattern 在索引里本有 6 个真实 Controller——判定却分不出真假"
+    )
+
     verdict = score_never_retrieved_refs(
         [{**required[0], "status": "never_retrieved", "span_hit": None}],
         [_t312rc_detail([ghost])],
     )
 
-    assert verdict["referenced"] == [required[0]["path"]]
+    assert verdict["referenced"] == [pattern]
     assert verdict["gate"] is True
     assert set(verdict) == _T312RC_HELPER_KEYS, "输出键集合冻结：不得混入存在性断言"
     assert set(verdict["items"][0]) == {"path", "ref_status", "proposition_undecided"}
