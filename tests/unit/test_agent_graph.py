@@ -3296,9 +3296,9 @@ def test_t312rd_u1_landed_e06_answer_is_downgraded() -> None:
     assert resolved == "partial"
     downgrade = _t312rd_downgrade_warnings(warnings)
     assert len(downgrade) == 1, warnings
-    assert downgrade[0].startswith("finalize: full 正文命中否定标记（")
-    assert downgrade[0].endswith("），保守降级 partial")
-    assert "（未出现）" in downgrade[0], "必须精确列出命中的标记；e06 只命中 `未出现`"
+    # 逐字相等，不用 startswith/endswith/in 拼——那样中间插一段中性文字也能通过，
+    # warning 就没被真正冻结（限定审查 `T312Rd-CR-01`ⓒ）。e06 只命中 `未出现`。
+    assert downgrade[0] == "finalize: full 正文命中否定标记（未出现），保守降级 partial"
     for forbidden in _T312RD_FORBIDDEN_WORDING:
         assert forbidden not in downgrade[0], f"过度归因：{forbidden}"
 
@@ -3327,7 +3327,7 @@ def test_t312rd_u2_local_negation_is_conservatively_downgraded() -> None:
 def test_t312rd_u3_negation_outside_the_closed_table_still_slips_through() -> None:
     """U3（负例·**封闭表范围 / 已知 fail-open**，对应「推不出①」）。
 
-    这**不是 bug，是本判据的漏报边界**：三张表的并集仍是封闭表，一个措辞全在表外
+    这**不是 bug，是本判据的漏报边界**：两张表的并集仍是封闭表，一个措辞全在表外
     的否定断言照样以 full 交付。**不得据此宣称《P1.5实现规格》§5 的措辞已全覆盖。**
     """
     text = "该后端采用单体架构，消息中间件方面为空白。[E2]"

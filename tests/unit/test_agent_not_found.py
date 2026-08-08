@@ -1135,7 +1135,7 @@ def test_t281_u6d_indexed_vue_neither_changes_nor_contradicts_the_disclosure() -
 
 
 def test_t312rd_u9_negation_markers_have_exactly_three_production_occurrences() -> None:
-    """U9：并集由三张源表逐字组成，且在生产源码里**只出现三处**。
+    """U9：并集由**两张**源表逐字组成，且在生产源码里**只出现三处**。
 
     白名单口径由前审 `PG-T312Rd-04` 冻结：`not_found.py` 的定义、`nodes.py` 的
     import、`finalize_consistency` 内的唯一消费点。**只扫 `src/devkb/`**——
