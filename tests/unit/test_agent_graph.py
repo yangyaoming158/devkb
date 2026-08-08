@@ -3298,7 +3298,7 @@ def test_t312rd_u1_landed_e06_answer_is_downgraded() -> None:
     assert len(downgrade) == 1, warnings
     assert downgrade[0].startswith("finalize: full 正文命中否定标记（")
     assert downgrade[0].endswith("），保守降级 partial")
-    assert "没有" in downgrade[0] and "未" in downgrade[0], "必须列出命中的标记"
+    assert "（未出现）" in downgrade[0], "必须精确列出命中的标记；e06 只命中 `未出现`"
     for forbidden in _T312RD_FORBIDDEN_WORDING:
         assert forbidden not in downgrade[0], f"过度归因：{forbidden}"
 
@@ -3306,13 +3306,15 @@ def test_t312rd_u1_landed_e06_answer_is_downgraded() -> None:
 def test_t312rd_u2_local_negation_is_conservatively_downgraded() -> None:
     """U2（负例·fail-closed，对应「推不出③」）：局部否定同样被降级。
 
-    「OrderService 中没有事务注解」是**可由证据支撑的局部结论**，不是仓库级断言
-    （`not_found.py:167-168` 的既有判断）。本判据分不出这个区别，于是**保守误报**。
-    代价只有「本可 full 变 partial」，**不产生任何虚假断言**——所以这个方向可接受。
-    warning 因此绝不能说「已判定为仓库级否定」。
+    「OrderService 中未找到事务注解」是**可由证据支撑的局部结论**，不是仓库级断言；
+    `未找到` 属 `_ABSENCE_MARKERS`（`not_found.py` 的「证据范围内的缺失表述」表），
+    该表本身的注释就写着这类表述**本身合法**。本判据分不出「合法的局部缺失表述」与
+    「无从证明的仓库级断言」，于是**保守误报**。代价只有「本可 full 变 partial」，
+    **不产生任何虚假断言**——所以这个方向可接受。warning 因此绝不能说
+    「已判定为仓库级否定」。
     """
     resolved, warnings = finalize_consistency(
-        "full", [_t312rd_claim()], [], "OrderService 中没有事务注解。[E2]"
+        "full", [_t312rd_claim()], [], "OrderService 中未找到事务注解。[E2]"
     )
 
     assert resolved == "partial"

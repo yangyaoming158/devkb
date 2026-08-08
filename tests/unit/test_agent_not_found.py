@@ -1144,10 +1144,14 @@ def test_t312rd_u9_negation_markers_have_exactly_three_production_occurrences() 
     这张表**只用于降级、永不用于断言**：白名单把「它没被用在产生 basis/category
     的分支里」变成可判定的位置约束，而不是靠字符串语义猜。
     """
-    assert (*_REPO_LEVEL_NEGATION, *_ABSENCE_MARKERS, *_SOFT_NEGATION) == NEGATION_MARKERS
-    assert len(NEGATION_MARKERS) == (
-        len(_REPO_LEVEL_NEGATION) + len(_ABSENCE_MARKERS) + len(_SOFT_NEGATION)
-    ), "并集不得静默去重丢词——降级表要的是覆盖面，不是集合语义"
+    assert (*_REPO_LEVEL_NEGATION, *_ABSENCE_MARKERS) == NEGATION_MARKERS
+    assert len(NEGATION_MARKERS) == len(_REPO_LEVEL_NEGATION) + len(_ABSENCE_MARKERS), (
+        "并集不得静默去重丢词——降级表要的是覆盖面，不是集合语义"
+    )
+    # `_SOFT_NEGATION` 明确**不在**并集里：它匹配的是单字（`无 hit`、`未知`、`缺省`），
+    # 并进来会把不含任何否定断言的正文也降级——`test_all_aspects_cited_still_reaches_full`
+    # 曾因此转红。这条断言把「不并」变成常驻约束，而不是一次性修复。
+    assert not set(_SOFT_NEGATION) & set(NEGATION_MARKERS), "_SOFT_NEGATION 不得并入降级表"
 
     hits: list[tuple[str, int]] = []
     for path in sorted(Path("src/devkb").rglob("*.py")):
