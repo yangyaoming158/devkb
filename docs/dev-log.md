@@ -1569,3 +1569,37 @@ C1 按冻结方案**实现不出来**。另两条也成立：换装置表还留�
 流程侧登记 `WF-P3-11`，两个方向都没自行实施：①对「装置型任务」放宽冻结顺序（先跑通骨架再据实冻结，与《开发工作流》§5 正面冲突，得改流程文档）；②给这类任务设前审轮次上限，2 轮不过就强制回到「这任务值不值得做」的成本裁决——**如果第二轮就有这条，能省下三轮**。顺带记了 `VALID_STATUSES` 没有终止/撤销态，被撤销的任务只能停在 `return-to-design`。
 
 **一件没随本裁决处置的事**：`T31.2R-f`（行为层，第四顺位）仍未立项，而原计划是「三个都关闭后才跑第三次 dev」。R-f 去留、第三次 dev 还跑不跑，都悬空了，已在偏差记录里标出待裁决。
+
+## 2026-08-09 第三次 dev 真实运行——11/12 键 True，但唯一非 True 的是 None，Gate 仍不通过
+
+撤销 R-e 后本来打算直接进 T32，是查证时发现的一个事实把我的建议推翻了：**08-07 那份报告的 commit `2e982764` 早于 R-c（`5dd8d68`）和 R-d（`00d18ad`），两者都改了 `src/`**。拿它收尾，等于让 P1.5 的收尾记录描述一个已经不存在的系统。于是跑了第三次，只作最终状态存档，不据结果调参。
+
+结果比预期好得多，也比预期微妙得多：
+
+```
+all_hard_gates_passed = False        ← 仍不通过
+12 键里 11 个 True
+contract_expectations_met = None     ← 不是 False
+```
+
+13 条契约题**零确定失败**：`mode_matches` 全 True、`retrieved_not_cited` **全为空**、`never_retrieved_ref_gate` 一个 `False` 都没有。7 题落 `None`，因为「未召回的必需项是否被结构性引用」归不了属。按 R-c 定下的 fail-closed——判不了不算通过——整键取 `None`，`all_hard_gates_passed` 因此是 `False`。
+
+三轮对照（数字全部由程序从三份落盘报告直接算，没手抄）：
+
+| | run1 | run2 | run3 |
+|---|---|---|---|
+| 12/13 键中 True | 10 | 9 | **11** |
+| `contract_expectations_met` | False | False | **None** |
+| 必需证据 cited/total | 6/35 | 3/35 | **11/35** |
+| `retrieved_not_cited` 非空题数 | 3 | 4 | **0** |
+| generate 回落题数 | 2 | 5 | 2 |
+
+**归因这件事我花的时间比跑评测还多，因为很容易写成一句漂亮的假话。**逐条分开：
+
+- **能归因于 R-d 的**：`global_negation_honest` 和 `extended_expectations_met` 从 `False` 回到 `True`。e06 三轮是 `partial`✅ → `full`❌ → `partial`✅。R-d 恰好落在 run2 与 run3 之间，机制是确定性代码且有冻结测试。**但 run1 在 R-d 之前也是 True**——所以"两轮 True"证明不了 R-d 有效，R-d 真正的贡献是把它从碰运气变成结构性保证。
+- **不能归因于任何修复的**：`contract_expectations_met` 由 `False` 变 `None`、`fell_back` 5→2、`required_hit_rate` 0.086→0.314。主因是本轮 generate 交付成功的题变多（c06/c07/c08/c12 全部由回落转为交付），而 generate 成败三轮是 **2 / 5 / 2**，每轮 N=1。**R-c 和 R-d 都没碰过 generate 调用路径。**把这个写成"修好了"就是假话。
+- **能归因于 R-c 的**：本轮「判不了」呈现为 `None` 而不是被静默算作通过。没有 R-c，那 7 题里会有一部分变成假绿 `True`——这正是它当初要关的洞。
+
+有点讽刺的是：R-e 想做的「让失败能读出成因」，这一轮**用不上了**——因为本轮几乎没有 generate 失败导致的 `contract_expectations_met` 失败。撤销它是对的，但对的理由和我当时说的不完全一样：不只是"边际收益为负"，而是**它要归因的那个现象本身就是波动的**，N=1 的评测里给波动建归因字段，测到的多半是运气。
+
+报告已入库，`test_eval_reports_schema.py` 6 passed（含新报告）。T31.2 **仍不勾选**。
