@@ -1491,3 +1491,31 @@ c02 就这样被计入达标）。
 这回我先把它跑了才写。Stage 2 探针在**当前生产代码**（`score_generation` 还没实现）上跑完五变体，12 键逐键相同，`contract_expectations_met` 五个变体全是 `False`，`retrieved_not_cited` 全非空。冻结 dict 因此是**实测值不是人工推定**，完整装配输入也逐项写进 packet 了。
 
 顺带被审查者点出第四条边界，值得记：我那个 T2 轨迹把落盘行里的 `required_evidence` pattern 原样当 `rel_path` 塞回去——但生产判定是 `any(match_required_path(path, pattern) …)`，非通配走 `path_matches_token`，带 `/` 时判后缀匹配。**pattern 满足自己这个谓词，不等于真实路径就是它**（可以是它的任意前缀扩展）。所以 T2 是**合成见证**，只复现评分状态、不复现路径身份。已冻结成"推不出④" + U13 + M8。
+
+## 2026-08-09 T31.2R-e 第三轮前审 RETURN_TO_DESIGN——不修散文，换装置
+
+第三轮又是 `RETURN_TO_DESIGN`，五条：`RD-01`/`RD-04` 是 P1，其余 P2。我先逐条自己核了一遍，没直接采信：
+
+- `RD-01`：变体 B 只删 generate step，`generate:1:default_applied` 还留在 `warning_details` 里——按我自己写的四态表那是 `inconsistent`，不是 `not_executed`。成立。
+- `RD-02`：U5 说改 `warning_details[1]`。打开 c06 一看，索引 1 是 `evaluate:coverage_mismatch`，两条 `invalid_structured_output` 在索引 3、4。成立。
+- `RD-03`：U10 行集含 c13 时 `policy_terminal_correct` 是 `True`，我冻结的 `None` 只对"仅 c06"成立。成立。
+- `RD-04`：我写"通配 pattern 下 `fnmatchcase` 不匹配自身"，所以排除 c12。跑了一行 `fnmatchcase(p, p)` —— **`True`**。写反了。成立。
+- `RD-05`：M2 指定 U4 转红，而 U4 的种子 c01 **一条 generate warning 都没有**。成立。
+
+五条全中。但把它们排在一起看，有个更要紧的事实：**没有一条指向领域事实或生产设计**。我另跑了一份独立探针复算归因分布——08-05 `10/8/2/0`、08-07 `6/9/5/0`、`fell_back ⊆ executed`、`inconsistent = 0`、`delivered ∧ rnc = 0`——跟前两轮 packet 写的完全一致。**错的全是测试装置，不是这个任务本身。**
+
+于是这轮我没有逐条答复。逐条改散文，第四轮会以同样形态再失败一次——前三轮已经把这个外推做完了。改成换装置。
+
+根因在于旧装置让同一批构造出来的行**同时**当两个角色：`score_generation` 的输入见证 + Gate 不变性的载体。每个变体都得在两套语义下同时成立，手写事实的数量随变体数相乘，出错率跟着相乘。拆开就好了：
+
+- **A 组**（`score_generation` 判得对）——输入 100% 落盘，`answer` 逐字、节点序列从 `trace_summary` 解析。**探针 A 直接入库成 A5**，归因分布此后由 CI 每次复算，不再是 packet 里的死数字。
+- **C 组**（归因不动 Gate）——**基线自算**：`base = aggregate_contract(rows)["gate_summary"]`，然后注入 `generation` 再比。**packet 里不存在期望 dict，也就没有可写错的期望值**，`RD-03` 的载体直接消失。注入改在 `row["generation"]` 接口上做，不再外科手术改 `warning_details`，`RD-01`/`RD-02` 的载体也消失。值域遍历 4 状态 × 6 组 `outcome_kinds`（含 `other` 与混合），`RD-04` 说的覆盖缺口补上了。
+- **C2 元测试**——第二轮 packet 写"任何形状的豁免都会当场转红"，那是一句声称，`RD-04` 正确地判它过度。这轮把它变成被测断言：模拟四种豁免实现，实测每种都让 `contract_expectations_met` 假绿 `False→True` 并被 C1 抓住，另加一个不误报的对照组。**声称变成了测试。**
+
+中途还废掉一个更朴素的方案，值得留档：本来想"拿落盘 rows 原样回灌 `aggregate_contract`，跟落盘 `gate_summary` 比"，那样连合成行都不用。跑了直接 `KeyError: never_retrieved_ref_gate`，补了再 `KeyError: never_retrieved`——两份报告的 `evidence_selection` 都只有 11 键，当前生产产 20 键，都早于 R-c 扩键。补齐就得伪造 `never_retrieved*` 五个键的语义值，正是本任务线反复出事的地方。**十分钟的探针换掉了一个会在第四轮爆炸的方案。**
+
+最后一件事，也是这轮唯一让我确信新规矩有用的：写完 packet 我按自己立的规矩回头核每一个数字，抓到一处**本轮新引入的**未核数字——M2 变形我写的是 08-07 `delivered` 9→4，实测是 `6/9/5/0 → 6/7/7/0`，也就是 9→7；而且 A2/A4 都打不中，正确目标只有 A5。**同型错误第 9 次，但这次是在提交前被自己的规矩抓住的，不是第四轮审查抓的。**已在 packet 的 M2 行如实标注旧目标打不中并给出正确目标，没藏进修订记录。
+
+同型累计到 8 次（起草期自查 1 + 前审 2 + 第三轮 5）的处置写在 packet「前审历史」里。结构性处置只有三条，都不是"下次更小心"：产出领域事实的探针入库、Gate 基线自算、有牙性由元测试实测。
+
+生产代码这轮仍然零改动。`make preflight` + `make workflow-check` 均 PASS。
