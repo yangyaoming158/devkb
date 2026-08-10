@@ -1,0 +1,320 @@
+{
+ "model": "deepseek-v4-flash",
+ "trials": [
+  {
+   "trial": 1,
+   "requests": 4,
+   "step1_multi_intent": {
+    "finish_reason": "tool_calls",
+    "content_type": "str",
+    "content_len": 20,
+    "content_head": "我来同时查询北京和上海的天气和人口信息。",
+    "has_reasoning_content": true,
+    "reasoning_len": 178,
+    "tool_calls_n": 4,
+    "tool_calls": [
+     {
+      "id": "call_00_AmgNIgM2GzBsULKtwR4y2435",
+      "type": "function",
+      "name": "get_weather",
+      "arguments_raw": "{\"city\": \"北京\"}",
+      "arguments_parses": true
+     },
+     {
+      "id": "call_01_PzyKCVVFNrOGw1Y5Xoeu2093",
+      "type": "function",
+      "name": "get_weather",
+      "arguments_raw": "{\"city\": \"上海\"}",
+      "arguments_parses": true
+     },
+     {
+      "id": "call_02_ixo9dDBJOOVb2COxypyl4884",
+      "type": "function",
+      "name": "get_population",
+      "arguments_raw": "{\"city\": \"北京\"}",
+      "arguments_parses": true
+     },
+     {
+      "id": "call_03_0xmXcfrOMx6hvNSECqNb6526",
+      "type": "function",
+      "name": "get_population",
+      "arguments_raw": "{\"city\": \"上海\"}",
+      "arguments_parses": true
+     }
+    ],
+    "usage": {
+     "prompt": 430,
+     "completion": 183,
+     "total": 613
+    }
+   },
+   "step2_after_tool_result": {
+    "finish_reason": "stop",
+    "content_type": "str",
+    "content_len": 128,
+    "content_head": "查询结果如下：\n\n**北京**\n- 天气：晴，24℃\n- 人口：21,500,000 人\n\n**上海**\n- 天气：晴，24℃\n- 人口：21,500,000 ",
+    "has_reasoning_content": true,
+    "reasoning_len": 0,
+    "tool_calls_n": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt": 681,
+     "completion": 79,
+     "total": 760
+    }
+   },
+   "step3_missing_tool_result": {
+    "raised": "BadRequestError",
+    "message": "Error code: 400 - {'error': {'message': \"An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'. (insufficient tool messages following tool_calls message)\", 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_request_error'}}"
+   },
+   "step4_tool_choice_none": {
+    "finish_reason": "stop",
+    "content_type": "str",
+    "content_len": 53,
+    "content_head": "我需要查询北京的实时天气，请稍等。工具调用：天气查询\n```json\n{\"city\": \"北京\"}\n```",
+    "has_reasoning_content": true,
+    "reasoning_len": 90,
+    "tool_calls_n": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt": 104,
+     "completion": 74,
+     "total": 178
+    }
+   },
+   "step5_single_intent": {
+    "finish_reason": "tool_calls",
+    "content_type": "str",
+    "content_len": 0,
+    "content_head": "",
+    "has_reasoning_content": true,
+    "reasoning_len": 79,
+    "tool_calls_n": 1,
+    "tool_calls": [
+     {
+      "id": "call_00_sIjIEQNmWEQTFKtl0djg8212",
+      "type": "function",
+      "name": "get_weather",
+      "arguments_raw": "{\"city\": \"北京\"}",
+      "arguments_parses": true
+     }
+    ],
+    "usage": {
+     "prompt": 379,
+     "completion": 63,
+     "total": 442
+    }
+   }
+  },
+  {
+   "trial": 2,
+   "requests": 4,
+   "step1_multi_intent": {
+    "finish_reason": "tool_calls",
+    "content_type": "str",
+    "content_len": 20,
+    "content_head": "我来同时查询北京和上海的天气和人口信息。",
+    "has_reasoning_content": true,
+    "reasoning_len": 227,
+    "tool_calls_n": 4,
+    "tool_calls": [
+     {
+      "id": "call_00_9n1Am40iLFznAdpWlPn21821",
+      "type": "function",
+      "name": "get_weather",
+      "arguments_raw": "{\"city\": \"北京\"}",
+      "arguments_parses": true
+     },
+     {
+      "id": "call_01_77dDk2p4qsh6EfpSnSvR4547",
+      "type": "function",
+      "name": "get_weather",
+      "arguments_raw": "{\"city\": \"上海\"}",
+      "arguments_parses": true
+     },
+     {
+      "id": "call_02_SoXpp23a39ZoYK7sc6BN8856",
+      "type": "function",
+      "name": "get_population",
+      "arguments_raw": "{\"city\": \"北京\"}",
+      "arguments_parses": true
+     },
+     {
+      "id": "call_03_z46K2ioM3hX753FVlD1C1567",
+      "type": "function",
+      "name": "get_population",
+      "arguments_raw": "{\"city\": \"上海\"}",
+      "arguments_parses": true
+     }
+    ],
+    "usage": {
+     "prompt": 430,
+     "completion": 192,
+     "total": 622
+    }
+   },
+   "step2_after_tool_result": {
+    "finish_reason": "stop",
+    "content_type": "str",
+    "content_len": 124,
+    "content_head": "根据查询结果，北京和上海的信息如下：\n\n**北京**\n- 天气：晴，24℃\n- 人口：21,500,000 人\n\n**上海**\n- 天气：晴，24℃\n- 人口：",
+    "has_reasoning_content": true,
+    "reasoning_len": 0,
+    "tool_calls_n": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt": 690,
+     "completion": 77,
+     "total": 767
+    }
+   },
+   "step3_missing_tool_result": {
+    "raised": "BadRequestError",
+    "message": "Error code: 400 - {'error': {'message': \"An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'. (insufficient tool messages following tool_calls message)\", 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_request_error'}}"
+   },
+   "step4_tool_choice_none": {
+    "finish_reason": "stop",
+    "content_type": "str",
+    "content_len": 82,
+    "content_head": "很抱歉，我目前无法直接获取实时天气数据。建议你打开手机上的天气应用，或访问中国天气网等官方渠道查询北京最新的天气情况。如果需要，我可以帮你整理一些常见天气查询方",
+    "has_reasoning_content": true,
+    "reasoning_len": 150,
+    "tool_calls_n": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt": 104,
+     "completion": 129,
+     "total": 233
+    }
+   },
+   "step5_single_intent": {
+    "finish_reason": "tool_calls",
+    "content_type": "str",
+    "content_len": 0,
+    "content_head": "",
+    "has_reasoning_content": true,
+    "reasoning_len": 95,
+    "tool_calls_n": 1,
+    "tool_calls": [
+     {
+      "id": "call_00_8lljpSC0KsF5OH4xnlm70565",
+      "type": "function",
+      "name": "get_weather",
+      "arguments_raw": "{\"city\": \"北京\"}",
+      "arguments_parses": true
+     }
+    ],
+    "usage": {
+     "prompt": 379,
+     "completion": 68,
+     "total": 447
+    }
+   }
+  },
+  {
+   "trial": 3,
+   "requests": 4,
+   "step1_multi_intent": {
+    "finish_reason": "tool_calls",
+    "content_type": "str",
+    "content_len": 20,
+    "content_head": "我来为您查询北京和上海的天气和人口信息。",
+    "has_reasoning_content": true,
+    "reasoning_len": 321,
+    "tool_calls_n": 4,
+    "tool_calls": [
+     {
+      "id": "call_00_Vi37HMcYRiiLWCAuYOZJ4190",
+      "type": "function",
+      "name": "get_weather",
+      "arguments_raw": "{\"city\": \"北京\"}",
+      "arguments_parses": true
+     },
+     {
+      "id": "call_01_TafQeluK2XyEULI7ASe34615",
+      "type": "function",
+      "name": "get_weather",
+      "arguments_raw": "{\"city\": \"上海\"}",
+      "arguments_parses": true
+     },
+     {
+      "id": "call_02_yb5wGWbGEm4nt97lSYIX8005",
+      "type": "function",
+      "name": "get_population",
+      "arguments_raw": "{\"city\": \"北京\"}",
+      "arguments_parses": true
+     },
+     {
+      "id": "call_03_Sa0Z9LPrG9XfknNoX8cS9522",
+      "type": "function",
+      "name": "get_population",
+      "arguments_raw": "{\"city\": \"上海\"}",
+      "arguments_parses": true
+     }
+    ],
+    "usage": {
+     "prompt": 430,
+     "completion": 221,
+     "total": 651
+    }
+   },
+   "step2_after_tool_result": {
+    "finish_reason": "stop",
+    "content_type": "str",
+    "content_len": 180,
+    "content_head": "查询结果如下：\n\n## 北京\n- **天气**：晴，24℃\n- **人口**：21,500,000 人（约 2150 万）\n\n## 上海\n- **天气**：晴，",
+    "has_reasoning_content": true,
+    "reasoning_len": 35,
+    "tool_calls_n": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt": 719,
+     "completion": 117,
+     "total": 836
+    }
+   },
+   "step3_missing_tool_result": {
+    "raised": "BadRequestError",
+    "message": "Error code: 400 - {'error': {'message': \"An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'. (insufficient tool messages following tool_calls message)\", 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_request_error'}}"
+   },
+   "step4_tool_choice_none": {
+    "finish_reason": "stop",
+    "content_type": "str",
+    "content_len": 54,
+    "content_head": "抱歉，我目前无法获取实时天气数据，因此不能准确告诉你北京现在的天气。建议你通过天气App或网站查询最新信息。",
+    "has_reasoning_content": true,
+    "reasoning_len": 152,
+    "tool_calls_n": 0,
+    "tool_calls": [],
+    "usage": {
+     "prompt": 104,
+     "completion": 116,
+     "total": 220
+    }
+   },
+   "step5_single_intent": {
+    "finish_reason": "tool_calls",
+    "content_type": "str",
+    "content_len": 0,
+    "content_head": "",
+    "has_reasoning_content": true,
+    "reasoning_len": 91,
+    "tool_calls_n": 1,
+    "tool_calls": [
+     {
+      "id": "call_00_a9YJvoTQ8z3kTimR7Fh29348",
+      "type": "function",
+      "name": "get_weather",
+      "arguments_raw": "{\"city\": \"北京\"}",
+      "arguments_parses": true
+     }
+    ],
+    "usage": {
+     "prompt": 379,
+     "completion": 65,
+     "total": 444
+    }
+   }
+  }
+ ]
+}
