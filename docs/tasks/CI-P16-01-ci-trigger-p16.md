@@ -111,4 +111,19 @@ P1.5 已于 2026-08-09 以 Gate 未通过冻结，P1.6 文档已在新分支 `p1
 
 ## 最终验收
 
-（待回填）
+**状态：实现完成、证据齐备，`status` 保持 `review` 等限定审查——执行者不自我验收。**
+
+| 验收项 | 结果 | 证据 |
+|---|---|---|
+| 1. 触发分支含 `p1.6` 且既有四项不少 | ✅ | `branches: [main, p0, p1, p1.5, p1.6]` |
+| 2. `pull_request` 与 `jobs.checks` 逐字不变 | ✅ | diff 中不出现，见 3 |
+| 3. diff 恰为一行 | ✅ | `git diff --stat` = `1 file changed, 1 insertion(+), 1 deletion(-)` |
+| 4. 范围门禁 | ✅ | `make verify-task` → `changed files: 2 / 2`、**PASS** |
+| 5. 本地 `make ci` | ✅ | ruff/pyright 0 错、**1351 passed** |
+| 6. **E2** 远端与本地逐字相同 | ✅ | `git ls-remote origin p1.6` = `c6174e1697cc7ccd524ffde98db9835656d6e245` = 本地 HEAD |
+| 7. **E3** Actions 该 SHA 全绿 | ✅ | run [31389808600](https://github.com/yangyaoming158/devkb/actions/runs/31389808600)：`head_sha=c6174e16…`、`completed / success`；步骤级 `Run make ci: success`、`Run make eval-ci: success`（`Verify pull-request task scope: skipped`，push 事件预期跳过） |
+| 8. 未勾选 T39.4 且留有明示记录 | ✅ | 见下方声明；《P1.6任务清单》T39.4 仍未勾选 |
+
+> **本次 Actions 绿的含义被严格限定为「`p1.6` 的 CI 触发器已恢复」。** 它**不**证明 P1.6 任何实现正确，**不**满足 T39.4——T39.4 要求的是 P1.6 **最终头提交**全绿，而 P1.6 此刻连实现规格都还未冻结。此处的 `c6174e16` 只是 P1.6 分支上的第二个提交。
+
+**对比事实（证明触发器确实是被这次改动修好的）**：同一分支的前一个提交 `6dfec21` 推送后 Actions API 查询**零 run**；本次改动后 `c6174e16` 立即产生 run 31389808600。改动与效果之间无其他变量。
